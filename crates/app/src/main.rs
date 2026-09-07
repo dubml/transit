@@ -31,7 +31,7 @@ struct Args {
     #[arg(
         long,
         env = "DXGATE_XDS_ADDRESS",
-        default_value = "http://dubbod.dubbo-system.svc:15012"
+        default_value = "https://dubbod.dubbo-system.svc:26012"
     )]
     xds_address: String,
 

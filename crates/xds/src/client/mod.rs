@@ -35,11 +35,15 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::Code;
 use tracing::{debug, info, warn};
 
+mod transport;
+
 const MAX_DECODING_MESSAGE_SIZE: usize = 32 * 1024 * 1024;
 const REQUEST_CHANNEL_CAPACITY: usize = 32;
 
 #[derive(Debug, Error)]
 pub enum XdsError {
+    #[error("invalid ADS credentials: {0}")]
+    Credentials(String),
     #[error("invalid xDS endpoint {endpoint}: {source}")]
     InvalidEndpoint {
         endpoint: String,
@@ -110,6 +114,13 @@ impl XdsClient {
                 source,
             }
         })?;
+
+        // Reload mounted material on every reconnect, including after rotation.
+        let endpoint = transport::configure(
+            endpoint,
+            std::env::var_os("GRPC_XDS_BOOTSTRAP").map(std::path::PathBuf::from),
+        )
+        .await?;
 
         endpoint
             .connect()
