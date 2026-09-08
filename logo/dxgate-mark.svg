@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 0 420 386" role="img" aria-label="dxgate mark">
+  <g shape-rendering="geometricPrecision">
+    <path fill="#E6F8FC" fill-rule="evenodd" d="M177 0h72c113 0 181 90 181 193S362 386 249 386h-72v-58h72c77 0 123-62 123-135S326 58 249 58h-72zM219 88h30c58 0 92 47 92 105s-34 105-92 105h-30v-56h30c25 0 43-21 43-49s-18-49-43-49h-30z"/>
+    <path fill="none" stroke="#14A9D8" stroke-width="10" stroke-linejoin="round" d="M181 8h68c108 0 174 86 174 185s-66 185-174 185h-68"/>
+    <path fill="#F2FCFF" d="M38 40h86l146 153h-90z"/>
+    <path fill="#61D3EA" d="M124 40h58l146 153h-58z"/>
+    <path fill="#25B6DD" d="M38 386h86l146-193h-90z"/>
+    <path fill="#0D82BC" d="M124 386h58l146-193h-58z"/>
+    <path fill="#2DBFE3" d="M96 164h122l48 29H138z"/>
+    <path fill="#9BEAF7" d="M96 222h122l48-29H138z"/>
+  </g>
+</svg>

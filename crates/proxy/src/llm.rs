@@ -33,7 +33,10 @@ pub fn dialect_for(kind: dxgate_core::ProviderKind) -> LlmDialect {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LlmUsage {
     pub prompt_tokens: u64,
+    pub cached_prompt_tokens: u64,
+    pub cache_write_tokens: u64,
     pub completion_tokens: u64,
+    pub reasoning_tokens: u64,
 }
 
 impl LlmUsage {
@@ -47,12 +50,25 @@ impl LlmUsage {
 
     fn from_openai(value: &Value) -> Option<Self> {
         let usage = value.get("usage")?;
+        let prompt_tokens = usage.get("prompt_tokens")?.as_u64().unwrap_or(0);
+        let cached_prompt_tokens = usage
+            .pointer("/prompt_tokens_details/cached_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let completion_tokens = usage
+            .get("completion_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let reasoning_tokens = usage
+            .pointer("/completion_tokens_details/reasoning_tokens")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         Some(Self {
-            prompt_tokens: usage.get("prompt_tokens")?.as_u64().unwrap_or(0),
-            completion_tokens: usage
-                .get("completion_tokens")
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
+            prompt_tokens,
+            cached_prompt_tokens: cached_prompt_tokens.min(prompt_tokens),
+            cache_write_tokens: 0,
+            completion_tokens,
+            reasoning_tokens: reasoning_tokens.min(completion_tokens),
         })
     }
 }
@@ -172,7 +188,10 @@ pub fn openai_from_anthropic_response(value: &Value) -> (Value, LlmUsage) {
         .unwrap_or_default();
     let usage = LlmUsage {
         prompt_tokens: read_u64(value, "/usage/input_tokens"),
+        cached_prompt_tokens: read_u64(value, "/usage/cache_read_input_tokens"),
+        cache_write_tokens: read_u64(value, "/usage/cache_creation_input_tokens"),
         completion_tokens: read_u64(value, "/usage/output_tokens"),
+        reasoning_tokens: 0,
     };
     let response = json!({
         "id": value.get("id").cloned().unwrap_or(Value::Null),
@@ -281,9 +300,16 @@ fn gemini_candidate_text(value: &Value) -> String {
 }
 
 fn gemini_usage(value: &Value) -> LlmUsage {
+    let prompt = read_u64(value, "/usageMetadata/promptTokenCount");
+    let cached = read_u64(value, "/usageMetadata/cachedContentTokenCount");
+    let completion = read_u64(value, "/usageMetadata/candidatesTokenCount");
+    let reasoning = read_u64(value, "/usageMetadata/thoughtsTokenCount");
     LlmUsage {
-        prompt_tokens: read_u64(value, "/usageMetadata/promptTokenCount"),
-        completion_tokens: read_u64(value, "/usageMetadata/candidatesTokenCount"),
+        prompt_tokens: prompt,
+        cached_prompt_tokens: cached.min(prompt),
+        cache_write_tokens: 0,
+        completion_tokens: completion,
+        reasoning_tokens: reasoning.min(completion),
     }
 }
 
@@ -452,6 +478,8 @@ impl Transcode for AnthropicStream {
                         self.model = model.to_string();
                     }
                     self.usage.prompt_tokens = read_u64(&event, "/message/usage/input_tokens");
+                    self.usage.cached_prompt_tokens = read_u64(&event, "/message/usage/cache_read_input_tokens");
+                    self.usage.cache_write_tokens = read_u64(&event, "/message/usage/cache_creation_input_tokens");
                     out.push_str(&openai_chunk(
                         &self.id,
                         self.created,
@@ -708,6 +736,21 @@ mod tests {
     }
 
     #[test]
+    fn openai_usage_splits_cached_prompt_tokens() {
+        let value = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 9,
+                "prompt_tokens_details": { "cached_tokens": 40 }
+            }
+        });
+        let usage = LlmUsage::from_openai(&value).unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.cached_prompt_tokens, 40);
+        assert_eq!(usage.completion_tokens, 9);
+    }
+
+    #[test]
     fn anthropic_response_maps_to_openai_shape() {
         let value = json!({
             "id": "msg_1",
@@ -725,7 +768,10 @@ mod tests {
             usage,
             LlmUsage {
                 prompt_tokens: 11,
-                completion_tokens: 7
+                cached_prompt_tokens: 0,
+                cache_write_tokens: 0,
+                completion_tokens: 7,
+                reasoning_tokens: 0,
             }
         );
     }

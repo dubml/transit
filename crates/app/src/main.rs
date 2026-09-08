@@ -1,6 +1,6 @@
 use clap::Parser;
 use dxgate_core::{
-    AuthPolicy, ConfigStore, RouterIdentity, SecretKeyReference, DEFAULT_CLUSTER_ID,
+    AuthPolicy, ConfigStore, RouterIdentity, RuntimeConfig, SecretKeyReference, DEFAULT_CLUSTER_ID,
     DEFAULT_DNS_DOMAIN,
 };
 use dxgate_proxy::{ProxyServer, ProxyState};
@@ -55,6 +55,9 @@ struct Args {
     #[arg(long, env = "DXGATE_BOOTSTRAP")]
     bootstrap: Option<PathBuf>,
 
+    #[arg(long, env = "DXGATE_STATIC_CONFIG")]
+    static_config: Option<PathBuf>,
+
     #[arg(long, env = "DXGATE_OTEL_ENDPOINT")]
     otel_endpoint: Option<String>,
 
@@ -87,15 +90,248 @@ struct Args {
 
     #[arg(long, env = "DOMAIN_SUFFIX", default_value = DEFAULT_DNS_DOMAIN)]
     dns_domain: String,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Command {
+    /// Quote observed tokens against published OpenAI API USD and ChatGPT credit tables.
+    /// Does not send traffic.
+    Ledger {
+        #[command(subcommand)]
+        action: Option<LedgerAction>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long, default_value_t = 0)]
+        prompt_tokens: u64,
+        #[arg(long, default_value_t = 0)]
+        cached_tokens: u64,
+        #[arg(long, default_value_t = 0)]
+        cache_write_tokens: u64,
+        #[arg(long, default_value_t = 0)]
+        completion_tokens: u64,
+        /// standard | fast | flex | batch
+        #[arg(long, default_value = "standard")]
+        tier: String,
+        /// short | long
+        #[arg(long, default_value = "short")]
+        context: String,
+        #[arg(long)]
+        json: bool,
+        /// Treasury country, currency code, or "United States-Dollar"
+        #[arg(long)]
+        country: Option<String>,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum LedgerAction {
+    /// Scan local Claude Code and Codex CLI session logs. No network.
+    Local {
+        #[arg(long)]
+        json: bool,
+        #[arg(long, env = "CLAUDE_CONFIG_DIR")]
+        claude_home: Option<String>,
+        #[arg(long, env = "CODEX_HOME")]
+        codex_home: Option<String>,
+    },
+}
+
+fn run_ledger(
+    model: String,
+    prompt_tokens: u64,
+    cached_tokens: u64,
+    cache_write_tokens: u64,
+    completion_tokens: u64,
+    tier: String,
+    context: String,
+    json: bool,
+    country: Option<String>,
+) -> std::io::Result<()> {
+    use dxgate_core::{quote_tokens, ContextBand, ServiceTier, TokenCounts};
+    let tier = match tier.to_ascii_lowercase().as_str() {
+        "standard" => ServiceTier::Standard,
+        "fast" | "priority" => ServiceTier::Fast,
+        "flex" => ServiceTier::Flex,
+        "batch" => ServiceTier::Batch,
+        other => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("unknown tier {other}"),
+            ));
+        }
+    };
+    let context = match context.to_ascii_lowercase().as_str() {
+        "short" => ContextBand::Short,
+        "long" => ContextBand::Long,
+        other => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("unknown context {other}"),
+            ));
+        }
+    };
+    let quote = quote_tokens(
+        &model,
+        TokenCounts {
+            prompt_tokens,
+            cached_prompt_tokens: cached_tokens,
+            cache_write_tokens,
+            completion_tokens,
+        },
+        tier,
+        context,
+    )
+    .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string()))?;
+    if json {
+        let payload = if let Some(country) = country.as_deref() {
+            let fx =
+                dxgate_core::convert_usd_nanos(quote.api_usd_nanos, country).map_err(|err| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
+                })?;
+            serde_json::json!({ "quote": quote, "fx": fx })
+        } else {
+            serde_json::to_value(&quote)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+        };
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&payload)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+        );
+        return Ok(());
+    }
+    println!("model\t{}", quote.model);
+    println!("tier\t{:?}", quote.tier);
+    println!("context\t{:?}", quote.context);
+    println!("uncached_input_tokens\t{}", quote.uncached_prompt_tokens);
+    println!("api_usd\t{}", quote.api_usd());
+    println!("chatgpt_credits\t{}", quote.chatgpt_credits());
+    println!(
+        "chatgpt_credits_complete\t{}",
+        quote.chatgpt_credits_complete
+    );
+    println!("api_usd_source\t{}", quote.api_usd_source);
+    println!("chatgpt_credits_source\t{}", quote.chatgpt_credits_source);
+    println!("chatgpt_fast_source\t{}", quote.chatgpt_fast_source);
+    println!("rate_card_as_of\t{}", quote.rate_card_as_of);
+    println!("formula\t{}", quote.formula);
+    for item in &quote.line_items {
+        println!(
+            "line\t{}\ttokens={}\tusd={}\tcredits={}",
+            item.component,
+            item.tokens,
+            dxgate_core::format_usd_nanos(item.api_usd_nanos),
+            item.chatgpt_credit_micros
+                .map(dxgate_core::format_credit_micros)
+                .unwrap_or_else(|| "unpublished".into())
+        );
+    }
+    if let Some(country) = country {
+        let fx = dxgate_core::convert_usd_nanos(quote.api_usd_nanos, &country).map_err(|err| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
+        })?;
+        println!("fx_country\t{}", fx.country);
+        println!("fx_currency\t{}", fx.currency_code);
+        println!("fx_units_per_usd\t{}", fx.units_per_usd);
+        println!("fx_amount\t{}", fx.amount);
+        println!("fx_source\t{}", fx.source);
+        println!("fx_as_of\t{}", fx.as_of);
+    }
+    Ok(())
+}
+
+fn run_local_ledger(
+    json: bool,
+    claude_home: Option<String>,
+    codex_home: Option<String>,
+) -> std::io::Result<()> {
+    let mut paths = dxgate_core::LocalScanPaths::from_env();
+    if let Some(value) = claude_home {
+        paths.claude_roots = dxgate_core::LocalScanPaths::parse_roots(&value);
+    }
+    if let Some(value) = codex_home {
+        paths.codex_roots = dxgate_core::LocalScanPaths::parse_roots(&value);
+    }
+    let report = dxgate_core::scan_local_usage(&paths);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+        );
+        return Ok(());
+    }
+    println!("claude_files\t{}", report.claude_files);
+    println!("codex_files\t{}", report.codex_files);
+    println!("skipped_files\t{}", report.skipped_files);
+    println!("source\tmodel\trequests\tinput\tcache_read\tcache_write\toutput\ttotal");
+    for row in &report.rows {
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            row.source,
+            row.model,
+            row.requests,
+            row.prompt_tokens,
+            row.cached_prompt_tokens,
+            row.cache_write_tokens,
+            row.completion_tokens,
+            row.total_tokens
+        );
+    }
+    Ok(())
 }
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    let args = Args::parse();
+    if let Some(Command::Ledger {
+        action,
+        model,
+        prompt_tokens,
+        cached_tokens,
+        cache_write_tokens,
+        completion_tokens,
+        tier,
+        context,
+        json,
+        country,
+    }) = args.command
+    {
+        if let Some(LedgerAction::Local {
+            json,
+            claude_home,
+            codex_home,
+        }) = action
+        {
+            return run_local_ledger(json, claude_home, codex_home);
+        }
+        let model = model.ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "ledger quote requires --model",
+            )
+        })?;
+        return run_ledger(
+            model,
+            prompt_tokens,
+            cached_tokens,
+            cache_write_tokens,
+            completion_tokens,
+            tier,
+            context,
+            json,
+            country,
+        );
+    }
+
     // kube's rustls stack disables a default crypto backend; install one
     // before the Secret resolver creates its first Kubernetes TLS client.
     let _ = rustls_kube::crypto::ring::default_provider().install_default();
 
-    let mut args = Args::parse();
+    let mut args = args;
     if let Some(path) = args.bootstrap.clone() {
         let bootstrap = BootstrapConfig::load(path)
             .await
@@ -141,6 +377,16 @@ async fn main() -> std::io::Result<()> {
         });
     } else {
         info!("xDS client disabled");
+    }
+
+    if let Some(path) = args.static_config.clone() {
+        let cfg = load_runtime_config(&path).await?;
+        match state.apply_config(cfg) {
+            Ok(()) => info!(path = %path.display(), "static config applied"),
+            Err(conflicts) => {
+                warn!(path = %path.display(), ?conflicts, "static config applied with conflicts")
+            }
+        }
     }
 
     tokio::spawn(sync_referenced_secrets(
@@ -366,6 +612,17 @@ fn parse_otel_tags(raw: Option<&str>) -> std::io::Result<Vec<KeyValue>> {
         .collect())
 }
 
+async fn load_runtime_config(path: &std::path::Path) -> std::io::Result<RuntimeConfig> {
+    let raw = tokio::fs::read_to_string(path).await?;
+    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+        serde_json::from_str(&raw)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
+    } else {
+        serde_yaml::from_str(&raw)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
+    }
+}
+
 fn apply_bootstrap(args: &mut Args, bootstrap: BootstrapConfig) {
     if let Some(value) = bootstrap.xds_address {
         args.xds_address = value;
@@ -422,6 +679,7 @@ mod tests {
             metrics_enabled: true,
             drain_timeout_seconds: 30,
             bootstrap: Some(PathBuf::from("/etc/dxgate/bootstrap.json")),
+            static_config: None,
             otel_endpoint: None,
             otel_service_name: "dxgate".to_string(),
             otel_sampling_percentage: 100.0,
@@ -433,6 +691,7 @@ mod tests {
             node_name: None,
             cluster_id: "old-cluster".to_string(),
             dns_domain: "cluster.local".to_string(),
+            command: None,
         }
     }
 
@@ -471,6 +730,15 @@ mod tests {
             args.listener_names,
             ["public-dubbo.app.svc.cluster.local:80"]
         );
+    }
+
+    #[test]
+    fn demo_config_deserializes() {
+        let raw = include_str!("../../../examples/demo-config.json");
+        let cfg: dxgate_core::RuntimeConfig = serde_json::from_str(raw).unwrap();
+        assert_eq!(cfg.clusters.len(), 3);
+        assert_eq!(cfg.providers.len(), 2);
+        assert_eq!(cfg.backends.len(), 7);
     }
 
     #[test]

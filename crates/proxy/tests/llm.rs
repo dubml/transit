@@ -3,9 +3,9 @@ use axum::http::{HeaderMap, Request, StatusCode, Uri};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use dxgate_core::{
-    AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, PathMatch, Policy,
-    PolicyAction, Provider, ProviderKind, RateLimitKey, RuntimeConfig, TokenLimitPolicy,
-    WeightedBackend,
+    quote_tokens, AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, ContextBand,
+    PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RuntimeConfig,
+    ServiceTier, TokenCounts, TokenLimitPolicy, WeightedBackend,
 };
 use dxgate_proxy::{ProxyServer, ProxyState};
 use hyper::body;
@@ -223,6 +223,60 @@ async fn deepseek_kind_authenticates_with_bearer_and_records_usage() {
     let usage = &proxy.state.metrics().llm_usage;
     assert_eq!(usage[0].prompt_tokens, 13);
     assert_eq!(usage[0].completion_tokens, 6);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn gpt56_sol_usage_quotes_subscription_credits_and_api_usd() {
+    let upstream = spawn_openai_backend().await;
+    let mut provider = provider("openai", ProviderKind::OpenAi, upstream.addr, "/v1");
+    provider.api_key_env = None;
+    let proxy = spawn_proxy(llm_config(
+        provider,
+        vec![llm_backend(
+            "sol",
+            "openai",
+            vec!["gpt-5.6-sol".into()],
+            BTreeMap::new(),
+        )],
+        vec![],
+    ))
+    .await;
+
+    let (status, response) = post_json(
+        proxy.addr,
+        "/v1/chat/completions",
+        json!({
+            "model": "gpt-5.6-sol",
+            "messages": [{ "role": "user", "content": "hi" }]
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(response["provider_authorization"], "Bearer caller-key");
+
+    let usage = &proxy.state.metrics().llm_usage;
+    assert_eq!(usage.len(), 1);
+    assert_eq!(usage[0].model, "gpt-5.6-sol");
+    assert_eq!(usage[0].prompt_tokens, 13);
+    assert_eq!(usage[0].completion_tokens, 6);
+
+    let quote = quote_tokens(
+        &usage[0].model,
+        TokenCounts {
+            prompt_tokens: usage[0].prompt_tokens,
+            cached_prompt_tokens: usage[0].cached_prompt_tokens,
+            cache_write_tokens: 0,
+            completion_tokens: usage[0].completion_tokens,
+        },
+        ServiceTier::Standard,
+        ContextBand::Short,
+    )
+    .unwrap();
+    assert_eq!(quote.api_usd_nanos, 172_000);
+    assert_eq!(quote.chatgpt_credit_micros, 4_300);
+    assert_eq!(quote.api_usd(), "$0.000172");
+    assert_eq!(quote.chatgpt_credits(), "0.0043");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -548,6 +602,10 @@ fn llm_backend(
             provider: provider.into(),
             models,
             endpoint: None,
+            account_type: None,
+            max_concurrency: None,
+            credential_ref: None,
+            quota_state: None,
             model_rewrites,
         },
         policies: vec![],
@@ -560,6 +618,7 @@ fn llm_config(provider: Provider, backends: Vec<Backend>, policies: Vec<Policy>)
         .map(|backend| WeightedBackend {
             name: backend.name.clone(),
             weight: 100,
+            priority: None,
         })
         .collect();
     RuntimeConfig {

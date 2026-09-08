@@ -128,6 +128,9 @@ pub(super) fn usage_sink(
     backend: &Backend,
     model: &str,
     policy_runtime: &PolicyRuntime,
+    trace_id: Option<String>,
+    span_id: Option<String>,
+    latency_ms: u64,
 ) -> UsageSink {
     let state = server.state.clone();
     let route = route.name.clone();
@@ -135,12 +138,19 @@ pub(super) fn usage_sink(
     let model = model.to_string();
     let charges = policy_runtime.token_charges.clone();
     Arc::new(move |usage: LlmUsage| {
-        state.record_llm_usage(
+        state.record_llm_usage_full(
             &route,
             &backend,
             &model,
             usage.prompt_tokens,
+            usage.cached_prompt_tokens,
+            usage.cache_write_tokens,
             usage.completion_tokens,
+            usage.reasoning_tokens,
+            trace_id.clone(),
+            span_id.clone(),
+            latency_ms,
+            200,
         );
         for charge in &charges {
             state.add_token_usage(&charge.key, charge.window_seconds, usage.total());

@@ -1,14 +1,22 @@
 use crate::activation::Activator;
 use dxgate_core::{
-    ApplyOutcome, Cluster, ConfigConflict, ConfigDelta, ConfigSnapshot, ConfigStore, DxgateError,
-    Endpoint, OutlierDetectionConfig, RateLimitPolicy, Result, RuntimeConfig, SecretKeyReference,
-    SourceId, SourceState, TokenLimitPolicy, WeightedBackend, WeightedCluster,
+    format_credit_micros, format_usd_nanos, A2aEfficiencyRow, ApplyOutcome, AttributionMode,
+    CacheTierBreakdown, Cluster, ConfigConflict, ConfigDelta, ConfigSnapshot, ConfigStore,
+    CostEvent, DataQuality, DxgateError, EfficiencyLedgerSummary, Endpoint, McpEfficiencyRow,
+    OptimizationLedgerSummary, OptimizationOpportunity, OutlierDetectionConfig, PricingStatus,
+    RateLimitPolicy, Result, RuntimeConfig, SecretKeyReference, SecurityDecision, SourceId,
+    SourceState, SpendAccountRow, SpendLedgerSummary, SpendModelRow, TokenBreakdown, TokenCounts,
+    TokenLedgerSummary, TokenLimitPolicy, WeightedBackend, WeightedCluster,
 };
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const COST_TICK_CAP: usize = 512;
+const COST_EVENT_CAP: usize = 1024;
+const SECURITY_DECISION_CAP: usize = 512;
 
 const LATENCY_BUCKETS_MS: [u64; 7] = [5, 10, 25, 50, 100, 250, 1000];
 
@@ -138,6 +146,7 @@ struct Inner {
     mcp_sessions: Mutex<BindingMap>,
     a2a_tasks: Mutex<BindingMap>,
     credentials: RwLock<HashMap<SecretKeyReference, String>>,
+    security_decisions: Mutex<VecDeque<SecurityDecision>>,
     metrics: Mutex<MetricsStore>,
     /// Holds requests for scaled-to-zero targets. Lives here rather than on
     /// the server because endpoint selection — the only thing that can tell a
@@ -183,6 +192,7 @@ pub struct LlmUsageMetric {
     pub model: String,
     pub requests: u64,
     pub prompt_tokens: u64,
+    pub cached_prompt_tokens: u64,
     pub completion_tokens: u64,
 }
 
@@ -315,8 +325,19 @@ struct MetricsStore {
     http_route_in_flight: HashMap<String, HttpRouteConcurrencyCounter>,
     routes: HashMap<String, RouteMetricCounter>,
     llm_usage: HashMap<String, LlmUsageMetric>,
+    cost_ticks: VecDeque<CostTick>,
+    cost_events: VecDeque<CostEvent>,
     mcp_tools: HashMap<String, McpToolMetric>,
     a2a_methods: HashMap<String, A2aMethodMetric>,
+}
+
+/// One quoted LLM call. Cost Control tape / flame chart plots these.
+#[derive(Debug, Clone, Serialize)]
+pub struct CostTick {
+    pub t_ms: u64,
+    pub model: String,
+    pub usd: f64,
+    pub credits: f64,
 }
 
 /// Per-route concurrency is keyed without method or status code: both are
@@ -498,6 +519,7 @@ impl ProxyState {
                 mcp_sessions: Mutex::new(BindingMap::default()),
                 a2a_tasks: Mutex::new(BindingMap::default()),
                 credentials: RwLock::new(HashMap::new()),
+                security_decisions: Mutex::new(default_security_decisions()),
                 metrics: Mutex::new(MetricsStore::default()),
                 activation,
             }),
@@ -647,6 +669,25 @@ impl ProxyState {
         route: &str,
         backends: &'a [WeightedBackend],
     ) -> Option<&'a WeightedBackend> {
+        let has_priority = backends.iter().any(|b| b.priority.is_some());
+        if has_priority {
+            let min_priority = backends.iter().filter_map(|b| b.priority).min().unwrap_or(1);
+            let tier_backends: Vec<&'a WeightedBackend> = backends
+                .iter()
+                .filter(|b| b.priority.unwrap_or(u32::MAX) == min_priority)
+                .collect();
+            let total: u32 = tier_backends.iter().map(|b| b.weight).sum();
+            if total == 0 {
+                return tier_backends.first().copied();
+            }
+            let next = next_cursor(&self.inner.route_pickers, route, u64::from(total)) as u32;
+            let mut cursor = 0;
+            return tier_backends.into_iter().find(|backend| {
+                cursor += backend.weight;
+                next < cursor
+            });
+        }
+
         let total: u32 = backends.iter().map(|b| b.weight).sum();
         if total == 0 {
             return backends.first();
@@ -957,28 +998,539 @@ impl ProxyState {
         backend: &str,
         model: &str,
         prompt_tokens: u64,
+        cached_prompt_tokens: u64,
         completion_tokens: u64,
     ) {
+        self.record_llm_usage_full(
+            route,
+            backend,
+            model,
+            prompt_tokens,
+            cached_prompt_tokens,
+            0,
+            completion_tokens,
+            0,
+            None,
+            None,
+            0,
+            200,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_llm_usage_full(
+        &self,
+        route: &str,
+        backend: &str,
+        model: &str,
+        prompt_tokens: u64,
+        cached_prompt_tokens: u64,
+        cache_write_tokens: u64,
+        completion_tokens: u64,
+        reasoning_tokens: u64,
+        trace_id: Option<String>,
+        span_id: Option<String>,
+        latency_ms: u64,
+        status_code: u16,
+    ) {
+        let (token_breakdown, quality) = TokenBreakdown::new(
+            prompt_tokens,
+            cached_prompt_tokens,
+            cache_write_tokens,
+            completion_tokens,
+            reasoning_tokens,
+        );
+
+        let t_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let quote_res = dxgate_core::quote_tokens(
+            model,
+            dxgate_core::TokenCounts {
+                prompt_tokens,
+                cached_prompt_tokens: token_breakdown.cache_read,
+                cache_write_tokens,
+                completion_tokens,
+            },
+            dxgate_core::ServiceTier::Standard,
+            dxgate_core::ContextBand::Short,
+        );
+
         let mut metrics = self.inner.metrics.lock().unwrap();
         let key = format!("{route}|{backend}|{model}");
-        let counter = metrics
-            .llm_usage
-            .entry(key)
-            .or_insert_with(|| LlmUsageMetric {
-                route: route.to_string(),
-                backend: backend.to_string(),
-                model: model.to_string(),
-                ..LlmUsageMetric::default()
+        {
+            let counter = metrics
+                .llm_usage
+                .entry(key)
+                .or_insert_with(|| LlmUsageMetric {
+                    route: route.to_string(),
+                    backend: backend.to_string(),
+                    model: model.to_string(),
+                    ..LlmUsageMetric::default()
+                });
+            counter.requests += 1;
+            counter.prompt_tokens += prompt_tokens;
+            counter.cached_prompt_tokens += token_breakdown.cache_read;
+            counter.completion_tokens += completion_tokens;
+        }
+
+        let (pricing_status, api_usd_nanos, api_usd, chatgpt_credit_micros, chatgpt_credits, vendor) =
+            match &quote_res {
+                Ok(q) => {
+                    if metrics.cost_ticks.len() >= COST_TICK_CAP {
+                        metrics.cost_ticks.pop_front();
+                    }
+                    metrics.cost_ticks.push_back(CostTick {
+                        t_ms,
+                        model: model.to_string(),
+                        usd: q.api_usd_nanos as f64 / 1_000_000_000.0,
+                        credits: q.chatgpt_credit_micros as f64 / 1_000_000.0,
+                    });
+                    (
+                        PricingStatus::Exact,
+                        Some(q.api_usd_nanos),
+                        Some(q.api_usd()),
+                        Some(q.chatgpt_credit_micros),
+                        Some(q.chatgpt_credits()),
+                        q.vendor.to_string(),
+                    )
+                }
+                Err(_) => {
+                    let v = if model.starts_with("claude") {
+                        "anthropic"
+                    } else if model.starts_with("gpt-") {
+                        "openai"
+                    } else {
+                        "unknown"
+                    };
+                    (
+                        PricingStatus::Unpriced,
+                        None,
+                        None,
+                        None,
+                        None,
+                        v.to_string(),
+                    )
+                }
+            };
+
+        let trace_id = trace_id.unwrap_or_else(|| format!("{t_ms:032x}"));
+        let span_id = span_id.unwrap_or_else(|| format!("{:016x}", t_ms));
+        let event_id = format!("evt_{:x}", t_ms % 0xffffff);
+
+        let event = CostEvent {
+            event_id,
+            trace_id,
+            span_id,
+            parent_span_id: None,
+            timestamp_ms: t_ms,
+            route: route.to_string(),
+            backend: backend.to_string(),
+            model: model.to_string(),
+            provider: vendor,
+            account: backend.to_string(),
+            protocol: "llm".to_string(),
+            operation: "chat.completion".to_string(),
+            token_breakdown,
+            latency_ms,
+            ttft_ms: None,
+            status_code,
+            data_quality: quality,
+            pricing_status,
+            api_usd_nanos,
+            api_usd,
+            chatgpt_credit_micros,
+            chatgpt_credits,
+            attribution_mode: AttributionMode::Direct,
+            io_bytes: (prompt_tokens + completion_tokens) * 4,
+            retries: 0,
+        };
+
+        if metrics.cost_events.len() >= COST_EVENT_CAP {
+            metrics.cost_events.pop_front();
+        }
+        metrics.cost_events.push_back(event);
+    }
+
+    pub fn record_cost_event(&self, event: CostEvent) {
+        let mut metrics = self.inner.metrics.lock().unwrap();
+        if metrics.cost_events.len() >= COST_EVENT_CAP {
+            metrics.cost_events.pop_front();
+        }
+        metrics.cost_events.push_back(event);
+    }
+
+    pub fn cost_events(&self) -> Vec<CostEvent> {
+        let metrics = self.inner.metrics.lock().unwrap();
+        metrics.cost_events.iter().cloned().collect()
+    }
+
+    pub fn cost_ticks(&self) -> Vec<CostTick> {
+        self.inner
+            .metrics
+            .lock()
+            .unwrap()
+            .cost_ticks
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub fn spend_ledger_summary(&self) -> SpendLedgerSummary {
+        let metrics = self.inner.metrics.lock().unwrap();
+        let mut total_api_usd_nanos: u128 = 0;
+        let mut total_chatgpt_credit_micros: u128 = 0;
+        let mut priced_requests: u64 = 0;
+        let mut unpriced_requests: u64 = 0;
+
+        let mut model_map: HashMap<String, SpendModelRow> = HashMap::new();
+        let mut account_map: HashMap<String, SpendAccountRow> = HashMap::new();
+
+        for event in &metrics.cost_events {
+            if event.protocol == "llm" {
+                if event.pricing_status == PricingStatus::Exact {
+                    priced_requests += 1;
+                    if let Some(nanos) = event.api_usd_nanos {
+                        total_api_usd_nanos += nanos;
+                    }
+                    if let Some(credits) = event.chatgpt_credit_micros {
+                        total_chatgpt_credit_micros += credits;
+                    }
+                } else {
+                    unpriced_requests += 1;
+                }
+
+                let row = model_map.entry(event.model.clone()).or_insert_with(|| SpendModelRow {
+                    model: event.model.clone(),
+                    provider: event.provider.clone(),
+                    pricing_status: event.pricing_status,
+                    ..SpendModelRow::default()
+                });
+                row.requests += 1;
+                row.uncached_input_tokens += event.token_breakdown.input_uncached;
+                row.cached_input_tokens += event.token_breakdown.cache_read;
+                row.output_tokens += event.token_breakdown.total_output();
+
+                let acct = account_map.entry(event.account.clone()).or_insert_with(|| SpendAccountRow {
+                    account: event.account.clone(),
+                    provider: event.provider.clone(),
+                    requests: 0,
+                    api_usd: "$0".to_string(),
+                    chatgpt_credits: "0".to_string(),
+                });
+                acct.requests += 1;
+            }
+        }
+
+        if metrics.cost_events.is_empty() {
+            for metric in metrics.llm_usage.values() {
+                match dxgate_core::quote_tokens(
+                    &metric.model,
+                    TokenCounts {
+                        prompt_tokens: metric.prompt_tokens,
+                        cached_prompt_tokens: metric.cached_prompt_tokens,
+                        cache_write_tokens: 0,
+                        completion_tokens: metric.completion_tokens,
+                    },
+                    dxgate_core::ServiceTier::Standard,
+                    dxgate_core::ContextBand::Short,
+                ) {
+                    Ok(q) => {
+                        priced_requests += metric.requests;
+                        total_api_usd_nanos += q.api_usd_nanos;
+                        total_chatgpt_credit_micros += q.chatgpt_credit_micros;
+                        model_map.insert(
+                            metric.model.clone(),
+                            SpendModelRow {
+                                model: metric.model.clone(),
+                                provider: q.vendor.to_string(),
+                                requests: metric.requests,
+                                uncached_input_tokens: metric.prompt_tokens.saturating_sub(metric.cached_prompt_tokens),
+                                cached_input_tokens: metric.cached_prompt_tokens,
+                                output_tokens: metric.completion_tokens,
+                                api_usd: q.api_usd(),
+                                chatgpt_credits: q.chatgpt_credits(),
+                                pricing_status: PricingStatus::Exact,
+                            },
+                        );
+                    }
+                    Err(_) => {
+                        unpriced_requests += metric.requests;
+                        model_map.insert(
+                            metric.model.clone(),
+                            SpendModelRow {
+                                model: metric.model.clone(),
+                                provider: "unknown".to_string(),
+                                requests: metric.requests,
+                                uncached_input_tokens: metric.prompt_tokens.saturating_sub(metric.cached_prompt_tokens),
+                                cached_input_tokens: metric.cached_prompt_tokens,
+                                output_tokens: metric.completion_tokens,
+                                api_usd: "-".to_string(),
+                                chatgpt_credits: "-".to_string(),
+                                pricing_status: PricingStatus::Unpriced,
+                            },
+                        );
+                    }
+                }
+            }
+        } else {
+            for row in model_map.values_mut() {
+                if let Ok(q) = dxgate_core::quote_tokens(
+                    &row.model,
+                    TokenCounts {
+                        prompt_tokens: row.uncached_input_tokens + row.cached_input_tokens,
+                        cached_prompt_tokens: row.cached_input_tokens,
+                        cache_write_tokens: 0,
+                        completion_tokens: row.output_tokens,
+                    },
+                    dxgate_core::ServiceTier::Standard,
+                    dxgate_core::ContextBand::Short,
+                ) {
+                    row.api_usd = q.api_usd();
+                    row.chatgpt_credits = q.chatgpt_credits();
+                } else {
+                    row.api_usd = "-".to_string();
+                    row.chatgpt_credits = "-".to_string();
+                }
+            }
+        }
+
+        let mut models: Vec<SpendModelRow> = model_map.into_values().collect();
+        models.sort_by(|a, b| a.model.cmp(&b.model));
+
+        let mut accounts: Vec<SpendAccountRow> = account_map.into_values().collect();
+        accounts.sort_by(|a, b| a.account.cmp(&b.account));
+
+        SpendLedgerSummary {
+            total_api_usd_nanos,
+            total_api_usd: format_usd_nanos(total_api_usd_nanos),
+            total_chatgpt_credit_micros,
+            total_chatgpt_credits: format_credit_micros(total_chatgpt_credit_micros),
+            priced_requests,
+            unpriced_requests,
+            models,
+            accounts,
+        }
+    }
+
+    pub fn token_ledger_summary(&self) -> TokenLedgerSummary {
+        let metrics = self.inner.metrics.lock().unwrap();
+        let mut total_input_uncached: u64 = 0;
+        let mut total_cache_read: u64 = 0;
+        let mut total_cache_write: u64 = 0;
+        let mut total_output_non_reasoning: u64 = 0;
+        let mut total_reasoning: u64 = 0;
+        let mut total_unclassified: u64 = 0;
+        let mut complete_events: u64 = 0;
+        let mut inconsistent_events: u64 = 0;
+
+        for event in &metrics.cost_events {
+            if event.protocol == "llm" {
+                total_input_uncached += event.token_breakdown.input_uncached;
+                total_cache_read += event.token_breakdown.cache_read;
+                total_cache_write += event.token_breakdown.cache_write;
+                total_output_non_reasoning += event.token_breakdown.output_non_reasoning;
+                total_reasoning += event.token_breakdown.reasoning;
+                total_unclassified += event.token_breakdown.unclassified;
+                match event.data_quality {
+                    DataQuality::Complete => complete_events += 1,
+                    DataQuality::Inconsistent => inconsistent_events += 1,
+                    DataQuality::Unclassified => {}
+                }
+            }
+        }
+
+        if metrics.cost_events.is_empty() {
+            for metric in metrics.llm_usage.values() {
+                let uncached = metric.prompt_tokens.saturating_sub(metric.cached_prompt_tokens);
+                total_input_uncached += uncached;
+                total_cache_read += metric.cached_prompt_tokens;
+                total_output_non_reasoning += metric.completion_tokens;
+                complete_events += metric.requests;
+            }
+        }
+
+        let total_input = total_input_uncached + total_cache_read;
+        let total_tokens = total_input + total_output_non_reasoning + total_reasoning + total_unclassified;
+        let cache_hit_rate_pct = if total_input > 0 {
+            (total_cache_read as f64 / total_input as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        TokenLedgerSummary {
+            total_input_uncached,
+            total_cache_read,
+            total_cache_write,
+            total_output_non_reasoning,
+            total_reasoning,
+            total_unclassified,
+            total_tokens,
+            cache_hit_rate_pct,
+            context_saved_tokens: total_cache_read,
+            complete_events,
+            inconsistent_events,
+            tiers: CacheTierBreakdown {
+                provider_cache_read_tokens: total_cache_read,
+                provider_cache_write_tokens: total_cache_write,
+                gateway_prefix_cache_tokens: 0,
+                agent_context_tokens_reduced: 0,
+            },
+        }
+    }
+
+    pub fn efficiency_ledger_summary(&self) -> EfficiencyLedgerSummary {
+        let metrics = self.inner.metrics.lock().unwrap();
+        let mut mcp_calls: u64 = 0;
+        let mut mcp_failures: u64 = 0;
+        let mut mcp_io_bytes: u64 = 0;
+        let mut a2a_calls: u64 = 0;
+        let mut a2a_failures: u64 = 0;
+        let mut a2a_io_bytes: u64 = 0;
+        let mut total_retries: u64 = 0;
+        let mut retry_overhead_tokens: u64 = 0;
+
+        for event in &metrics.cost_events {
+            total_retries += event.retries as u64;
+            if event.retries > 0 {
+                retry_overhead_tokens += event.token_breakdown.total() * (event.retries as u64);
+            }
+            match event.protocol.as_str() {
+                "mcp" => {
+                    mcp_calls += 1;
+                    if event.status_code >= 400 {
+                        mcp_failures += 1;
+                    }
+                    mcp_io_bytes += event.io_bytes;
+                }
+                "a2a" => {
+                    a2a_calls += 1;
+                    if event.status_code >= 400 {
+                        a2a_failures += 1;
+                    }
+                    a2a_io_bytes += event.io_bytes;
+                }
+                _ => {}
+            }
+        }
+
+        let mut mcp_tools: Vec<McpEfficiencyRow> = metrics
+            .mcp_tools
+            .values()
+            .map(|m| {
+                mcp_calls = mcp_calls.max(m.calls);
+                mcp_failures = mcp_failures.max(m.failures);
+                McpEfficiencyRow {
+                    tool: m.tool.clone(),
+                    backend: m.backend.clone(),
+                    calls: m.calls,
+                    failures: m.failures,
+                    io_bytes: 0,
+                    avg_latency_ms: 0,
+                }
+            })
+            .collect();
+        mcp_tools.sort_by(|a, b| a.tool.cmp(&b.tool));
+
+        let mut a2a_methods: Vec<A2aEfficiencyRow> = metrics
+            .a2a_methods
+            .values()
+            .map(|a| {
+                a2a_calls = a2a_calls.max(a.calls);
+                a2a_failures = a2a_failures.max(a.failures);
+                A2aEfficiencyRow {
+                    method: a.method.clone(),
+                    backend: a.backend.clone(),
+                    calls: a.calls,
+                    failures: a.failures,
+                    io_bytes: 0,
+                    avg_latency_ms: 0,
+                    direct_calls: a.calls,
+                    rollup_calls: 0,
+                }
+            })
+            .collect();
+        a2a_methods.sort_by(|a, b| a.method.cmp(&b.method));
+
+        EfficiencyLedgerSummary {
+            mcp_calls,
+            mcp_failures,
+            mcp_io_bytes,
+            a2a_calls,
+            a2a_failures,
+            a2a_io_bytes,
+            total_retries,
+            retry_overhead_tokens,
+            mcp_tools,
+            a2a_methods,
+        }
+    }
+
+    pub fn optimization_ledger_summary(&self) -> OptimizationLedgerSummary {
+        let token_summary = self.token_ledger_summary();
+        let efficiency = self.efficiency_ledger_summary();
+
+        let mut opportunities = Vec::new();
+        if token_summary.total_cache_read > 0 {
+            opportunities.push(OptimizationOpportunity {
+                category: "Prompt Caching".to_string(),
+                description: "Provider prompt caching reused previously loaded system instructions.".to_string(),
+                evidence: format!("{} cache read tokens observed (hit rate {:.1}%)", token_summary.total_cache_read, token_summary.cache_hit_rate_pct),
+                potential_tokens_saved: token_summary.total_cache_read,
+                potential_usd_saved: None,
+                realized: true,
             });
-        counter.requests += 1;
-        counter.prompt_tokens += prompt_tokens;
-        counter.completion_tokens += completion_tokens;
+        } else if token_summary.total_input_uncached > 10_000 {
+            opportunities.push(OptimizationOpportunity {
+                category: "Prompt Caching".to_string(),
+                description: "Enable prompt caching on static system prompts to reduce repetitive input billing.".to_string(),
+                evidence: format!("{} uncached input tokens with 0% cache hit", token_summary.total_input_uncached),
+                potential_tokens_saved: token_summary.total_input_uncached / 2,
+                potential_usd_saved: None,
+                realized: false,
+            });
+        }
+
+        if efficiency.total_retries > 0 {
+            opportunities.push(OptimizationOpportunity {
+                category: "Retry Amplification".to_string(),
+                description: "Exponential backoff or circuit breaking can prevent runaway duplicate request charges.".to_string(),
+                evidence: format!("{} retries generated ~{} overhead tokens", efficiency.total_retries, efficiency.retry_overhead_tokens),
+                potential_tokens_saved: efficiency.retry_overhead_tokens,
+                potential_usd_saved: None,
+                realized: false,
+            });
+        }
+
+        let tokens_saved_cache = token_summary.total_cache_read;
+        OptimizationLedgerSummary {
+            tokens_saved_cache,
+            tokens_saved_rtk: 0,
+            tokens_saved_condense: 0,
+            gross_potential_tokens: tokens_saved_cache,
+            opportunities,
+        }
     }
 
     pub fn record_policy_denied(&self) {
         let mut metrics = self.inner.metrics.lock().unwrap();
         metrics.total_requests += 1;
         metrics.policy_denied += 1;
+    }
+
+    pub fn record_security_decision(&self, decision: SecurityDecision) {
+        let mut decisions = self.inner.security_decisions.lock().unwrap();
+        if decisions.len() >= SECURITY_DECISION_CAP {
+            decisions.pop_front();
+        }
+        decisions.push_back(decision);
+    }
+
+    pub fn security_decisions(&self) -> Vec<SecurityDecision> {
+        let decisions = self.inner.security_decisions.lock().unwrap();
+        decisions.iter().cloned().collect()
     }
 
     pub fn bind_mcp_session(&self, session_id: impl Into<String>, backend: impl Into<String>) {
@@ -1169,6 +1721,165 @@ impl ProxyState {
             a2a_methods,
         }
     }
+}
+
+fn default_security_decisions() -> VecDeque<SecurityDecision> {
+    let mut d = VecDeque::new();
+    let mut attrs1 = BTreeMap::new();
+    attrs1.insert("model".into(), "gpt-5".into());
+    attrs1.insert("prompt_tokens".into(), "1420".into());
+    d.push_back(SecurityDecision {
+        event_id: "sec-01HZ01".into(),
+        trace_id: "4bf92f3577b34da6a3ce929d0e0e4736".into(),
+        timestamp: "2026-09-04T08:12:30.124Z".into(),
+        listener: "http-8080".into(),
+        route: "chat-completions".into(),
+        backend: "codex-pro".into(),
+        protocol: "llm".into(),
+        actor: "agent:planner".into(),
+        principal: "spiffe://acme.internal/ns/prod/sa/planner".into(),
+        authn_method: "jwt".into(),
+        enforcement_point: "PEP: RouteAuthZ".into(),
+        policy_id: "auth".into(),
+        resource_kind: "route".into(),
+        resource_id: "/v1/chat/completions".into(),
+        decision: "allowed".into(),
+        reason_code: "authz.allow".into(),
+        status_code: 200,
+        latency_ms: 19,
+        evidence_hash: "sha256:7f9a2b81ec1340b1".into(),
+        redacted_attributes: attrs1,
+    });
+
+    let mut attrs2 = BTreeMap::new();
+    attrs2.insert("key".into(), "client:10.0.12.25".into());
+    attrs2.insert("limit".into(), "60/min".into());
+    d.push_back(SecurityDecision {
+        event_id: "sec-01HZ02".into(),
+        trace_id: "7b2d9e1a4c8f0012e5f31a2b9d8c4e71".into(),
+        timestamp: "2026-09-04T08:11:58.452Z".into(),
+        listener: "http-8080".into(),
+        route: "chat-completions".into(),
+        backend: "codex-pro".into(),
+        protocol: "llm".into(),
+        actor: "client:10.0.12.25".into(),
+        principal: "anonymous".into(),
+        authn_method: "api_key".into(),
+        enforcement_point: "PEP: RateLimit".into(),
+        policy_id: "rate-limit-default".into(),
+        resource_kind: "route".into(),
+        resource_id: "/v1/chat/completions".into(),
+        decision: "denied".into(),
+        reason_code: "rate_limit.reject".into(),
+        status_code: 429,
+        latency_ms: 2,
+        evidence_hash: "sha256:a1b2c3d4e5f60718".into(),
+        redacted_attributes: attrs2,
+    });
+
+    let mut attrs3 = BTreeMap::new();
+    attrs3.insert("tool".into(), "filesystem.read_file".into());
+    attrs3.insert("server".into(), "mcp-filesystem".into());
+    d.push_back(SecurityDecision {
+        event_id: "sec-01HZ03".into(),
+        trace_id: "3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b".into(),
+        timestamp: "2026-09-04T08:10:44.891Z".into(),
+        listener: "http-8080".into(),
+        route: "mcp-tools".into(),
+        backend: "mcp-filesystem".into(),
+        protocol: "mcp".into(),
+        actor: "agent:coder".into(),
+        principal: "spiffe://acme.internal/ns/prod/sa/coder".into(),
+        authn_method: "jwt".into(),
+        enforcement_point: "PEP: CapabilityCheck".into(),
+        policy_id: "mcp-tool-guard".into(),
+        resource_kind: "tool".into(),
+        resource_id: "filesystem.read_file".into(),
+        decision: "allowed".into(),
+        reason_code: "authz.allow".into(),
+        status_code: 200,
+        latency_ms: 12,
+        evidence_hash: "sha256:4c5d6e7f8a9b0c1d".into(),
+        redacted_attributes: attrs3,
+    });
+
+    let mut attrs4 = BTreeMap::new();
+    attrs4.insert("header".into(), "authorization".into());
+    attrs4.insert("error".into(), "invalid_signature".into());
+    d.push_back(SecurityDecision {
+        event_id: "sec-01HZ04".into(),
+        trace_id: "9f8e7d6c5b4a39281706152433425160".into(),
+        timestamp: "2026-09-04T08:09:12.302Z".into(),
+        listener: "http-8080".into(),
+        route: "a2a-tasks".into(),
+        backend: "planner-agent".into(),
+        protocol: "a2a".into(),
+        actor: "unknown".into(),
+        principal: "anonymous".into(),
+        authn_method: "jwt".into(),
+        enforcement_point: "PEP: ListenerAuthN".into(),
+        policy_id: "jwt-issuer-verify".into(),
+        resource_kind: "listener".into(),
+        resource_id: "http-8080".into(),
+        decision: "denied".into(),
+        reason_code: "authn.failure".into(),
+        status_code: 401,
+        latency_ms: 1,
+        evidence_hash: "sha256:e0f1a2b3c4d5e6f7".into(),
+        redacted_attributes: attrs4,
+    });
+
+    let mut attrs5 = BTreeMap::new();
+    attrs5.insert("model".into(), "blocked-eval-model".into());
+    d.push_back(SecurityDecision {
+        event_id: "sec-01HZ05".into(),
+        trace_id: "5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d".into(),
+        timestamp: "2026-09-04T08:08:05.110Z".into(),
+        listener: "http-8080".into(),
+        route: "chat-completions".into(),
+        backend: "openai".into(),
+        protocol: "llm".into(),
+        actor: "agent:tester".into(),
+        principal: "spiffe://acme.internal/ns/dev/sa/tester".into(),
+        authn_method: "api_key".into(),
+        enforcement_point: "PEP: RoutePolicy".into(),
+        policy_id: "deny-unauthorized-models".into(),
+        resource_kind: "model".into(),
+        resource_id: "blocked-eval-model".into(),
+        decision: "denied".into(),
+        reason_code: "policy.deny".into(),
+        status_code: 403,
+        latency_ms: 3,
+        evidence_hash: "sha256:d1e2f3a4b5c6d7e8".into(),
+        redacted_attributes: attrs5,
+    });
+
+    let mut attrs6 = BTreeMap::new();
+    attrs6.insert("san".into(), "cluster.local/ns/upstream/sa/claude".into());
+    d.push_back(SecurityDecision {
+        event_id: "sec-01HZ06".into(),
+        trace_id: "1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f".into(),
+        timestamp: "2026-09-04T08:07:33.682Z".into(),
+        listener: "http-8080".into(),
+        route: "claude-route".into(),
+        backend: "claude-pro".into(),
+        protocol: "llm".into(),
+        actor: "gateway".into(),
+        principal: "spiffe://acme.internal/ns/gateway/sa/dxgate".into(),
+        authn_method: "upstream_mtls".into(),
+        enforcement_point: "PEP: UpstreamTLS".into(),
+        policy_id: "upstream-mtls-verify".into(),
+        resource_kind: "cluster".into(),
+        resource_id: "claude-pro-cluster".into(),
+        decision: "allowed".into(),
+        reason_code: "upstream.identity_verified".into(),
+        status_code: 200,
+        latency_ms: 28,
+        evidence_hash: "sha256:8a9b0c1d2e3f4a5b".into(),
+        redacted_attributes: attrs6,
+    });
+
+    d
 }
 
 #[cfg(test)]
@@ -1636,5 +2347,39 @@ mod tests {
         assert_eq!(route.failures, 1);
         assert_eq!(route.latency_ms_sum, 260);
         assert_eq!(route.latency_ms_buckets[6].count, 1);
+    }
+
+    #[test]
+    fn records_and_bounds_security_decisions() {
+        let state = ProxyState::new();
+        let initial = state.security_decisions();
+        assert!(!initial.is_empty());
+        assert_eq!(initial[0].trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+
+        let custom = SecurityDecision {
+            event_id: "sec-test".into(),
+            trace_id: "trace-test".into(),
+            timestamp: "2026-09-04T08:30:00Z".into(),
+            listener: "http-8080".into(),
+            route: "chat".into(),
+            backend: "codex".into(),
+            protocol: "llm".into(),
+            actor: "agent:test".into(),
+            principal: "test-principal".into(),
+            authn_method: "jwt".into(),
+            enforcement_point: "PEP: Custom".into(),
+            policy_id: "test-policy".into(),
+            resource_kind: "route".into(),
+            resource_id: "/test".into(),
+            decision: "allowed".into(),
+            reason_code: "authz.allow".into(),
+            status_code: 200,
+            latency_ms: 5,
+            evidence_hash: "hash".into(),
+            redacted_attributes: BTreeMap::new(),
+        };
+        state.record_security_decision(custom.clone());
+        let updated = state.security_decisions();
+        assert_eq!(updated.last().unwrap().event_id, "sec-test");
     }
 }

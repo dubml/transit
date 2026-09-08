@@ -538,8 +538,8 @@ fn validate_references(
     backend_names.sort();
     for name in backend_names {
         let backend = &backends[name];
-        if let BackendKind::Llm { provider, .. } = &backend.kind {
-            if !providers.contains_key(provider) {
+        if let BackendKind::Llm { provider, endpoint, .. } = &backend.kind {
+            if endpoint.is_none() && !providers.contains_key(provider) {
                 conflicts.push(ConfigConflict::new(
                     "missing-provider",
                     format!("backend {} references missing provider {provider}", name),

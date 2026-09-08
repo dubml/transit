@@ -98,8 +98,8 @@ impl RuntimeConfig {
                     format!("backend {} is defined more than once", backend.name),
                 ));
             }
-            if let BackendKind::Llm { provider, .. } = &backend.kind {
-                if !providers.contains(provider.as_str()) {
+            if let BackendKind::Llm { provider, endpoint, .. } = &backend.kind {
+                if endpoint.is_none() && !providers.contains(provider.as_str()) {
                     conflicts.push(ConfigConflict::new(
                         "missing-provider",
                         format!(
@@ -637,17 +637,53 @@ pub struct Backend {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuotaWindow {
+    pub name: String,
+    pub window: String,
+    pub used_percent: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_after_seconds: Option<u64>,
+    #[serde(default)]
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuotaState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_at: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooling_until: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub windows: Vec<QuotaWindow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reset_cards: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum BackendKind {
     Http {
         endpoint: String,
     },
     Llm {
+        #[serde(default)]
         provider: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         models: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         endpoint: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_concurrency: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credential_ref: Option<SecretKeyReference>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quota_state: Option<QuotaState>,
         // Rewrites the request's model name before forwarding (alias -> upstream
         // name, e.g. an Azure deployment). Matching for backend selection runs
         // on the original name.
@@ -787,6 +823,8 @@ impl AgentRouteMatch {
 pub struct WeightedBackend {
     pub name: String,
     pub weight: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1010,6 +1048,31 @@ fn string_matches_any(
             .unwrap_or(false)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecurityDecision {
+    pub event_id: String,
+    pub trace_id: String,
+    pub timestamp: String,
+    pub listener: String,
+    pub route: String,
+    pub backend: String,
+    pub protocol: String,
+    pub actor: String,
+    pub principal: String,
+    pub authn_method: String,
+    pub enforcement_point: String,
+    pub policy_id: String,
+    pub resource_kind: String,
+    pub resource_id: String,
+    pub decision: String,
+    pub reason_code: String,
+    pub status_code: u16,
+    pub latency_ms: u64,
+    pub evidence_hash: String,
+    #[serde(default)]
+    pub redacted_attributes: BTreeMap<String, String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1211,6 +1274,10 @@ mod tests {
                     provider: "openai".into(),
                     models: vec!["gpt-4o-mini".into()],
                     endpoint: None,
+                    account_type: None,
+                    max_concurrency: None,
+                    credential_ref: None,
+                    quota_state: None,
                     model_rewrites: Default::default(),
                 },
                 policies: vec!["auth".into()],
@@ -1230,6 +1297,7 @@ mod tests {
                 weighted_backends: vec![WeightedBackend {
                     name: "gpt".into(),
                     weight: 100,
+                    priority: None,
                 }],
                 policies: vec!["auth".into()],
                 replace_prefix_match: None,
@@ -1339,4 +1407,87 @@ mod tests {
 
         assert!(policy.applies_to(&input));
     }
+
+    #[test]
+    fn llm_backend_supports_dynamic_quota_state_serialization() {
+        let json_str = r#"{
+            "name": "codex-pro-account",
+            "type": "llm",
+            "provider": "openai",
+            "models": ["gpt-5", "gpt-4o"],
+            "account_type": "subscription",
+            "quota_state": {
+                "observed_at": "2026-09-04T06:40:00Z",
+                "status": "active",
+                "cooling_until": null,
+                "reset_cards": 2,
+                "windows": [
+                    {
+                        "name": "primary",
+                        "window": "5h",
+                        "used_percent": 42,
+                        "reset_at": "01:32",
+                        "reset_after_seconds": 5520,
+                        "source": "provider"
+                    },
+                    {
+                        "name": "weekly",
+                        "window": "7d",
+                        "used_percent": 18,
+                        "reset_at": "4d 06h",
+                        "source": "provider"
+                    }
+                ]
+            }
+        }"#;
+
+        let backend: Backend = serde_json::from_str(json_str).expect("deserialize backend");
+        if let BackendKind::Llm { quota_state, .. } = &backend.kind {
+            let state = quota_state.as_ref().expect("has quota state");
+            assert_eq!(state.status, "active");
+            assert_eq!(state.reset_cards, Some(2));
+            assert_eq!(state.windows.len(), 2);
+            assert_eq!(state.windows[0].window, "5h");
+            assert_eq!(state.windows[0].used_percent, 42);
+            assert_eq!(state.windows[1].window, "7d");
+            assert_eq!(state.windows[1].used_percent, 18);
+        } else {
+            panic!("expected LLM backend kind");
+        }
+    }
+
+    #[test]
+    fn security_decision_serializes_and_deserializes() {
+        let decision = SecurityDecision {
+            event_id: "sec-01HZ".into(),
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736".into(),
+            timestamp: "2026-09-04T08:00:00Z".into(),
+            listener: "http-80".into(),
+            route: "chat".into(),
+            backend: "codex-pro".into(),
+            protocol: "llm".into(),
+            actor: "agent:planner".into(),
+            principal: "spiffe://acme.internal/ns/prod/sa/planner".into(),
+            authn_method: "jwt".into(),
+            enforcement_point: "route_authz".into(),
+            policy_id: "rate-limit-default".into(),
+            resource_kind: "route".into(),
+            resource_id: "/v1/chat/completions".into(),
+            decision: "allowed".into(),
+            reason_code: "authz.allow".into(),
+            status_code: 200,
+            latency_ms: 18,
+            evidence_hash: "sha256:7f9a2b".into(),
+            redacted_attributes: {
+                let mut m = BTreeMap::new();
+                m.insert("model".into(), "gpt-5".into());
+                m
+            },
+        };
+        let json = serde_json::to_string(&decision).expect("serialize decision");
+        let parsed: SecurityDecision = serde_json::from_str(&json).expect("deserialize decision");
+        assert_eq!(decision, parsed);
+        assert_eq!(parsed.reason_code, "authz.allow");
+    }
 }
+

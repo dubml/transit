@@ -179,6 +179,7 @@ fn agent_config(upstream: SocketAddr) -> RuntimeConfig {
         weighted_backends: vec![WeightedBackend {
             name: "api".into(),
             weight: 100,
+            priority: None,
         }],
         policies: vec!["guard".into()],
         replace_prefix_match: None,
@@ -224,6 +225,10 @@ fn llm_config(upstream: SocketAddr) -> RuntimeConfig {
             provider: "local".into(),
             models: vec![],
             endpoint: None,
+            account_type: None,
+            max_concurrency: None,
+            credential_ref: None,
+            quota_state: None,
             model_rewrites: Default::default(),
         },
         policies: vec![],
@@ -243,6 +248,7 @@ fn llm_config(upstream: SocketAddr) -> RuntimeConfig {
         weighted_backends: vec![WeightedBackend {
             name: "llm".into(),
             weight: 100,
+            priority: None,
         }],
         policies: vec![],
         replace_prefix_match: None,
@@ -286,10 +292,12 @@ fn mcp_config(upstream: SocketAddr) -> RuntimeConfig {
             WeightedBackend {
                 name: "tools-search".into(),
                 weight: 100,
+                priority: None,
             },
             WeightedBackend {
                 name: "tools-calendar".into(),
                 weight: 100,
+                priority: None,
             },
         ],
         policies: vec![],

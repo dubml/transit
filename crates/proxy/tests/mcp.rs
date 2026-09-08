@@ -331,6 +331,7 @@ fn config(backends: Vec<(&str, SocketAddr)>) -> RuntimeConfig {
                 .map(|(name, _)| WeightedBackend {
                     name: (*name).into(),
                     weight: 100,
+                    priority: None,
                 })
                 .collect(),
             policies: vec![],

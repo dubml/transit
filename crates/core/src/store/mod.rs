@@ -581,6 +581,10 @@ mod tests {
                 provider: provider.into(),
                 models: vec![],
                 endpoint: None,
+                account_type: None,
+                max_concurrency: None,
+                credential_ref: None,
+                quota_state: None,
                 model_rewrites: Default::default(),
             },
             policies: vec![],
@@ -595,6 +599,7 @@ mod tests {
             weighted_backends: vec![WeightedBackend {
                 name: backend.into(),
                 weight: 100,
+                priority: None,
             }],
             policies: vec![],
             replace_prefix_match: None,

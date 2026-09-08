@@ -341,6 +341,7 @@ fn weighted(backends: &[(&str, SocketAddr, Option<&str>)]) -> Vec<WeightedBacken
         .map(|(name, _, _)| WeightedBackend {
             name: (*name).into(),
             weight: 100,
+            priority: None,
         })
         .collect()
 }

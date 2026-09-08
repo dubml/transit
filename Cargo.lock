@@ -506,6 +506,7 @@ dependencies = [
  "http 0.2.12",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 

@@ -10,8 +10,8 @@ use axum::http::{
 use axum::routing::any;
 use axum::Router;
 use dxgate_core::{
-    AgentProtocol, AgentRoute, Backend, ConfigSnapshot, MatchInput, RetryPolicy, WeightedBackend,
-    HTTP_LISTENER_PORT,
+    AgentProtocol, AgentRoute, AttributionMode, Backend, ConfigSnapshot, CostEvent, DataQuality,
+    MatchInput, PricingStatus, RetryPolicy, TokenBreakdown, WeightedBackend, HTTP_LISTENER_PORT,
 };
 use hyper::body::Bytes;
 use opentelemetry::trace::TraceContextExt;
@@ -21,7 +21,7 @@ use std::env;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::time;
 use tracing::{debug, info, warn, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -54,7 +54,7 @@ use routing::{
     header_pairs, host_header, protocol_name, upstream_request_mode, UpstreamRequestMode,
 };
 use security::{enforce_listener_security, JwtKeyCache};
-use trace::{extract_trace_context, inject_trace_context};
+use trace::{extract_trace_context, inject_trace_context, trace_and_span_ids};
 use upstream::UpstreamClients;
 
 const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
@@ -880,15 +880,16 @@ async fn request_agent_with_failover(
                 Ok(mut response) => {
                     let status = response.status();
                     upstream_span.record("http.status_code", status.as_u16());
+                    let req_latency_ms = started.elapsed().as_millis() as u64;
                     update_mcp_session(&server.state, backend, context, response.headers(), status);
-                    record_mcp_tool_call(server, route, backend, context, status.is_success());
-                    record_a2a_method_call(server, route, backend, context, status.is_success());
+                    record_mcp_tool_call(server, route, backend, context, status.is_success(), req_latency_ms, &parts.headers, body.len(), attempt);
+                    record_a2a_method_call(server, route, backend, context, status.is_success(), req_latency_ms, &parts.headers, body.len(), attempt);
                     server.state.record_agent_request(
                         protocol_name(context.protocol),
                         &route.name,
                         &backend.name,
                         status.as_u16(),
-                        started.elapsed().as_millis() as u64,
+                        req_latency_ms,
                     );
                     apply_response_headers(
                         response.headers_mut(),
@@ -908,15 +909,16 @@ async fn request_agent_with_failover(
                     return Ok(response);
                 }
                 Err(err) => {
+                    let req_latency_ms = started.elapsed().as_millis() as u64;
                     upstream_span.record("http.status_code", err.0.as_u16());
-                    record_mcp_tool_call(server, route, backend, context, false);
-                    record_a2a_method_call(server, route, backend, context, false);
+                    record_mcp_tool_call(server, route, backend, context, false, req_latency_ms, &parts.headers, body.len(), attempt);
+                    record_a2a_method_call(server, route, backend, context, false, req_latency_ms, &parts.headers, body.len(), attempt);
                     server.state.record_agent_request(
                         protocol_name(context.protocol),
                         &route.name,
                         &backend.name,
                         err.0.as_u16(),
-                        started.elapsed().as_millis() as u64,
+                        req_latency_ms,
                     );
                     last_error = Some(err);
                 }
@@ -934,12 +936,17 @@ async fn request_agent_with_failover(
 
 // Per-tool call accounting; success tracks the HTTP status only, since
 // JSON-RPC-level errors would require buffering every response body.
+#[allow(clippy::too_many_arguments)]
 fn record_mcp_tool_call(
     server: &ProxyServer,
     route: &AgentRoute,
     backend: &Backend,
     context: &AgentRequestContext,
     success: bool,
+    latency_ms: u64,
+    headers: &HeaderMap,
+    io_bytes: usize,
+    attempt: usize,
 ) {
     if context.protocol != AgentProtocol::Mcp || context.mcp_method.as_deref() != Some("tools/call")
     {
@@ -949,15 +956,53 @@ fn record_mcp_tool_call(
         server
             .state
             .record_mcp_tool_call(&route.name, &backend.name, tool, success);
+
+        let (trace_id, span_id) = trace_and_span_ids(headers);
+        let t_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        server.state.record_cost_event(CostEvent {
+            event_id: format!("evt_mcp_{:x}", t_ms % 0xffffff),
+            trace_id,
+            span_id,
+            parent_span_id: None,
+            timestamp_ms: t_ms,
+            route: route.name.clone(),
+            backend: backend.name.clone(),
+            model: "-".to_string(),
+            provider: "mcp".to_string(),
+            account: backend.name.clone(),
+            protocol: "mcp".to_string(),
+            operation: format!("tools/{tool}"),
+            token_breakdown: TokenBreakdown::default(),
+            latency_ms,
+            ttft_ms: None,
+            status_code: if success { 200 } else { 502 },
+            data_quality: DataQuality::Complete,
+            pricing_status: PricingStatus::Unpriced,
+            api_usd_nanos: None,
+            api_usd: None,
+            chatgpt_credit_micros: None,
+            chatgpt_credits: None,
+            attribution_mode: AttributionMode::Direct,
+            io_bytes: io_bytes as u64,
+            retries: attempt as u32,
+        });
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_a2a_method_call(
     server: &ProxyServer,
     route: &AgentRoute,
     backend: &Backend,
     context: &AgentRequestContext,
     success: bool,
+    latency_ms: u64,
+    headers: &HeaderMap,
+    io_bytes: usize,
+    attempt: usize,
 ) {
     if context.protocol != AgentProtocol::A2a {
         return;
@@ -966,6 +1011,44 @@ fn record_a2a_method_call(
         server
             .state
             .record_a2a_method_call(&route.name, &backend.name, method, success);
+
+        let (trace_id, span_id) = trace_and_span_ids(headers);
+        let t_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let is_rollup = context.a2a_task_id.is_some() && method.contains("tasks");
+        server.state.record_cost_event(CostEvent {
+            event_id: format!("evt_a2a_{:x}", t_ms % 0xffffff),
+            trace_id,
+            span_id,
+            parent_span_id: None,
+            timestamp_ms: t_ms,
+            route: route.name.clone(),
+            backend: backend.name.clone(),
+            model: "-".to_string(),
+            provider: "a2a".to_string(),
+            account: backend.name.clone(),
+            protocol: "a2a".to_string(),
+            operation: format!("a2a/{method}"),
+            token_breakdown: TokenBreakdown::default(),
+            latency_ms,
+            ttft_ms: None,
+            status_code: if success { 200 } else { 502 },
+            data_quality: DataQuality::Complete,
+            pricing_status: PricingStatus::Unpriced,
+            api_usd_nanos: None,
+            api_usd: None,
+            chatgpt_credit_micros: None,
+            chatgpt_credits: None,
+            attribution_mode: if is_rollup {
+                AttributionMode::Rollup
+            } else {
+                AttributionMode::Direct
+            },
+            io_bytes: io_bytes as u64,
+            retries: attempt as u32,
+        });
     }
 }
 
@@ -1047,6 +1130,7 @@ async fn request_agent_backend(
     context: &AgentRequestContext,
     policy_runtime: &PolicyRuntime,
 ) -> Result<Response<Body>, (StatusCode, String)> {
+    let started = Instant::now();
     let provider = backend_provider(snapshot, backend);
     let endpoint = backend.endpoint(provider).ok_or_else(|| {
         (
@@ -1131,7 +1215,18 @@ async fn request_agent_backend(
 
     match exchange {
         Some(exchange) => {
-            let sink = usage_sink(server, route, backend, &exchange.model, policy_runtime);
+            let (trace_id, span_id) = trace_and_span_ids(&parts.headers);
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let sink = usage_sink(
+                server,
+                route,
+                backend,
+                &exchange.model,
+                policy_runtime,
+                Some(trace_id),
+                Some(span_id),
+                latency_ms,
+            );
             finalize_llm_response(server, response, exchange, sink).await
         }
         None => Ok(response),

@@ -18,6 +18,25 @@ pub(super) fn inject_trace_context(headers: &mut HeaderMap) {
     });
 }
 
+pub(super) fn trace_and_span_ids(headers: &HeaderMap) -> (String, String) {
+    use opentelemetry::trace::TraceContextExt;
+    let context = extract_trace_context(headers);
+    let span_context = context.span().span_context().clone();
+    if span_context.is_valid() {
+        (
+            span_context.trace_id().to_string(),
+            span_context.span_id().to_string(),
+        )
+    } else {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let t = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        (format!("{t:032x}"), format!("{:016x}", (t >> 16) as u64))
+    }
+}
+
 struct HeaderExtractor<'a>(&'a HeaderMap);
 
 impl Extractor for HeaderExtractor<'_> {

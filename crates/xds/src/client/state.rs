@@ -778,6 +778,10 @@ fn convert_backend(backend: &xds_route::AgentBackend) -> Option<Backend> {
             provider: llm.provider.clone(),
             models: llm.models.clone(),
             endpoint: (!llm.endpoint.is_empty()).then(|| llm.endpoint.clone()),
+            account_type: None,
+            max_concurrency: None,
+            credential_ref: None,
+            quota_state: None,
             model_rewrites: llm.model_rewrites.clone().into_iter().collect(),
         },
         xds_route::agent_backend::Backend::Mcp(mcp) => BackendKind::Mcp {
@@ -818,6 +822,7 @@ fn convert_agent_route(route: &xds_route::AgentRoute) -> Option<AgentRoute> {
             .map(|backend| WeightedBackend {
                 name: backend.name.clone(),
                 weight: backend.weight,
+                priority: None,
             })
             .collect(),
         policies: route.policies.clone(),

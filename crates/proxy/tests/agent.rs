@@ -99,6 +99,7 @@ async fn custom_llm_path_is_detected_and_rewritten_before_forwarding() {
         weighted_backends: vec![WeightedBackend {
             name: "gpt".into(),
             weight: 100,
+            priority: None,
         }],
         policies: vec![],
         replace_prefix_match: Some("/v1".into()),
@@ -146,10 +147,12 @@ async fn mcp_tools_list_federates_multiple_backends() {
                 WeightedBackend {
                     name: "mcp-a".into(),
                     weight: 100,
+                    priority: None,
                 },
                 WeightedBackend {
                     name: "mcp-b".into(),
                     weight: 100,
+                    priority: None,
                 },
             ],
             policies: vec![],
@@ -205,10 +208,12 @@ async fn mcp_sse_session_binds_followup_requests_to_same_backend() {
                 WeightedBackend {
                     name: "mcp-a".into(),
                     weight: 100,
+                    priority: None,
                 },
                 WeightedBackend {
                     name: "mcp-b".into(),
                     weight: 100,
+                    priority: None,
                 },
             ],
             policies: vec![],
@@ -288,6 +293,7 @@ async fn a2a_agent_card_is_proxied() {
             weighted_backends: vec![WeightedBackend {
                 name: "agent".into(),
                 weight: 100,
+                priority: None,
             }],
             policies: vec![],
             replace_prefix_match: None,
@@ -487,6 +493,10 @@ fn llm_backend(addr: SocketAddr) -> Backend {
             provider: "openai".into(),
             models: vec!["gpt-test".into()],
             endpoint: Some(format!("http://{addr}")),
+            account_type: None,
+            max_concurrency: None,
+            credential_ref: None,
+            quota_state: None,
             model_rewrites: Default::default(),
         },
         policies: vec![],
@@ -520,6 +530,7 @@ fn llm_route() -> AgentRoute {
         weighted_backends: vec![WeightedBackend {
             name: "gpt".into(),
             weight: 100,
+            priority: None,
         }],
         policies: vec!["caller-auth".into()],
         replace_prefix_match: None,
