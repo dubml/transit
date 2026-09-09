@@ -1,6 +1,6 @@
 //! The ADS client.
 //!
-//! dxgate prefers the incremental protocol (`DeltaAggregatedResources`): the
+//! xgate prefers the incremental protocol (`DeltaAggregatedResources`): the
 //! control plane sends only the resources that changed plus the names it
 //! retired, and a reconnecting client replays `initial_resource_versions` so the
 //! server can skip everything it already has. Not every control plane implements
@@ -9,7 +9,7 @@
 //! lifetime.
 //!
 //! Both flavours feed the same [`AdsState`], which projects the raw xDS
-//! resources onto dxgate's configuration model and writes the result into the
+//! resources onto xgate's configuration model and writes the result into the
 //! shared [`ConfigStore`] as the [`SourceId::Xds`] slice. The client never
 //! touches resources owned by another source.
 
@@ -21,7 +21,7 @@ use crate::proto::service::discovery::v1::aggregated_discovery_service_client::A
 use crate::proto::service::discovery::v1::{
     DeltaDiscoveryRequest, DeltaDiscoveryResponse, DiscoveryRequest,
 };
-use dxgate_core::{ConfigStore, RouterIdentity, SourceId};
+use xgate_core::{ConfigStore, RouterIdentity, SourceId};
 use prost_types::{value::Kind, Struct, Value};
 use state::{AdsState, LISTENER_TYPE, SECRET_TYPE};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -210,7 +210,7 @@ impl XdsClient {
             node_id = %self.cfg.identity.node_id(),
             endpoint = %self.cfg.endpoint,
             listeners = ?self.cfg.listener_names,
-            "connected dxgate router to dubbod delta ADS endpoint"
+            "connected xgate router to dubbod delta ADS endpoint"
         );
 
         while let Some(resp) = stream.message().await.map_err(delta_stream_error)? {
@@ -310,7 +310,7 @@ impl XdsClient {
             node_id = %self.cfg.identity.node_id(),
             endpoint = %self.cfg.endpoint,
             listeners = ?self.cfg.listener_names,
-            "connected dxgate router to dubbod ADS endpoint"
+            "connected xgate router to dubbod ADS endpoint"
         );
 
         while let Some(resp) = stream

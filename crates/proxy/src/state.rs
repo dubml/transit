@@ -1,12 +1,12 @@
 use crate::activation::Activator;
-use dxgate_core::{
+use xgate_core::{
     format_credit_micros, format_usd_nanos, A2aEfficiencyRow, ApplyOutcome, AttributionMode,
     CacheTierBreakdown, Cluster, ConfigConflict, ConfigDelta, ConfigSnapshot, ConfigStore,
-    CostEvent, DataQuality, DxgateError, EfficiencyLedgerSummary, Endpoint, McpEfficiencyRow,
+    CostEvent, DataQuality, EfficiencyLedgerSummary, Endpoint, McpEfficiencyRow,
     OptimizationLedgerSummary, OptimizationOpportunity, OutlierDetectionConfig, PricingStatus,
     RateLimitPolicy, Result, RuntimeConfig, SecretKeyReference, SecurityDecision, SourceId,
     SourceState, SpendAccountRow, SpendLedgerSummary, SpendModelRow, TokenBreakdown, TokenCounts,
-    TokenLedgerSummary, TokenLimitPolicy, WeightedBackend, WeightedCluster,
+    TokenLedgerSummary, TokenLimitPolicy, WeightedBackend, WeightedCluster, XgateError,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -122,6 +122,8 @@ pub struct ProxyState {
 }
 
 struct Inner {
+    llm_accounts: crate::LlmAccounts,
+    llm_timings: Arc<crate::LlmTimings>,
     /// Shared with every configuration source. Sources write deltas into it
     /// directly; the proxy only ever reads published snapshots.
     store: Arc<ConfigStore>,
@@ -194,6 +196,10 @@ pub struct LlmUsageMetric {
     pub prompt_tokens: u64,
     pub cached_prompt_tokens: u64,
     pub completion_tokens: u64,
+    pub cache_write_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub priced_requests: u64,
+    pub estimated_usd_nanos: u128,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -507,6 +513,8 @@ impl ProxyState {
     pub fn with_activator(store: Arc<ConfigStore>, activation: Activator) -> Self {
         Self {
             inner: Arc::new(Inner {
+                llm_accounts: crate::LlmAccounts::default(),
+                llm_timings: Arc::new(crate::LlmTimings::default()),
                 store,
                 pruned_revision: AtomicU64::new(0),
                 document_sources: Mutex::new(BTreeMap::new()),
@@ -519,7 +527,7 @@ impl ProxyState {
                 mcp_sessions: Mutex::new(BindingMap::default()),
                 a2a_tasks: Mutex::new(BindingMap::default()),
                 credentials: RwLock::new(HashMap::new()),
-                security_decisions: Mutex::new(default_security_decisions()),
+                security_decisions: Mutex::new(VecDeque::new()),
                 metrics: Mutex::new(MetricsStore::default()),
                 activation,
             }),
@@ -529,6 +537,14 @@ impl ProxyState {
     /// The store every configuration source writes into.
     pub fn store(&self) -> &Arc<ConfigStore> {
         &self.inner.store
+    }
+
+    pub fn llm_accounts(&self) -> &crate::LlmAccounts {
+        &self.inner.llm_accounts
+    }
+
+    pub fn llm_timings(&self) -> &Arc<crate::LlmTimings> {
+        &self.inner.llm_timings
     }
 
     /// The current published configuration. One atomic refcount bump: nothing
@@ -671,7 +687,11 @@ impl ProxyState {
     ) -> Option<&'a WeightedBackend> {
         let has_priority = backends.iter().any(|b| b.priority.is_some());
         if has_priority {
-            let min_priority = backends.iter().filter_map(|b| b.priority).min().unwrap_or(1);
+            let min_priority = backends
+                .iter()
+                .filter_map(|b| b.priority)
+                .min()
+                .unwrap_or(1);
             let tier_backends: Vec<&'a WeightedBackend> = backends
                 .iter()
                 .filter(|b| b.priority.unwrap_or(u32::MAX) == min_priority)
@@ -703,7 +723,7 @@ impl ProxyState {
     pub async fn pick_endpoint<'a>(&self, cluster: &'a Cluster) -> Result<&'a Endpoint> {
         let healthy: Vec<&Endpoint> = cluster.endpoints.iter().filter(|ep| ep.healthy).collect();
         if healthy.is_empty() {
-            return Err(DxgateError::NoHealthyEndpoints(cluster.name.clone()));
+            return Err(XgateError::NoHealthyEndpoints(cluster.name.clone()));
         }
         let candidates = self.admissible_endpoints(cluster, &healthy);
         let idx = next_cursor(
@@ -1046,16 +1066,16 @@ impl ProxyState {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
 
-        let quote_res = dxgate_core::quote_tokens(
+        let quote_res = xgate_core::quote_tokens(
             model,
-            dxgate_core::TokenCounts {
+            xgate_core::TokenCounts {
                 prompt_tokens,
                 cached_prompt_tokens: token_breakdown.cache_read,
                 cache_write_tokens,
                 completion_tokens,
             },
-            dxgate_core::ServiceTier::Standard,
-            dxgate_core::ContextBand::Short,
+            xgate_core::ServiceTier::Standard,
+            xgate_core::ContextBand::Short,
         );
 
         let mut metrics = self.inner.metrics.lock().unwrap();
@@ -1074,47 +1094,59 @@ impl ProxyState {
             counter.prompt_tokens += prompt_tokens;
             counter.cached_prompt_tokens += token_breakdown.cache_read;
             counter.completion_tokens += completion_tokens;
+            counter.cache_write_tokens += cache_write_tokens;
+            counter.reasoning_tokens += token_breakdown.reasoning;
+            if let Ok(quote) = &quote_res {
+                counter.priced_requests += 1;
+                counter.estimated_usd_nanos += quote.api_usd_nanos;
+            }
         }
 
-        let (pricing_status, api_usd_nanos, api_usd, chatgpt_credit_micros, chatgpt_credits, vendor) =
-            match &quote_res {
-                Ok(q) => {
-                    if metrics.cost_ticks.len() >= COST_TICK_CAP {
-                        metrics.cost_ticks.pop_front();
-                    }
-                    metrics.cost_ticks.push_back(CostTick {
-                        t_ms,
-                        model: model.to_string(),
-                        usd: q.api_usd_nanos as f64 / 1_000_000_000.0,
-                        credits: q.chatgpt_credit_micros as f64 / 1_000_000.0,
-                    });
-                    (
-                        PricingStatus::Exact,
-                        Some(q.api_usd_nanos),
-                        Some(q.api_usd()),
-                        Some(q.chatgpt_credit_micros),
-                        Some(q.chatgpt_credits()),
-                        q.vendor.to_string(),
-                    )
+        let (
+            pricing_status,
+            api_usd_nanos,
+            api_usd,
+            chatgpt_credit_micros,
+            chatgpt_credits,
+            vendor,
+        ) = match &quote_res {
+            Ok(q) => {
+                if metrics.cost_ticks.len() >= COST_TICK_CAP {
+                    metrics.cost_ticks.pop_front();
                 }
-                Err(_) => {
-                    let v = if model.starts_with("claude") {
-                        "anthropic"
-                    } else if model.starts_with("gpt-") {
-                        "openai"
-                    } else {
-                        "unknown"
-                    };
-                    (
-                        PricingStatus::Unpriced,
-                        None,
-                        None,
-                        None,
-                        None,
-                        v.to_string(),
-                    )
-                }
-            };
+                metrics.cost_ticks.push_back(CostTick {
+                    t_ms,
+                    model: model.to_string(),
+                    usd: q.api_usd_nanos as f64 / 1_000_000_000.0,
+                    credits: q.chatgpt_credit_micros as f64 / 1_000_000.0,
+                });
+                (
+                    PricingStatus::Exact,
+                    Some(q.api_usd_nanos),
+                    Some(q.api_usd()),
+                    Some(q.chatgpt_credit_micros),
+                    Some(q.chatgpt_credits()),
+                    q.vendor.to_string(),
+                )
+            }
+            Err(_) => {
+                let v = if model.starts_with("claude") {
+                    "anthropic"
+                } else if model.starts_with("gpt-") {
+                    "openai"
+                } else {
+                    "unknown"
+                };
+                (
+                    PricingStatus::Unpriced,
+                    None,
+                    None,
+                    None,
+                    None,
+                    v.to_string(),
+                )
+            }
+        };
 
         let trace_id = trace_id.unwrap_or_else(|| format!("{t_ms:032x}"));
         let span_id = span_id.unwrap_or_else(|| format!("{:016x}", t_ms));
@@ -1202,31 +1234,36 @@ impl ProxyState {
                     unpriced_requests += 1;
                 }
 
-                let row = model_map.entry(event.model.clone()).or_insert_with(|| SpendModelRow {
-                    model: event.model.clone(),
-                    provider: event.provider.clone(),
-                    pricing_status: event.pricing_status,
-                    ..SpendModelRow::default()
-                });
+                let row = model_map
+                    .entry(event.model.clone())
+                    .or_insert_with(|| SpendModelRow {
+                        model: event.model.clone(),
+                        provider: event.provider.clone(),
+                        pricing_status: event.pricing_status,
+                        ..SpendModelRow::default()
+                    });
                 row.requests += 1;
                 row.uncached_input_tokens += event.token_breakdown.input_uncached;
                 row.cached_input_tokens += event.token_breakdown.cache_read;
                 row.output_tokens += event.token_breakdown.total_output();
 
-                let acct = account_map.entry(event.account.clone()).or_insert_with(|| SpendAccountRow {
-                    account: event.account.clone(),
-                    provider: event.provider.clone(),
-                    requests: 0,
-                    api_usd: "$0".to_string(),
-                    chatgpt_credits: "0".to_string(),
-                });
+                let acct =
+                    account_map
+                        .entry(event.account.clone())
+                        .or_insert_with(|| SpendAccountRow {
+                            account: event.account.clone(),
+                            provider: event.provider.clone(),
+                            requests: 0,
+                            api_usd: "$0".to_string(),
+                            chatgpt_credits: "0".to_string(),
+                        });
                 acct.requests += 1;
             }
         }
 
         if metrics.cost_events.is_empty() {
             for metric in metrics.llm_usage.values() {
-                match dxgate_core::quote_tokens(
+                match xgate_core::quote_tokens(
                     &metric.model,
                     TokenCounts {
                         prompt_tokens: metric.prompt_tokens,
@@ -1234,8 +1271,8 @@ impl ProxyState {
                         cache_write_tokens: 0,
                         completion_tokens: metric.completion_tokens,
                     },
-                    dxgate_core::ServiceTier::Standard,
-                    dxgate_core::ContextBand::Short,
+                    xgate_core::ServiceTier::Standard,
+                    xgate_core::ContextBand::Short,
                 ) {
                     Ok(q) => {
                         priced_requests += metric.requests;
@@ -1247,7 +1284,9 @@ impl ProxyState {
                                 model: metric.model.clone(),
                                 provider: q.vendor.to_string(),
                                 requests: metric.requests,
-                                uncached_input_tokens: metric.prompt_tokens.saturating_sub(metric.cached_prompt_tokens),
+                                uncached_input_tokens: metric
+                                    .prompt_tokens
+                                    .saturating_sub(metric.cached_prompt_tokens),
                                 cached_input_tokens: metric.cached_prompt_tokens,
                                 output_tokens: metric.completion_tokens,
                                 api_usd: q.api_usd(),
@@ -1264,7 +1303,9 @@ impl ProxyState {
                                 model: metric.model.clone(),
                                 provider: "unknown".to_string(),
                                 requests: metric.requests,
-                                uncached_input_tokens: metric.prompt_tokens.saturating_sub(metric.cached_prompt_tokens),
+                                uncached_input_tokens: metric
+                                    .prompt_tokens
+                                    .saturating_sub(metric.cached_prompt_tokens),
                                 cached_input_tokens: metric.cached_prompt_tokens,
                                 output_tokens: metric.completion_tokens,
                                 api_usd: "-".to_string(),
@@ -1277,7 +1318,7 @@ impl ProxyState {
             }
         } else {
             for row in model_map.values_mut() {
-                if let Ok(q) = dxgate_core::quote_tokens(
+                if let Ok(q) = xgate_core::quote_tokens(
                     &row.model,
                     TokenCounts {
                         prompt_tokens: row.uncached_input_tokens + row.cached_input_tokens,
@@ -1285,8 +1326,8 @@ impl ProxyState {
                         cache_write_tokens: 0,
                         completion_tokens: row.output_tokens,
                     },
-                    dxgate_core::ServiceTier::Standard,
-                    dxgate_core::ContextBand::Short,
+                    xgate_core::ServiceTier::Standard,
+                    xgate_core::ContextBand::Short,
                 ) {
                     row.api_usd = q.api_usd();
                     row.chatgpt_credits = q.chatgpt_credits();
@@ -1344,7 +1385,9 @@ impl ProxyState {
 
         if metrics.cost_events.is_empty() {
             for metric in metrics.llm_usage.values() {
-                let uncached = metric.prompt_tokens.saturating_sub(metric.cached_prompt_tokens);
+                let uncached = metric
+                    .prompt_tokens
+                    .saturating_sub(metric.cached_prompt_tokens);
                 total_input_uncached += uncached;
                 total_cache_read += metric.cached_prompt_tokens;
                 total_output_non_reasoning += metric.completion_tokens;
@@ -1353,7 +1396,8 @@ impl ProxyState {
         }
 
         let total_input = total_input_uncached + total_cache_read;
-        let total_tokens = total_input + total_output_non_reasoning + total_reasoning + total_unclassified;
+        let total_tokens =
+            total_input + total_output_non_reasoning + total_reasoning + total_unclassified;
         let cache_hit_rate_pct = if total_input > 0 {
             (total_cache_read as f64 / total_input as f64) * 100.0
         } else {
@@ -1476,8 +1520,13 @@ impl ProxyState {
         if token_summary.total_cache_read > 0 {
             opportunities.push(OptimizationOpportunity {
                 category: "Prompt Caching".to_string(),
-                description: "Provider prompt caching reused previously loaded system instructions.".to_string(),
-                evidence: format!("{} cache read tokens observed (hit rate {:.1}%)", token_summary.total_cache_read, token_summary.cache_hit_rate_pct),
+                description:
+                    "Provider prompt caching reused previously loaded system instructions."
+                        .to_string(),
+                evidence: format!(
+                    "{} cache read tokens observed (hit rate {:.1}%)",
+                    token_summary.total_cache_read, token_summary.cache_hit_rate_pct
+                ),
                 potential_tokens_saved: token_summary.total_cache_read,
                 potential_usd_saved: None,
                 realized: true,
@@ -1723,169 +1772,10 @@ impl ProxyState {
     }
 }
 
-fn default_security_decisions() -> VecDeque<SecurityDecision> {
-    let mut d = VecDeque::new();
-    let mut attrs1 = BTreeMap::new();
-    attrs1.insert("model".into(), "gpt-5".into());
-    attrs1.insert("prompt_tokens".into(), "1420".into());
-    d.push_back(SecurityDecision {
-        event_id: "sec-01HZ01".into(),
-        trace_id: "4bf92f3577b34da6a3ce929d0e0e4736".into(),
-        timestamp: "2026-09-04T08:12:30.124Z".into(),
-        listener: "http-8080".into(),
-        route: "chat-completions".into(),
-        backend: "codex-pro".into(),
-        protocol: "llm".into(),
-        actor: "agent:planner".into(),
-        principal: "spiffe://acme.internal/ns/prod/sa/planner".into(),
-        authn_method: "jwt".into(),
-        enforcement_point: "PEP: RouteAuthZ".into(),
-        policy_id: "auth".into(),
-        resource_kind: "route".into(),
-        resource_id: "/v1/chat/completions".into(),
-        decision: "allowed".into(),
-        reason_code: "authz.allow".into(),
-        status_code: 200,
-        latency_ms: 19,
-        evidence_hash: "sha256:7f9a2b81ec1340b1".into(),
-        redacted_attributes: attrs1,
-    });
-
-    let mut attrs2 = BTreeMap::new();
-    attrs2.insert("key".into(), "client:10.0.12.25".into());
-    attrs2.insert("limit".into(), "60/min".into());
-    d.push_back(SecurityDecision {
-        event_id: "sec-01HZ02".into(),
-        trace_id: "7b2d9e1a4c8f0012e5f31a2b9d8c4e71".into(),
-        timestamp: "2026-09-04T08:11:58.452Z".into(),
-        listener: "http-8080".into(),
-        route: "chat-completions".into(),
-        backend: "codex-pro".into(),
-        protocol: "llm".into(),
-        actor: "client:10.0.12.25".into(),
-        principal: "anonymous".into(),
-        authn_method: "api_key".into(),
-        enforcement_point: "PEP: RateLimit".into(),
-        policy_id: "rate-limit-default".into(),
-        resource_kind: "route".into(),
-        resource_id: "/v1/chat/completions".into(),
-        decision: "denied".into(),
-        reason_code: "rate_limit.reject".into(),
-        status_code: 429,
-        latency_ms: 2,
-        evidence_hash: "sha256:a1b2c3d4e5f60718".into(),
-        redacted_attributes: attrs2,
-    });
-
-    let mut attrs3 = BTreeMap::new();
-    attrs3.insert("tool".into(), "filesystem.read_file".into());
-    attrs3.insert("server".into(), "mcp-filesystem".into());
-    d.push_back(SecurityDecision {
-        event_id: "sec-01HZ03".into(),
-        trace_id: "3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b".into(),
-        timestamp: "2026-09-04T08:10:44.891Z".into(),
-        listener: "http-8080".into(),
-        route: "mcp-tools".into(),
-        backend: "mcp-filesystem".into(),
-        protocol: "mcp".into(),
-        actor: "agent:coder".into(),
-        principal: "spiffe://acme.internal/ns/prod/sa/coder".into(),
-        authn_method: "jwt".into(),
-        enforcement_point: "PEP: CapabilityCheck".into(),
-        policy_id: "mcp-tool-guard".into(),
-        resource_kind: "tool".into(),
-        resource_id: "filesystem.read_file".into(),
-        decision: "allowed".into(),
-        reason_code: "authz.allow".into(),
-        status_code: 200,
-        latency_ms: 12,
-        evidence_hash: "sha256:4c5d6e7f8a9b0c1d".into(),
-        redacted_attributes: attrs3,
-    });
-
-    let mut attrs4 = BTreeMap::new();
-    attrs4.insert("header".into(), "authorization".into());
-    attrs4.insert("error".into(), "invalid_signature".into());
-    d.push_back(SecurityDecision {
-        event_id: "sec-01HZ04".into(),
-        trace_id: "9f8e7d6c5b4a39281706152433425160".into(),
-        timestamp: "2026-09-04T08:09:12.302Z".into(),
-        listener: "http-8080".into(),
-        route: "a2a-tasks".into(),
-        backend: "planner-agent".into(),
-        protocol: "a2a".into(),
-        actor: "unknown".into(),
-        principal: "anonymous".into(),
-        authn_method: "jwt".into(),
-        enforcement_point: "PEP: ListenerAuthN".into(),
-        policy_id: "jwt-issuer-verify".into(),
-        resource_kind: "listener".into(),
-        resource_id: "http-8080".into(),
-        decision: "denied".into(),
-        reason_code: "authn.failure".into(),
-        status_code: 401,
-        latency_ms: 1,
-        evidence_hash: "sha256:e0f1a2b3c4d5e6f7".into(),
-        redacted_attributes: attrs4,
-    });
-
-    let mut attrs5 = BTreeMap::new();
-    attrs5.insert("model".into(), "blocked-eval-model".into());
-    d.push_back(SecurityDecision {
-        event_id: "sec-01HZ05".into(),
-        trace_id: "5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d".into(),
-        timestamp: "2026-09-04T08:08:05.110Z".into(),
-        listener: "http-8080".into(),
-        route: "chat-completions".into(),
-        backend: "openai".into(),
-        protocol: "llm".into(),
-        actor: "agent:tester".into(),
-        principal: "spiffe://acme.internal/ns/dev/sa/tester".into(),
-        authn_method: "api_key".into(),
-        enforcement_point: "PEP: RoutePolicy".into(),
-        policy_id: "deny-unauthorized-models".into(),
-        resource_kind: "model".into(),
-        resource_id: "blocked-eval-model".into(),
-        decision: "denied".into(),
-        reason_code: "policy.deny".into(),
-        status_code: 403,
-        latency_ms: 3,
-        evidence_hash: "sha256:d1e2f3a4b5c6d7e8".into(),
-        redacted_attributes: attrs5,
-    });
-
-    let mut attrs6 = BTreeMap::new();
-    attrs6.insert("san".into(), "cluster.local/ns/upstream/sa/claude".into());
-    d.push_back(SecurityDecision {
-        event_id: "sec-01HZ06".into(),
-        trace_id: "1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f".into(),
-        timestamp: "2026-09-04T08:07:33.682Z".into(),
-        listener: "http-8080".into(),
-        route: "claude-route".into(),
-        backend: "claude-pro".into(),
-        protocol: "llm".into(),
-        actor: "gateway".into(),
-        principal: "spiffe://acme.internal/ns/gateway/sa/dxgate".into(),
-        authn_method: "upstream_mtls".into(),
-        enforcement_point: "PEP: UpstreamTLS".into(),
-        policy_id: "upstream-mtls-verify".into(),
-        resource_kind: "cluster".into(),
-        resource_id: "claude-pro-cluster".into(),
-        decision: "allowed".into(),
-        reason_code: "upstream.identity_verified".into(),
-        status_code: 200,
-        latency_ms: 28,
-        evidence_hash: "sha256:8a9b0c1d2e3f4a5b".into(),
-        redacted_attributes: attrs6,
-    });
-
-    d
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dxgate_core::{
+    use xgate_core::{
         Cluster, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, VirtualHost,
     };
 
@@ -2127,7 +2017,7 @@ mod tests {
             endpoints: vec![],
             http2: false,
             tls: None,
-            circuit_breaker: Some(dxgate_core::CircuitBreakerConfig {
+            circuit_breaker: Some(xgate_core::CircuitBreakerConfig {
                 max_connections: None,
                 http1_max_pending_requests: None,
                 http2_max_requests: Some(1),
@@ -2353,8 +2243,7 @@ mod tests {
     fn records_and_bounds_security_decisions() {
         let state = ProxyState::new();
         let initial = state.security_decisions();
-        assert!(!initial.is_empty());
-        assert_eq!(initial[0].trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert!(initial.is_empty());
 
         let custom = SecurityDecision {
             event_id: "sec-test".into(),

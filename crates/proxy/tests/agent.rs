@@ -2,12 +2,12 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Request, Response, StatusCode, Uri};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
-use dxgate_core::{
+use xgate_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, Backend, BackendKind, HeaderTransform,
     PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RateLimitPolicy,
     RuntimeConfig, WeightedBackend,
 };
-use dxgate_proxy::{ProxyServer, ProxyState};
+use xgate_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use serde_json::{json, Value};
@@ -29,7 +29,7 @@ impl Drop for TestServer {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn llm_route_enforces_api_key_and_forwards_to_provider() {
-    std::env::set_var("DXGATE_TEST_OPENAI_KEY", "provider-key");
+    std::env::set_var("XGATE_TEST_OPENAI_KEY", "provider-key");
     let llm = spawn_llm_backend().await;
     let proxy = spawn_proxy(agent_config(
         vec![llm_backend(llm.addr)],
@@ -476,7 +476,7 @@ fn agent_config(
             name: "openai".into(),
             kind: ProviderKind::OpenAiCompatible,
             base_url: "http://unused".into(),
-            api_key_env: Some("DXGATE_TEST_OPENAI_KEY".into()),
+            api_key_env: Some("XGATE_TEST_OPENAI_KEY".into()),
             credential_ref: None,
             request_headers: vec![],
         }],

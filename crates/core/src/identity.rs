@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn builds_dubbo_router_node_id() {
         let id = RouterIdentity {
-            pod_name: "dxgate-abc".into(),
+            pod_name: "xgate-abc".into(),
             namespace: "dubbo-system".into(),
             pod_ip: "10.0.0.10".into(),
             node_name: Some("node-a".into()),
@@ -61,7 +61,7 @@ mod tests {
 
         assert_eq!(
             id.node_id(),
-            "router~10.0.0.10~dxgate-abc.dubbo-system~dubbo-system.svc.cluster.local"
+            "router~10.0.0.10~xgate-abc.dubbo-system~dubbo-system.svc.cluster.local"
         );
     }
 }

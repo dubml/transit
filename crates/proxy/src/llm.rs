@@ -1,6 +1,6 @@
 //! OpenAI-compatible dialect translation for LLM providers.
 //!
-//! Callers speak the OpenAI chat-completions API to dxgate; this module
+//! Callers speak the OpenAI chat-completions API to xgate; this module
 //! rewrites requests/responses (including SSE streams) for providers with a
 //! native wire format, and extracts token usage for metrics and token limits.
 
@@ -15,12 +15,13 @@ pub const OPENAI_CHAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmDialect {
     OpenAi,
+    Codex,
     Anthropic,
     Gemini,
 }
 
-pub fn dialect_for(kind: dxgate_core::ProviderKind) -> LlmDialect {
-    use dxgate_core::ProviderKind;
+pub fn dialect_for(kind: xgate_core::ProviderKind) -> LlmDialect {
+    use xgate_core::ProviderKind;
     match kind {
         ProviderKind::OpenAiCompatible | ProviderKind::OpenAi | ProviderKind::DeepSeek => {
             LlmDialect::OpenAi
@@ -49,18 +50,27 @@ impl LlmUsage {
     }
 
     fn from_openai(value: &Value) -> Option<Self> {
-        let usage = value.get("usage")?;
-        let prompt_tokens = usage.get("prompt_tokens")?.as_u64().unwrap_or(0);
+        let usage = value
+            .get("usage")
+            .or_else(|| value.pointer("/response/usage"))?;
+        let prompt_tokens = usage
+            .get("prompt_tokens")
+            .or_else(|| usage.get("input_tokens"))?
+            .as_u64()
+            .unwrap_or(0);
         let cached_prompt_tokens = usage
             .pointer("/prompt_tokens_details/cached_tokens")
+            .or_else(|| usage.pointer("/input_tokens_details/cached_tokens"))
             .and_then(Value::as_u64)
             .unwrap_or(0);
         let completion_tokens = usage
             .get("completion_tokens")
+            .or_else(|| usage.get("output_tokens"))
             .and_then(Value::as_u64)
             .unwrap_or(0);
         let reasoning_tokens = usage
             .pointer("/completion_tokens_details/reasoning_tokens")
+            .or_else(|| usage.pointer("/output_tokens_details/reasoning_tokens"))
             .and_then(Value::as_u64)
             .unwrap_or(0);
         Some(Self {
@@ -187,7 +197,9 @@ pub fn openai_from_anthropic_response(value: &Value) -> (Value, LlmUsage) {
         .map(|blocks| join_text_parts(blocks))
         .unwrap_or_default();
     let usage = LlmUsage {
-        prompt_tokens: read_u64(value, "/usage/input_tokens"),
+        prompt_tokens: read_u64(value, "/usage/input_tokens")
+            .saturating_add(read_u64(value, "/usage/cache_read_input_tokens"))
+            .saturating_add(read_u64(value, "/usage/cache_creation_input_tokens")),
         cached_prompt_tokens: read_u64(value, "/usage/cache_read_input_tokens"),
         cache_write_tokens: read_u64(value, "/usage/cache_creation_input_tokens"),
         completion_tokens: read_u64(value, "/usage/output_tokens"),
@@ -478,8 +490,15 @@ impl Transcode for AnthropicStream {
                         self.model = model.to_string();
                     }
                     self.usage.prompt_tokens = read_u64(&event, "/message/usage/input_tokens");
-                    self.usage.cached_prompt_tokens = read_u64(&event, "/message/usage/cache_read_input_tokens");
-                    self.usage.cache_write_tokens = read_u64(&event, "/message/usage/cache_creation_input_tokens");
+                    self.usage.cached_prompt_tokens =
+                        read_u64(&event, "/message/usage/cache_read_input_tokens");
+                    self.usage.cache_write_tokens =
+                        read_u64(&event, "/message/usage/cache_creation_input_tokens");
+                    self.usage.prompt_tokens = self
+                        .usage
+                        .prompt_tokens
+                        .saturating_add(self.usage.cached_prompt_tokens)
+                        .saturating_add(self.usage.cache_write_tokens);
                     out.push_str(&openai_chunk(
                         &self.id,
                         self.created,
@@ -707,6 +726,16 @@ pub fn extract_openai_usage(bytes: &[u8], sink: &UsageSink) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn responses_usage_preserves_cached_and_reasoning_subsets() {
+        let event = serde_json::json!({"type":"response.completed","response":{"usage":{"input_tokens":100,"output_tokens":30,"input_tokens_details":{"cached_tokens":20},"output_tokens_details":{"reasoning_tokens":10}}}});
+        let usage = super::LlmUsage::from_openai(&event).unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 30);
+        assert_eq!(usage.cached_prompt_tokens, 20);
+        assert_eq!(usage.reasoning_tokens, 10);
+        assert_eq!(usage.total(), 130);
+    }
     use super::*;
     use hyper::body;
 

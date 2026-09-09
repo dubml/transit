@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="/assets/dxgate-mark.svg" type="image/svg+xml">
-  <title>dxgate</title>
+  <link rel="icon" href="/assets/xgate-mark.svg" type="image/svg+xml">
+  <title>xDS and AI Gateway Dashboard</title>
   <script>
-    document.documentElement.dataset.theme = localStorage.getItem('dxgate-theme') || 'light';
-    document.documentElement.lang = localStorage.getItem('dxgate-lang') || 'en';
+    document.documentElement.dataset.theme = localStorage.getItem('xgate-theme') || localStorage.getItem('dxgate-theme') || 'light';
+    document.documentElement.lang = localStorage.getItem('xgate-lang') || localStorage.getItem('dxgate-lang') || 'en';
   </script>
   <style>
     :root, [data-theme="light"] {
@@ -4652,9 +4652,10 @@
     .topbar { margin-bottom: 22px; }
     .topbar .search { max-width: 480px; height: 34px; font-size: 12px; }
     .tools { margin-left: auto; gap: 8px; }
-    .page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
     .page-heading h1 { margin: 0; font-size: 23px; letter-spacing: -.035em; line-height: 1.3; }
     .page-description { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; max-width: 720px; }
+    .page-description:empty { display: none; }
     .page-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex-shrink: 0; }
     .quiet-button { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 11.5px; white-space: nowrap; }
     .quiet-button:hover { background: var(--soft); border-color: var(--muted); }
@@ -4746,12 +4747,13 @@
       *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
     }
   </style>
+  <link rel="stylesheet" href="/assets/llm.css">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to content</a>
   <div class="shell">
     <aside class="nav">
-      <div class="brand"><img class="brand-logo" src="/assets/dxgate-logo.svg?v=2" alt="dxgate logo"></div>
+      <div class="brand"><img class="brand-logo" src="/assets/xgate-logo.svg?v=2" alt="xgate logo"></div>
       <button class="active" data-tab="overview"><span data-i18n="overview">Overview</span></button>
       <div class="nav-group">
         <div class="nav-label" data-i18n="core">Core</div>
@@ -4768,11 +4770,11 @@
         </button>
         <button data-tab="mcp">
           <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="5" height="5"/><rect x="8.5" y="8.5" width="5" height="5"/><path d="M7.5 5h3v3"/></svg>
-          <span>MCP</span>
+          <span data-i18n="mcp">MCP</span>
         </button>
         <button data-tab="a2a">
           <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.2"/><path d="M3.5 13c.6-2.2 2.3-3.4 4.5-3.4s3.9 1.2 4.5 3.4"/></svg>
-          <span>A2A</span>
+          <span data-i18n="a2a">A2A</span>
         </button>
       </div>
       <div class="nav-group">
@@ -4788,6 +4790,13 @@
         <button data-tab="cost-control">
           <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.2"/><path d="M8 5.2v5.6M6.2 6.4h2.4a1.3 1.3 0 0 1 0 2.6H6.8a1.3 1.3 0 0 0 0 2.6H9.8"/></svg>
           <span data-i18n="cost-control">Cost Control</span>
+        </button>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label" data-i18n="setup">Setup</div>
+        <button data-tab="configuration">
+          <svg class="nav-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.3"/><path d="M6.8 1.5h2.4l.4 1.5c.4.1.7.3 1.1.5l1.4-.7 1.7 1.7-.7 1.4c.2.4.4.7.5 1.1l1.5.4v2.4l-1.5.4c-.1.4-.3.7-.5 1.1l.7 1.4-1.7 1.7-1.4-.7c-.4.2-.7.4-1.1.5l-.4 1.5H6.8l-.4-1.5c-.4-.1-.7-.3-1.1-.5l-1.4.7-1.7-1.7.7-1.4a3.8 3.8 0 0 1-.5-1.1L1 9.2V6.8l1.5-.4c.1-.4.3-.7.5-1.1l-.7-1.4 1.7-1.7 1.4.7c.4-.2.7-.4 1.1-.5l.4-1.5z"/></svg>
+          <span data-i18n="configuration">Configuration</span>
         </button>
       </div>
     </aside>
@@ -4813,12 +4822,7 @@
       </div>
       <div class="page-heading">
         <div><h1 id="title">Overview</h1><p id="page-description" class="page-description"></p></div>
-        <div class="page-actions">
-          <span id="sync-state" class="sync-state" role="status"></span>
-          <button id="examples-toggle" class="quiet-button hidden" type="button" aria-pressed="false">Example data</button>
-          <button id="poll-toggle" class="quiet-button" type="button" aria-pressed="false">Pause updates</button>
-          <button id="reload-data" class="quiet-button" type="button">Sync now</button>
-        </div>
+        <div class="page-actions" id="page-actions"></div>
       </div>
       <div id="data-notice" class="data-notice hidden" role="note"></div>
       <div id="error" class="error hidden" role="alert"></div>
@@ -5412,25 +5416,25 @@
                   <div class="mcp-inspector-head">
                     <div>
                       <div style="font-size:11px;color:var(--muted)">Selected Target</div>
-                      <div style="font-size:14px;font-weight:750;color:var(--ink)" id="mcp-target-inspector-name">github-mcp</div>
+                      <div style="font-size:14px;font-weight:750;color:var(--ink)" id="mcp-target-inspector-name">—</div>
                     </div>
                     <div id="mcp-target-inspector-health">
-                      <span class="status-pill healthy">Connected</span>
+                      <span class="status-pill unknown">—</span>
                     </div>
                   </div>
                   <div class="mcp-kv-list">
                     <div class="k">Endpoint 地址</div>
-                    <div class="v code" id="mcp-target-inspector-endpoint">http://github-mcp.internal:8080/mcp</div>
+                    <div class="v code" id="mcp-target-inspector-endpoint">—</div>
                     <div class="k">传输协议 (Transport)</div>
-                    <div class="v code" id="mcp-target-inspector-transport">Streamable HTTP (JSON-RPC)</div>
+                    <div class="v code" id="mcp-target-inspector-transport">—</div>
                     <div class="k">会话亲和 (Affinity)</div>
-                    <div class="v" id="mcp-target-inspector-affinity">Bound to mcp-session-id</div>
+                    <div class="v" id="mcp-target-inspector-affinity">—</div>
                     <div class="k">已发现能力</div>
-                    <div class="v" id="mcp-target-inspector-caps-summary">12 Tools, 2 Resources, 2 Prompts</div>
+                    <div class="v" id="mcp-target-inspector-caps-summary">—</div>
                     <div class="k">别名冲突处理</div>
-                    <div class="v code">Automatic prefixing (e.g. github__*)</div>
+                    <div class="v code">—</div>
                     <div class="k">最近握手 (Handshake)</div>
-                    <div class="v" id="mcp-target-inspector-last-handshake">14:32:18 (RTT: 14ms)</div>
+                    <div class="v" id="mcp-target-inspector-last-handshake">—</div>
                   </div>
                   <div style="display:flex;gap:8px;margin-top:6px;border-top:1px solid var(--line);padding-top:10px;">
                     <button type="button" class="pool-action-btn action-test" onclick="handleMcpHandshakeTest()">测试握手 (initialize)</button>
@@ -5510,32 +5514,29 @@
                   <div class="mcp-inspector-head">
                     <div>
                       <div style="font-size:11px;color:var(--muted)">Invocation Audit</div>
-                      <div style="font-size:14px;font-weight:750;color:var(--ink)" id="mcp-inv-detail-id">inv_001</div>
+                      <div style="font-size:14px;font-weight:750;color:var(--ink)" id="mcp-inv-detail-id">—</div>
                     </div>
                     <div id="mcp-inv-detail-status">
-                      <span class="status-badge healthy">200 OK</span>
+                      <span class="status-badge unknown">—</span>
                     </div>
                   </div>
                   <div class="mcp-kv-list">
                     <div class="k">MCP Session ID</div>
-                    <div class="v code" id="mcp-inv-detail-session">sess_01HZX8Y3A1ZK8</div>
+                    <div class="v code" id="mcp-inv-detail-session">—</div>
                     <div class="k">调用方 (Caller)</div>
-                    <div class="v code" id="mcp-inv-detail-caller">agent:dev-tools</div>
+                    <div class="v code" id="mcp-inv-detail-caller">—</div>
                     <div class="k">目标 Server</div>
-                    <div class="v bold" id="mcp-inv-detail-target">github-mcp</div>
+                    <div class="v bold" id="mcp-inv-detail-target">—</div>
                     <div class="k">执行能力 (Method)</div>
-                    <div class="v code" id="mcp-inv-detail-method">tools/call :: search_repos</div>
+                    <div class="v code" id="mcp-inv-detail-method">—</div>
                     <div class="k">策略判定 (PEP)</div>
-                    <div class="v" id="mcp-inv-detail-policy"><span class="policy-pill allow">Allowed</span></div>
+                    <div class="v" id="mcp-inv-detail-policy">—</div>
                     <div class="k">Trace Parent ID</div>
-                    <div class="v code" id="mcp-inv-detail-trace">00-4bf92f3577b34da6a3ce929d0e0e4736</div>
+                    <div class="v code" id="mcp-inv-detail-trace">—</div>
                   </div>
                   <div>
                     <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Arguments (Sanitized):</div>
-                    <pre class="code-box" id="mcp-inv-detail-args" style="max-height:100px;font-size:10.5px;margin:0;padding:6px 8px;background:var(--soft);border:1px solid var(--line);border-radius:4px;">{
-  "q": "dxgate proxy",
-  "sort": "stars"
-}</pre>
+                    <pre class="code-box" id="mcp-inv-detail-args" style="max-height:100px;font-size:10.5px;margin:0;padding:6px 8px;background:var(--soft);border:1px solid var(--line);border-radius:4px;">—</pre>
                   </div>
                 </div>
               </div>
@@ -5855,7 +5856,7 @@
             <div class="obs-flow-node" style="border-color:color-mix(in srgb, #38bdf8 40%, var(--line))">
               <div class="obs-flow-node-role" style="color:#38bdf8">AI Gateway</div>
               <div class="obs-flow-node-name" id="flow-node-gw">Data Plane</div>
-              <div class="obs-flow-node-detail" id="flow-node-gw-sub">dxgate proxy</div>
+              <div class="obs-flow-node-detail" id="flow-node-gw-sub">xgate proxy</div>
             </div>
             <div class="obs-flow-arrow"><span>→</span></div>
             <div class="obs-flow-node">
@@ -5958,7 +5959,7 @@
             <div class="sec-posture-item">
               <span class="sec-posture-label">Default Policy:</span>
               <span id="sec-posture-default-badge" class="sec-default-policy-badge allow">ALLOW</span>
-              <span class="code" id="sec-posture-default-env" style="font-size:11px;color:var(--muted)">DXGATE_POLICY_DEFAULT=allow</span>
+              <span class="code" id="sec-posture-default-env" style="font-size:11px;color:var(--muted)">XGATE_POLICY_DEFAULT=allow</span>
             </div>
             <div class="sec-posture-item">
               <span class="sec-posture-label">Identity Sources:</span>
@@ -6526,14 +6527,32 @@
           </div>
         </div>
       </section>
+      <section id="tab-configuration" class="hidden">
+        <div class="panel">
+          <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;">
+            <span data-i18n="configuration">Configuration</span>
+            <div style="display:flex;gap:8px;">
+              <button id="config-copy-btn" class="quiet-button" type="button">Copy JSON</button>
+            </div>
+          </div>
+          <div style="padding:16px;">
+            <pre id="config-json-viewer" style="margin:0;padding:16px;background:var(--soft);border:1px solid var(--line);border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;line-height:1.6;overflow:auto;max-height:calc(100vh - 220px);color:var(--ink);white-space:pre-wrap;word-break:break-all;"></pre>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
+  <script src="/assets/llm.js"></script>
   <script>
     const I18N = {
       en: {
         overview: 'Overview',
         core: 'Core',
         ai: 'AI',
+        setup: 'Setup',
+        configuration: 'Configuration',
+        mcp: 'MCP',
+        a2a: 'A2A',
         resources: 'Resources',
         services: 'Services',
         search: 'Search',
@@ -6653,8 +6672,8 @@
         allModels: 'All models',
         unpublished: 'unpublished',
         family: 'Family',
-        llm: 'LLM Traffic Management',
-        llmTrafficMgmt: 'LLM Traffic Management',
+        llm: 'LLM',
+        llmTrafficMgmt: 'LLM',
         configSyncHealthy: 'Config Sync: Healthy',
         last24h: 'Last 24h',
         successRate: 'Success Rate',
@@ -6798,6 +6817,10 @@
         overview: '总览',
         core: '基础服务',
         ai: 'AI',
+        setup: 'Setup',
+        configuration: 'Configuration',
+        mcp: 'MCP',
+        a2a: 'A2A',
         resources: '资源',
         services: '服务',
         search: '搜索',
@@ -6917,8 +6940,8 @@
         allModels: '全部模型',
         unpublished: '未公布',
         family: '分类',
-        llm: 'LLM 流量治理',
-        llmTrafficMgmt: 'LLM 流量治理',
+        llm: 'LLM',
+        llmTrafficMgmt: 'LLM',
         configSyncHealthy: '配置同步: 正常',
         last24h: '最近 24 小时',
         successRate: '成功率',
@@ -7078,10 +7101,10 @@
       costRoute: 'all-routes',
       costModelFilter: 'all-models',
       costSelectedEventId: null,
-      country: localStorage.getItem('dxgate-country') || 'United States',
-      model: localStorage.getItem('dxgate-model') || 'all',
-      billing: localStorage.getItem('dxgate-billing') || 'subscription',
-      family: localStorage.getItem('dxgate-family') || 'chatgpt'
+      country: localStorage.getItem('xgate-country') || localStorage.getItem('dxgate-country') || 'United States',
+      model: localStorage.getItem('xgate-model') || localStorage.getItem('dxgate-model') || 'all',
+      billing: localStorage.getItem('xgate-billing') || localStorage.getItem('dxgate-billing') || 'subscription',
+      family: localStorage.getItem('xgate-family') || localStorage.getItem('dxgate-family') || 'chatgpt'
     };
 
     function t(key) {
@@ -7135,37 +7158,46 @@
     function updatePageChrome() {
       const descriptions = {
         overview: ['Gateway resources at a glance. Select a module to inspect its configuration.', '查看网关资源概况，进入各模块检查配置与运行情况。'],
-        services: ['Listeners, routes and upstream health in one service directory.', '统一查看监听器、路由与上游健康状态。'],
-        llm: ['Select a provider to inspect its configured accounts and available quota windows.', '选择模型提供商，查看已配置账户及已上报的额度窗口。'],
-        mcp: ['Select a server to inspect its capabilities and invocation records.', '选择 MCP 服务，查看能力目录与调用记录。'],
-        a2a: ['Select an agent to inspect its capabilities and associated tasks.', '选择智能体，查看其能力与关联任务。'],
+        services: ['', ''],
+        llm: ['', ''],
+        mcp: ['', ''],
+        a2a: ['', ''],
         observability: ['Filter gateway requests and inspect the available decision evidence.', '筛选网关请求，查看可用的决策记录与关联信息。'],
         security: ['Audit decisions first. Expand policies and identities when needed.', '优先查看安全决策，需要时展开策略与身份目录。'],
-        'cost-control': ['Inspect spend, token usage and execution efficiency in separate ledgers.', '分别查看费用、Token 消耗与执行效率账本。']
+        'cost-control': ['Inspect spend, token usage and execution efficiency in separate ledgers.', '分别查看费用、Token 消耗与执行效率账本。'],
+        configuration: ['', '']
       };
       const pair = descriptions[state.tab] || descriptions.overview;
       $('page-description').textContent = uiText(...pair);
-      const aiPage = ['llm', 'mcp', 'a2a'].includes(state.tab);
-      $('examples-toggle').classList.toggle('hidden', !aiPage);
-      $('examples-toggle').textContent = uiText('Example data', '示例数据');
-      $('examples-toggle').setAttribute('aria-pressed', String(state.showExamples));
-      $('poll-toggle').textContent = state.paused ? uiText('Resume updates', '恢复更新') : uiText('Pause updates', '暂停更新');
-      $('poll-toggle').setAttribute('aria-pressed', String(state.paused));
-      $('reload-data').textContent = uiText('Sync now', '立即同步');
-      $('reload-data').disabled = state.loading;
-      const scopes = { llm: ['/debug/cost'], services: ['/debug/services'], observability: ['/debug/observability'], security: ['/debug/security/posture', '/debug/security/events', '/debug/security/identities'], 'cost-control': ['/debug/cost'] };
+      if (state.tab !== 'llm' && $('page-actions')) {
+        $('page-actions').innerHTML = '';
+      }
+      const aiPage = ['mcp', 'a2a'].includes(state.tab);
+      if ($('examples-toggle')) {
+        $('examples-toggle').classList.toggle('hidden', !aiPage);
+        $('examples-toggle').textContent = uiText('Example data', '示例数据');
+        $('examples-toggle').setAttribute('aria-pressed', String(state.showExamples));
+      }
+      if ($('poll-toggle')) {
+        $('poll-toggle').textContent = state.paused ? uiText('Resume updates', '恢复更新') : uiText('Pause updates', '暂停更新');
+        $('poll-toggle').setAttribute('aria-pressed', String(state.paused));
+      }
+      if ($('reload-data')) {
+        $('reload-data').textContent = uiText('Sync now', '立即同步');
+        $('reload-data').disabled = state.loading;
+      }
+      const scopes = { llm: ['/debug/llm'], services: ['/debug/services'], observability: ['/debug/observability'], security: ['/debug/security/posture', '/debug/security/events', '/debug/security/identities'], 'cost-control': ['/debug/cost'] };
       const relevant = ['/debug/config', ...(scopes[state.tab] || [])];
       const failures = relevant.filter(url => state.endpointErrors[url]).map(url => state.endpointErrors[url]);
       const syncText = state.loading ? uiText('Syncing…', '同步中…') : failures.length ? uiText('Update incomplete', '更新不完整') : state.paused ? uiText('Updates paused', '自动更新已暂停') : state.syncedAt[state.tab] ? uiText('Synced ', '已同步 ') + state.syncedAt[state.tab] : uiText('Awaiting data', '等待数据');
-      $('sync-state').textContent = syncText;
+      if ($('sync-state')) $('sync-state').textContent = syncText;
       $('error').textContent = failures.length ? uiText('Some data could not be updated. Retaining the last available values. ', '部分数据更新失败，保留上次可用结果。') + failures.join(' · ') : '';
       $('error').classList.toggle('hidden', !failures.length);
       const notice = $('data-notice');
       notice.classList.toggle('hidden', !aiPage && state.tab !== 'observability');
-      notice.dataset.kind = aiPage && state.showExamples ? 'example' : 'config';
-      notice.textContent = aiPage ? (state.showExamples
-        ? uiText('Example data · For layout preview only. These accounts, agents and records are not live.', '示例数据 · 仅用于预览布局，以下账户、智能体和记录不是实时数据。')
-        : uiText('Configuration view · Unreported metrics are shown as “—”. Runtime controls are not connected.', '配置视图 · 未上报的指标显示为「—」，运行控制尚未接入。'))
+      notice.dataset.kind = 'config';
+      notice.textContent = aiPage
+        ? uiText('Configuration view · Unreported metrics are shown as “—”. Runtime controls are not connected.', '配置视图 · 未上报的指标显示为「—」，运行控制尚未接入。')
         : uiText('Decision-derived view · The displayed spans are estimated from security decisions, not measured distributed traces.', '决策记录视图 · 当前 Span 由安全决策耗时估算，并非实测的分布式追踪。');
       $('search-input').placeholder = uiText('Filter this page…  ⌘ K', '筛选当前页面…  ⌘ K');
       $('search-input').setAttribute('aria-label', uiText('Filter this page', '筛选当前页面'));
@@ -7430,7 +7462,7 @@
                 requests: 0,
                 failures: 0,
                 in_flight: 0,
-                p95_ms: 12,
+                p95_ms: 0,
                 error_rate_pct: 0.0
               },
               policies: (listener.security && listener.security.authorization) ? listener.security.authorization.map(a => 'authz:' + (a.action || 'allow')) : [],
@@ -7489,7 +7521,7 @@
             protocol: 'HTTP/1.1',
             tls_mode: 'plaintext',
             clusters: clusterItems,
-            metrics: { requests: 0, failures: 0, in_flight: 0, p95_ms: 8, error_rate_pct: 0.0 },
+            metrics: { requests: 0, failures: 0, in_flight: 0, p95_ms: 0, error_rate_pct: 0.0 },
             policies: route.policies || [],
             replace_prefix_match: route.replace_prefix_match || null,
             health_ratio: '1/1',
@@ -7500,7 +7532,7 @@
 
       return {
         kpis: {
-          total_services: Math.max(domainsSet.size, 1),
+          total_services: domainsSet.size,
           total_routes: unified.length,
           healthy_endpoints: totalHealthyEps,
           total_endpoints: totalAllEps,
@@ -7972,8 +8004,20 @@
       return (svcData && svcData.services) ? svcData.services : [];
     }
 
+    function renderConfiguration() {
+      const viewer = $('config-json-viewer');
+      if (!viewer) return;
+      const config = state.config || {};
+      viewer.textContent = JSON.stringify(config, null, 2);
+      const copyBtn = $('config-copy-btn');
+      if (copyBtn) {
+        copyBtn.textContent = uiText('Copy JSON', '复制 JSON');
+        copyBtn.onclick = () => copyText(JSON.stringify(config, null, 2));
+      }
+    }
+
     function render() {
-      const renderers = { services: renderServices, llm: renderLlm, mcp: renderMcp, a2a: renderA2a, observability: renderObservability, security: renderSecurity, 'cost-control': renderCost };
+      const renderers = { services: renderServices, llm: renderLlm, mcp: renderMcp, a2a: renderA2a, observability: renderObservability, security: renderSecurity, 'cost-control': renderCost, configuration: renderConfiguration };
       if (renderers[state.tab]) {
         renderers[state.tab]();
         updatePageChrome();
@@ -8035,514 +8079,7 @@
       applyPageFilter();
     }
 
-    function renderLlm() {
-      const config = state.config || {};
-      const cost = state.cost || {};
-      const backends = config.backends || [];
-      const routes = config.routes || [];
-      const policies = config.policies || [];
-      const listeners = config.listeners || [];
-      const llmBackends = backends.filter((b) => b.type === 'llm');
-      const llmRoutes = routes.filter((r) => r.protocol === 'llm' || (r.weighted_backends && r.weighted_backends.some((wb) => llmBackends.some((lb) => lb.name === wb.name))));
-
-      // 1. Route Selector & Active Route
-      const routeSelect = $('llm-route-select');
-      if (routeSelect) {
-        const routeNames = llmRoutes.length ? llmRoutes.map((r) => r.name) : ['chat-completions'];
-        const currentRoute = state.llmRoute && routeNames.includes(state.llmRoute) ? state.llmRoute : routeNames[0];
-        state.llmRoute = currentRoute;
-        const key = routeNames.join('|');
-        if (routeSelect.dataset.key !== key) {
-          routeSelect.innerHTML = routeNames.map((name) => '<option value="' + esc(name) + '">' + esc(name) + '</option>').join('');
-          routeSelect.dataset.key = key;
-        }
-        routeSelect.value = currentRoute;
-        if (!routeSelect.dataset.ready) {
-          routeSelect.dataset.ready = '1';
-          routeSelect.addEventListener('change', () => {
-            state.llmRoute = routeSelect.value;
-            renderLlm();
-          });
-        }
-      }
-
-      const activeRoute = llmRoutes.find((r) => r.name === state.llmRoute) || {
-        name: state.llmRoute || 'chat-completions',
-        weighted_backends: [
-          { name: 'openai:gpt-4o', weight: 70 },
-          { name: 'anthropic:claude-3-5-sonnet', weight: 20 },
-          { name: 'azure:gpt-4o', weight: 10 }
-        ],
-        policies: ['token-budget', 'edge-auth']
-      };
-
-      const attachedPolicies = (activeRoute.policies || []).map((pName) => policies.find((p) => p.name === pName) || { name: pName });
-      const rateLimitPolicy = attachedPolicies.find((p) => p.rate_limit) || attachedPolicies[0] || {};
-      const authPolicy = attachedPolicies.find((p) => p.auth) || {};
-
-      // 2. Compute KPI Metrics
-      let totalUsageReqs = 0;
-      let totalTokens = 0;
-      (cost.usage || []).forEach((u) => {
-        totalUsageReqs += (u.requests || 0);
-        totalTokens += (u.prompt_tokens || 0) + (u.completion_tokens || 0);
-      });
-      if (cost.local_total) totalTokens += cost.local_total;
-
-      const displayReqs = totalUsageReqs > 0 ? compactNum(totalUsageReqs) : '1.24M';
-      const displayTokens = totalTokens > 0 ? compactNum(totalTokens) : '2.73B';
-      const displayCost = (cost.api_usd && cost.api_usd !== '$0') ? cost.api_usd : '$4,182.67';
-
-      if ($('llm-kpi-requests')) $('llm-kpi-requests').textContent = displayReqs;
-      if ($('llm-kpi-tokens')) $('llm-kpi-tokens').textContent = displayTokens;
-      if ($('llm-kpi-cost')) $('llm-kpi-cost').textContent = displayCost;
-
-      // 3. Live Request Path Data Plane
-      if ($('fc-client-route')) $('fc-client-route').textContent = activeRoute.name;
-      if ($('fc-gw-route')) $('fc-gw-route').textContent = activeRoute.name;
-      if ($('fc-policy-route')) $('fc-policy-route').textContent = '(route: ' + activeRoute.name + ')';
-
-      const listener = listeners[0] || { bind: '0.0.0.0:443' };
-      if ($('fc-listener')) $('fc-listener').textContent = listener.bind.replace('0.0.0.0:', 'https:').replace('127.0.0.1:', 'http:');
-      if ($('fc-auth')) $('fc-auth').textContent = (authPolicy.auth && authPolicy.auth.type) || 'service-account';
-
-      const timeoutMs = rateLimitPolicy.timeout_ms || 30000;
-      const retryAttempts = (rateLimitPolicy.retry && rateLimitPolicy.retry.attempts) || 2;
-      const rateLimitVal = rateLimitPolicy.rate_limit ? (rateLimitPolicy.rate_limit.requests + ' / ' + rateLimitPolicy.rate_limit.window_seconds + 's') : '312 / 10k RPM';
-
-      if ($('fc-timeout')) $('fc-timeout').textContent = Math.round(timeoutMs / 1000) + 's';
-      if ($('fc-retry')) $('fc-retry').textContent = retryAttempts + ' attempts';
-      if ($('fc-rate-pass')) $('fc-rate-pass').textContent = 'pass (' + rateLimitVal + ')';
-
-      const weightedBackends = (activeRoute.weighted_backends && activeRoute.weighted_backends.length)
-        ? activeRoute.weighted_backends
-        : [
-          { name: 'openai:gpt-4o', weight: 70 },
-          { name: 'anthropic:claude-3-5-sonnet', weight: 20 },
-          { name: 'azure:gpt-4o', weight: 10 }
-        ];
-
-      const colors = ['dot-blue', 'dot-cyan', 'dot-amber', 'dot-purple'];
-      const stratListEl = $('fc-strat-list');
-      if (stratListEl) {
-        stratListEl.innerHTML = weightedBackends.map((wb, idx) => {
-          const dot = colors[idx % colors.length];
-          return '<div class="strat-item"><span class="' + dot + '"></span> <span class="name">' + esc(wb.name) + '</span> <span class="pct">' + (wb.weight || 0) + '%</span></div>';
-        }).join('');
-      }
-
-      // 4. Build Dynamic Account Dataset (CLIProxyAPI Schema Alignment)
-      // Base accounts across: Codex (3), Claude (2), Gemini (1), xAI (1), 自建算力 (1) = 8 total
-      const exampleAccounts = [
-        {
-          id: 'codex-team-01',
-          name: 'codex-team-01',
-          category: 'Codex',
-          providerName: 'OpenAI / Codex',
-          models: ['gpt-5', 'gpt-4o'],
-          accountType: 'subscription',
-          priority: 1,
-          status: 'active',
-          supportsQuota: true,
-          observedAt: '刚刚 (10:24:30)',
-          credits: 3420,
-          resetCards: 2,
-          windows: [
-            { name: 'primary', window: '5h', used_percent: 42, reset_at: '01:32', reset_after_seconds: 5520, source: 'provider' },
-            { name: 'weekly', window: '7d', used_percent: 18, reset_at: '4d 06h', reset_after_seconds: 367200, source: 'provider' }
-          ]
-        },
-        {
-          id: 'sub-codex-team-02',
-          name: 'sub-codex-team-02',
-          category: 'Codex',
-          providerName: 'OpenAI / Codex',
-          models: ['gpt-5'],
-          accountType: 'subscription',
-          priority: 1,
-          status: 'cooling',
-          supportsQuota: true,
-          observedAt: '1分钟前 (10:23:15)',
-          credits: 5110,
-          resetCards: 0,
-          windows: [
-            { name: 'primary', window: '5h', used_percent: 96, reset_at: '00:02', reset_after_seconds: 135, source: 'provider' },
-            { name: 'weekly', window: '7d', used_percent: 64, reset_at: '2d 11h', reset_after_seconds: 212400, source: 'provider' }
-          ]
-        },
-        {
-          id: 'codex-individual',
-          name: 'codex-individual',
-          category: 'Codex',
-          providerName: 'OpenAI / Codex',
-          models: ['gpt-5-mini', 'gpt-4o'],
-          accountType: 'subscription',
-          priority: 2,
-          status: 'active',
-          supportsQuota: true,
-          observedAt: '3分钟前 (10:21:40)',
-          credits: 1250,
-          resetCards: 1,
-          windows: [
-            { name: 'primary', window: '5h', used_percent: 12, reset_at: '04:10', reset_after_seconds: 15000, source: 'provider' },
-            { name: 'weekly', window: '7d', used_percent: 8, reset_at: '6d 18h', reset_after_seconds: 583200, source: 'provider' }
-          ]
-        },
-        {
-          id: 'claude-pro-team',
-          name: 'claude-pro-team',
-          category: 'Claude',
-          providerName: 'Anthropic / Claude',
-          models: ['claude-3-5-sonnet', 'claude-3-opus'],
-          accountType: 'subscription',
-          priority: 1,
-          status: 'active',
-          supportsQuota: true,
-          observedAt: '刚刚 (10:24:18)',
-          credits: 4890,
-          resetCards: 1,
-          windows: [
-            { name: 'primary', window: '5h', used_percent: 35, reset_at: '02:45', reset_after_seconds: 9900, source: 'provider' },
-            { name: 'weekly', window: '7d', used_percent: 22, reset_at: '3d 12h', reset_after_seconds: 302400, source: 'provider' }
-          ]
-        },
-        {
-          id: 'claude-official',
-          name: 'claude-official',
-          category: 'Claude',
-          providerName: 'Anthropic',
-          models: ['claude-3-5-sonnet'],
-          accountType: 'api-key',
-          priority: 2,
-          status: 'standby',
-          supportsQuota: true,
-          observedAt: '5分钟前 (10:19:22)',
-          spend: '$12.40',
-          budget: '$100.00',
-          budgetUsedPct: 12,
-          rpm: '2,000',
-          tpm: '160,000',
-          leases: 0,
-          p95: '1.67s',
-          err: '0.11%'
-        },
-        {
-          id: 'gemini-1.5-pro',
-          name: 'gemini-1.5-pro',
-          category: 'Gemini',
-          providerName: 'Google Vertex AI',
-          models: ['gemini-1.5-pro', 'gemini-1.5-flash'],
-          accountType: 'api-key',
-          priority: 2,
-          status: 'active',
-          supportsQuota: false, // Explicitly false - NO fake 0%
-          observedAt: '刚刚 (10:24:35)',
-          reqCount: '14,290 次',
-          tokenThroughput: '12.8M tokens',
-          rtt: '38 ms',
-          healthStatus: 'Healthy (HTTP 200)'
-        },
-        {
-          id: 'xai-grok-payg',
-          name: 'xai-grok-payg',
-          category: 'xAI',
-          providerName: 'xAI / Grok',
-          models: ['grok-2', 'grok-2-mini'],
-          accountType: 'api-key',
-          priority: 2,
-          status: 'active',
-          supportsQuota: false, // Explicitly false - NO fake 0%
-          observedAt: '2分钟前 (10:22:45)',
-          reqCount: '5,120 次',
-          tokenThroughput: '4.3M tokens',
-          rtt: '45 ms',
-          healthStatus: 'Healthy (HTTP 200)'
-        },
-        {
-          id: 'vllm-deepseek-r1',
-          name: 'vllm-deepseek-r1',
-          category: '自建算力',
-          providerName: 'vLLM GPU Cluster',
-          models: ['deepseek-r1', 'deepseek-v3'],
-          accountType: 'self-hosted',
-          priority: 1,
-          status: 'active',
-          supportsQuota: true,
-          observedAt: '刚刚 (10:24:41)',
-          endpoint: 'http://vllm-cluster:8000/v1',
-          concurrencyCurrent: 38,
-          concurrencyMax: 64,
-          concurrencyPct: 59,
-          queueLatency: '42 ms',
-          promptCache: '78.4%'
-        }
-      ];
-
-      const accountProfiles = state.showExamples ? exampleAccounts.map(a => ({ ...a, example: true })) : llmBackends.map(b => {
-        const provider = (config.providers || []).find(p => p.name === b.provider);
-        const category = b.provider || (b.account_type === 'self-hosted' ? uiText('Self-hosted', '自建算力') : uiText('Unassigned', '未指定提供商'));
-        return {
-          id: b.name, name: b.name, category, providerName: provider?.name || category,
-          models: b.models || [], endpoint: b.endpoint || provider?.endpoint || '—',
-          accountType: b.account_type || 'unknown', status: b.quota_state?.status || 'configured',
-          observedAt: b.quota_state?.observed_at || '—', windows: b.quota_state?.windows || [],
-          resetCards: b.quota_state?.reset_cards, concurrencyMax: b.max_concurrency
-        };
-      });
-
-      // 5. Build Provider Tabs
-      const providerCategories = ['all', ...new Set(accountProfiles.map(a => a.category))];
-      if (!providerCategories.includes(window.selectedLlmProvider)) window.selectedLlmProvider = 'all';
-      const tabsEl = $('llm-provider-tabs');
-      if (tabsEl) {
-        tabsEl.innerHTML = providerCategories.map((cat) => {
-          const count = cat === 'all' ? accountProfiles.length : accountProfiles.filter((a) => a.category === cat).length;
-          const isActive = window.selectedLlmProvider === cat;
-          return '<button type="button" class="llm-provider-tab' + (isActive ? ' active' : '') + '" data-provider="' + esc(cat) + '" aria-pressed="' + isActive + '">'
-            + '<span>' + esc(cat === 'all' ? uiText('All providers', '全部提供商') : cat) + '</span>'
-            + '<span class="tab-badge">' + count + '</span>'
-            + '</button>';
-        }).join('');
-        tabsEl.querySelectorAll('button').forEach(button => { button.onclick = () => { filterLlmProvider(button.dataset.provider, button); applyPageFilter(); }; });
-      }
-
-      // 6. Filter Accounts according to Selected Tab
-      const currentFilter = window.selectedLlmProvider || 'all';
-      const filteredAccounts = (currentFilter === 'all' || currentFilter === '全部')
-        ? accountProfiles
-        : accountProfiles.filter((a) => a.category === currentFilter);
-
-      // 7. Update Provider Summary Banner
-      const summaryNameEl = $('llm-provider-summary-name');
-      const summaryDescEl = $('llm-provider-summary-desc');
-      const chipActive = $('chip-active');
-      const chipCooling = $('chip-cooling');
-      const chipStandby = $('chip-standby');
-
-      const activeCount = filteredAccounts.filter((a) => a.status === 'active').length;
-      const coolingCount = filteredAccounts.filter((a) => a.status === 'cooling').length;
-      const standbyCount = filteredAccounts.filter((a) => a.status === 'standby').length;
-      const stoppedCount = filteredAccounts.filter((a) => a.status === 'stopped').length;
-
-      if (summaryNameEl) {
-        const catLabel = (currentFilter === 'all' || currentFilter === '全部') ? '全部 Provider' : currentFilter;
-        summaryNameEl.textContent = catLabel + ' 账号池 (' + filteredAccounts.length + ')';
-      }
-      if (summaryDescEl) {
-        if (currentFilter === 'Codex' || currentFilter === 'Claude') {
-          summaryDescEl.textContent = '支持 CLIProxyAPI 5h / 7d 多窗口滑动配额观测，结合冷却时间戳与快速重置卡进行动态优先调度';
-        } else if (currentFilter === '自建算力') {
-          summaryDescEl.textContent = '私有化 vLLM / SGLang GPU 算力集群，实时上报在途并发、排队延迟与 KV 缓存复用率';
-        } else if (currentFilter === 'Gemini' || currentFilter === 'xAI') {
-          summaryDescEl.textContent = '云端 API 按量接入模式：网关基于 HTTP 探活、实时 RTT 及本地 Token 计数器实施健康管理';
-        } else {
-          summaryDescEl.textContent = '统一调度多上游提供商：区分订阅额度滑动窗口、自建 GPU 算力及云端 API，消除虚假数据展示';
-        }
-      }
-      if (chipActive) chipActive.textContent = '正常: ' + activeCount;
-      if (chipCooling) chipCooling.textContent = '冷却: ' + coolingCount;
-      if (chipStandby) chipStandby.textContent = '备用: ' + (standbyCount + stoppedCount);
-
-      // 8. Render Account Cards Grid
-      const accountsGrid = $('llm-accounts-grid');
-      if (accountsGrid) {
-        accountsGrid.innerHTML = filteredAccounts.map((acc) => {
-          let statusPillHtml = '<span class="status-pill healthy">' + uiText('Active', '正常') + '</span>';
-          if (acc.status === 'cooling') {
-            statusPillHtml = '<span class="status-pill cooling">Cooling (429 冷却)</span>';
-          } else if (acc.status === 'standby') {
-            statusPillHtml = '<span class="status-pill standby">Standby (备用)</span>';
-          } else if (acc.status === 'stopped') {
-            statusPillHtml = '<span class="status-pill down">已停用</span>';
-          } else if (acc.status !== 'active') {
-            statusPillHtml = '<span class="status-pill configured">' + esc(acc.status === 'configured' ? uiText('Configured', '已配置') : acc.status) + '</span>';
-          }
-
-          let typeBadgeClass = 'subscription';
-          let typeBadgeText = uiText('Subscription', '订阅型');
-          if (acc.accountType === 'api-key') {
-            typeBadgeClass = 'api-key';
-            typeBadgeText = uiText('API key', 'API 按量');
-          } else if (acc.accountType === 'self-hosted') {
-            typeBadgeClass = 'self-hosted';
-            typeBadgeText = uiText('Self-hosted', '自建算力');
-          } else if (acc.accountType === 'unknown') {
-            typeBadgeClass = 'api-key';
-            typeBadgeText = uiText('Type not reported', '接入方式未上报');
-          }
-
-          let bodyHtml = '';
-
-          // Case A: Subscription with dynamic quota windows
-          if (!acc.example) {
-            bodyHtml = acc.windows.map(w => {
-              const known = Number.isFinite(w.used_percent);
-              const used = known ? Math.max(0, Math.min(100, w.used_percent)) : null;
-              return '<div class="quota-window-item"><div class="quota-window-label-row"><span>' + esc(w.window || w.name) + '</span><span>' + (known ? used + '% ' + uiText('used', '已用') : '—') + '</span></div>'
-                + (known ? '<div class="quota-bar-wrap"><div class="quota-bar-fill ' + (used >= 90 ? 'danger' : used >= 70 ? 'warning' : 'normal') + '" style="width:' + used + '%"></div></div>' : '')
-                + '<div class="quota-window-meta"><span>' + uiText('Resets', '重置时间') + '</span><span>' + esc(w.reset_at ?? (w.reset_after_seconds != null ? w.reset_after_seconds + 's' : '—')) + '</span></div></div>';
-            }).join('');
-            if (!acc.windows.length) bodyHtml = '<div class="quota-unsupported-banner"><span class="unsupported-title">' + uiText('Quota not reported', '暂无额度观测数据') + '</span><span class="unsupported-desc">' + uiText('Only reported windows are displayed. Missing data does not mean zero usage or unlimited quota.', '仅显示已上报的窗口，缺少数据不代表用量为零或额度无限。') + '</span></div>';
-            if (typeof acc.resetCards === 'number') bodyHtml += '<div class="reset-cards-box"><span>' + uiText('Reset cards', '重置卡') + '</span><span class="reset-cards-count">' + acc.resetCards + '</span></div>';
-            bodyHtml += '<div class="llm-stat-row"><span class="llm-stat-k">Endpoint</span><span class="llm-stat-v code">' + esc(acc.endpoint) + '</span></div>';
-            if (acc.concurrencyMax != null) bodyHtml += '<div class="llm-stat-row"><span class="llm-stat-k">' + uiText('Configured concurrency limit', '配置并发上限') + '</span><span class="llm-stat-v">' + esc(acc.concurrencyMax) + '</span></div>';
-          } else if (acc.accountType === 'subscription' && acc.windows && acc.windows.length > 0) {
-            const windowsHtml = acc.windows.map((w) => {
-              const usedPct = Math.min(100, Math.max(0, w.used_percent || 0));
-              const fillClass = usedPct >= 90 ? 'danger' : (usedPct >= 70 ? 'warning' : 'normal');
-              const wTitle = w.name === 'primary' ? (w.window + ' 主窗口 (Primary)') : (w.window + ' 周度限额 (Weekly)');
-              return '<div class="quota-window-item">'
-                + '<div class="quota-window-label-row"><span>' + esc(wTitle) + '</span><span>' + usedPct + '% 已用</span></div>'
-                + '<div class="quota-bar-wrap"><div class="quota-bar-fill ' + fillClass + '" style="width:' + usedPct + '%;"></div></div>'
-                + '<div class="quota-window-meta"><span>重置时间 / 倒计时</span><span>' + esc(w.reset_at || '- ') + '</span></div>'
-                + '</div>';
-            }).join('');
-
-            const resetCardsVal = typeof acc.resetCards === 'number' ? acc.resetCards : 0;
-            const resetCardsHtml = '<div class="reset-cards-box">'
-              + '<span>快速重置机会 (Reset Cards)</span>'
-              + '<span class="reset-cards-count">' + resetCardsVal + ' 张可用 (可立即解除5h冷却)</span>'
-              + '</div>';
-
-            bodyHtml = '<div class="quota-window-section">'
-              + windowsHtml
-              + resetCardsHtml
-              + '<div class="llm-stat-row"><span class="llm-stat-k">OAuth 凭据状态</span><span class="llm-stat-v" style="color:#10b981;">有效 (有效期剩余 28天)</span></div>'
-              + '<div class="llm-stat-row"><span class="llm-stat-k">积分累计消耗</span><span class="llm-stat-v">' + (acc.credits ? acc.credits.toLocaleString() : '0') + ' credits</span></div>'
-              + '</div>';
-          }
-          // Case B: API Key (with or without quota observation)
-          else if (acc.accountType === 'api-key') {
-            if (acc.supportsQuota === false) {
-              // Truthful display: No fake 0% cards
-              bodyHtml = '<div class="quota-unsupported-banner">'
-                + '<span class="unsupported-title">该 Provider 未开放额度观测接口</span>'
-                + '<span class="unsupported-desc">上游未提供实时配额查询接口。网关通过 HTTP 状态探活、实时 RTT 延迟及本地 Token 计数器进行健康评估与负载调度。</span>'
-                + '</div>'
-                + '<div class="llm-stat-row"><span class="llm-stat-k">已路由请求</span><span class="llm-stat-v">' + esc(acc.reqCount) + '</span></div>'
-                + '<div class="llm-stat-row"><span class="llm-stat-k">累计 Token 吞吐</span><span class="llm-stat-v">' + esc(acc.tokenThroughput) + '</span></div>'
-                + '<div class="llm-stat-row"><span class="llm-stat-k">探活与往返延迟</span><span class="llm-stat-v" style="color:#10b981;">' + esc(acc.healthStatus) + ' · ' + esc(acc.rtt) + '</span></div>'
-                + '<div class="llm-stat-row"><span class="llm-stat-k">凭据与鉴权</span><span class="llm-stat-v code">Bearer API-Key (VaultRef)</span></div>';
-            } else {
-              // API Key with budget spend
-              const budgetPct = acc.budgetUsedPct || 12;
-              const fillClass = budgetPct >= 90 ? 'danger' : (budgetPct >= 70 ? 'warning' : 'normal');
-              bodyHtml = '<div class="quota-window-item">'
-                + '<div class="quota-window-label-row"><span>月度预算消耗 (Monthly Spend)</span><span>' + esc(acc.spend) + ' / ' + esc(acc.budget) + ' (' + budgetPct + '%)</span></div>'
-                + '<div class="quota-bar-wrap"><div class="quota-bar-fill ' + fillClass + '" style="width:' + budgetPct + '%;"></div></div>'
-                + '</div>'
-                + '<div class="llm-stat-row"><span class="llm-stat-k">限速指标 (RPM / TPM)</span><span class="llm-stat-v">' + esc(acc.rpm) + ' RPM · ' + esc(acc.tpm) + ' TPM</span></div>'
-                + '<div class="llm-stat-row"><span class="llm-stat-k">在途并发租约 (Leases)</span><span class="llm-stat-v">' + acc.leases + ' leases (空闲)</span></div>'
-                + '<div class="llm-stat-row"><span class="llm-stat-k">SLA 质量指标</span><span class="llm-stat-v">P95 ' + esc(acc.p95) + ' · 错误率 ' + esc(acc.err) + '</span></div>';
-            }
-          }
-          // Case C: Self-Hosted GPU Cluster
-          else if (acc.accountType === 'self-hosted') {
-            const concPct = acc.concurrencyPct || 59;
-            const fillClass = concPct >= 90 ? 'danger' : (concPct >= 75 ? 'warning' : 'normal');
-            bodyHtml = '<div class="quota-window-item">'
-              + '<div class="quota-window-label-row"><span>GPU 并发使用率 (Concurrency)</span><span>' + acc.concurrencyCurrent + ' / ' + acc.concurrencyMax + ' (' + concPct + '%)</span></div>'
-              + '<div class="quota-bar-wrap"><div class="quota-bar-fill ' + fillClass + '" style="width:' + concPct + '%;"></div></div>'
-              + '</div>'
-              + '<div class="llm-stat-row"><span class="llm-stat-k">服务节点 Endpoint</span><span class="llm-stat-v code">' + esc(acc.endpoint || 'http://vllm-cluster:8000/v1') + '</span></div>'
-              + '<div class="llm-stat-row"><span class="llm-stat-k">队列等待延迟</span><span class="llm-stat-v">' + esc(acc.queueLatency) + '</span></div>'
-              + '<div class="llm-stat-row"><span class="llm-stat-k">KV Prompt 缓存命中</span><span class="llm-stat-v" style="color:#10b981;">' + esc(acc.promptCache) + '</span></div>';
-          }
-
-          const modelsTag = (acc.models && acc.models.length) ? acc.models.join(', ') : '—';
-
-          return '<div class="llm-account-card" id="card-' + esc(acc.id) + '"><div class="llm-account-header">'
-            + '<div class="llm-account-header-top">'
-            + '<div class="llm-account-name-group">'
-            + '<span>' + esc(acc.name) + '</span>'
-            + (acc.priority != null ? '<span class="priority-tag">P' + acc.priority + '</span>' : '')
-            + '<span class="type-badge ' + typeBadgeClass + '">' + typeBadgeText + '</span>'
-            + '</div>'
-            + statusPillHtml
-            + '</div>'
-            + '<div class="llm-account-header-sub">'
-            + '<span>' + esc(acc.providerName) + '</span>'
-            + '<span class="code" style="font-size:11px;">' + esc(modelsTag) + '</span>'
-            + '</div>'
-            + '</div>'
-            + '<div class="llm-account-body">' + bodyHtml + '</div>'
-            + '<div class="llm-account-footer">'
-            + '<span class="llm-observed-at">' + uiText('Observed: ', '观测：') + esc(acc.observedAt) + '</span>'
-            + '<div class="llm-account-actions">'
-            + '<button type="button" class="pool-action-btn action-test" onclick="unavailableAction()">' + uiText('Refresh quota', '刷新额度') + '</button>'
-            + '<button type="button" class="pool-action-btn action-enable" onclick="unavailableAction()">' + uiText('Enable', '启用') + '</button>'
-            + '<button type="button" class="pool-action-btn action-stop" onclick="unavailableAction()">' + uiText('Stop', '停用') + '</button>'
-            + '</div>'
-            + '</div>'
-            + '</div>';
-        }).join('');
-      }
-
-      // 9. Render Provider Subcards in Live Request Path Flow Diagram
-      if (!filteredAccounts.length && accountsGrid) accountsGrid.innerHTML = '<div class="ui-empty"><strong>' + uiText('No accounts configured', '尚未配置账户') + '</strong>' + uiText('Add an LLM backend in the gateway configuration, or turn on Example data to preview account layouts.', '在网关配置中添加 LLM 后端，或开启示例数据预览账户布局。') + '</div>';
-      const providerCardsEl = $('fc-provider-cards');
-      if (providerCardsEl) {
-        const top3 = accountProfiles.slice(0, 3);
-        providerCardsEl.innerHTML = top3.map((m) => {
-          const isSelected = (state.activeLlmModel || 'gpt-4o') === m.models[0];
-          const statusCls = m.status === 'active' ? 'healthy' : (m.status === 'cooling' ? 'degraded' : 'healthy');
-          const typeLabel = m.accountType || 'subscription';
-          return '<div class="provider-subcard' + (isSelected ? ' active' : '') + '" data-model="' + esc(m.models[0]) + '">'
-            + '<div class="psc-top"><span class="psc-vendor">' + esc(m.providerName) + '</span><div style="display:flex;align-items:center;gap:4px;"><span class="type-badge ' + esc(typeLabel) + '">' + esc(typeLabel) + '</span><span class="priority-tag">P' + m.priority + '</span></div></div>'
-            + '<div class="psc-model">' + esc(m.models[0]) + '</div>'
-            + '<div class="psc-bottom"><span class="status-badge ' + statusCls + '">' + esc(m.status) + '</span><span class="psc-lat">P95 1.21s</span></div>'
-            + '</div>';
-        }).join('');
-
-        providerCardsEl.querySelectorAll('.provider-subcard').forEach((card) => {
-          card.addEventListener('click', () => {
-            selectModel(card.dataset.model);
-          });
-        });
-      }
-
-      function selectModel(modelName) {
-        state.activeLlmModel = modelName;
-        const panel = $('llm-detail-panel');
-        if (panel) {
-          const layout = $('llm-main-layout');
-          if (layout) layout.classList.remove('drawer-collapsed');
-        }
-      }
-
-      // 10. Toggle Live Flow and Drawer Listeners
-      const toggleFlowBtn = $('llm-toggle-flow-btn');
-      if (toggleFlowBtn && !toggleFlowBtn.dataset.ready) {
-        toggleFlowBtn.dataset.ready = '1';
-        toggleFlowBtn.addEventListener('click', () => {
-          const wrap = $('llm-flow-dropdown-wrap');
-          if (wrap) {
-            const isHidden = wrap.classList.toggle('hidden');
-            toggleFlowBtn.classList.toggle('active', !isHidden);
-            toggleFlowBtn.setAttribute('aria-expanded', isHidden ? 'false' : 'true');
-            const chevron = $('llm-flow-chevron');
-            if (chevron) chevron.textContent = isHidden ? '▼' : '▲';
-          }
-        });
-      }
-
-      const closeBtn = $('close-detail-btn');
-      if (closeBtn && !closeBtn.dataset.ready) {
-        closeBtn.dataset.ready = '1';
-        closeBtn.addEventListener('click', () => {
-          const layout = $('llm-main-layout');
-          if (layout) layout.classList.add('drawer-collapsed');
-        });
-      }
-
-      const tracesBtn = $('rd-view-traces');
-      if (tracesBtn && !tracesBtn.dataset.ready) {
-        tracesBtn.dataset.ready = '1';
-        tracesBtn.addEventListener('click', () => {
-          setTab('observability');
-        });
-      }
-    }
+    function renderLlm() { renderLlmWorkspace(); }
 
     function renderMcp() {
       const config = state.config || {};
@@ -8550,7 +8087,7 @@
 
       // 1. Initial Defaults
       if (!state.mcpSelectedServer) {
-        state.mcpSelectedServer = (mcpBackends[0] && mcpBackends[0].name) || 'github-mcp';
+        state.mcpSelectedServer = (mcpBackends[0] && mcpBackends[0].name) || '';
       }
       if (typeof state.mcpSelectedInvIdx !== 'number') {
         state.mcpSelectedInvIdx = 0;
@@ -8576,54 +8113,19 @@
       }
 
       // 2. MCP Target Servers Dataset Assembly
-      const defaultServers = [
-        {
-          name: 'github-mcp',
-          endpoint: 'http://github-mcp.internal:8080/mcp',
-          transport: 'Streamable HTTP',
-          sessionMode: 'Stateful (mcp-session-id)',
-          health: 'Connected',
-          toolsCount: 12,
-          resCount: 2,
-          promptCount: 2,
-          lastHandshake: '14:32:18 (RTT: 14ms)'
-        },
-        {
-          name: 'database-mcp',
-          endpoint: 'http://postgres-mcp.internal:8080/sse',
-          transport: 'HTTP SSE',
-          sessionMode: 'Stateful (mcp-session-id)',
-          health: 'Connected',
-          toolsCount: 8,
-          resCount: 1,
-          promptCount: 1,
-          lastHandshake: '14:31:54 (RTT: 22ms)'
-        },
-        {
-          name: 'filesystem-mcp',
-          endpoint: 'stdio://chroot/workspace',
-          transport: 'stdio (sandbox)',
-          sessionMode: 'Stateless (per-process bridge)',
-          health: 'Connected',
-          toolsCount: 6,
-          resCount: 1,
-          promptCount: 1,
-          lastHandshake: '14:31:10 (RTT: 6ms)'
-        }
-      ];
-
       const serverMap = new Map();
-      if (state.showExamples) defaultServers.forEach((s) => serverMap.set(s.name, s));
-
-      // Incorporate real mcpBackends from config
-      (state.showExamples ? [] : mcpBackends).forEach((b) => {
+      mcpBackends.forEach((b) => {
         if (!serverMap.has(b.name)) {
           serverMap.set(b.name, {
             name: b.name,
             endpoint: b.endpoint || '—',
             transport: b.endpoint?.split(':')[0]?.toUpperCase() || '—',
-            sessionMode: '—', health: uiText('Not probed', '未探测'),
-            toolsCount: (b.tools || []).length, resCount: '—', promptCount: '—', lastHandshake: '—'
+            sessionMode: '—',
+            health: uiText('Not probed', '未探测'),
+            toolsCount: (b.tools || []).length,
+            resCount: (b.resources || []).length,
+            promptCount: (b.prompts || []).length,
+            lastHandshake: '—'
           });
         }
       });
@@ -8643,7 +8145,7 @@
         state.mcpSelectedServer = curServer.name;
       }
       $('mcp-target-inspector').classList.toggle('hidden', !allServers.length);
-      $('mcp-target-inspector-health').innerHTML = '<span class="status-pill ' + (state.showExamples ? 'healthy' : 'unknown') + '">' + esc(curServer.health || '—') + '</span>';
+      $('mcp-target-inspector-health').innerHTML = '<span class="status-pill ' + (curServer.health === 'Connected' ? 'healthy' : 'unknown') + '">' + esc(curServer.health || '—') + '</span>';
 
       // Render Target Servers Table (id="mcp-servers-table" preserved for tests)
       const tbodyTargets = $('tbody-mcp-target-servers');
@@ -8655,7 +8157,7 @@
             + '<td class="code">' + esc(s.transport) + '</td>'
             + '<td class="code muted">' + esc(s.sessionMode) + '</td>'
             + '<td class="bold">' + esc(s.toolsCount) + ' tools</td>'
-            + '<td><span class="status-pill ' + (state.showExamples ? 'healthy' : 'unknown') + '">' + esc(s.health) + '</span></td>'
+            + '<td><span class="status-pill ' + (s.health === 'Connected' ? 'healthy' : 'unknown') + '">' + esc(s.health) + '</span></td>'
             + '</tr>';
         }).join('');
       }
@@ -8673,62 +8175,16 @@
       if ($('mcp-target-inspector-last-handshake')) $('mcp-target-inspector-last-handshake').textContent = curServer.lastHandshake;
 
       // 3. Discovered Capabilities Dataset Assembly
-      const allCapabilities = {
-        'github-mcp': {
-          tools: [
-            { name: 'search_repos', desc: '搜索 organization 或 public 代码仓库', schema: '{"q": "string", "sort": "stars"}', risk: 'Unclassified', policy: 'Allowed (直接放行)' },
-            { name: 'create_repository', desc: '创建新的组织或团队代码仓库', schema: '{"name": "string", "private": "boolean"}', risk: 'High', policy: 'Manual Approval (需审批)' },
-            { name: 'create_issue', desc: '创建 GitHub Issue 工单与标签关联', schema: '{"repo": "string", "title": "string"}', risk: 'Medium', policy: 'Allowed (直接放行)' },
-            { name: 'push_files', desc: '向指定 Git 分支提交并推送文件变更', schema: '{"branch": "string", "files": "array"}', risk: 'High', policy: 'Scoped Access (范围限制)' },
-            { name: 'list_pull_requests', desc: '列出仓库内开启状态的 Pull Requests', schema: '{"repo": "string", "state": "open"}', risk: 'Unclassified', policy: 'Allowed (直接放行)' },
-            { name: 'merge_pull_request', desc: '合并目标 PR (Squash / Rebase)', schema: '{"pr_id": "number"}', risk: 'High', policy: 'Manual Approval (需审批)' }
-          ],
-          resources: [
-            { uri: 'repo://dxgate/issues', desc: '实时 GitHub Issues 数据流', mime: 'application/json', policy: 'Allowed' },
-            { uri: 'repo://dxgate/readme', desc: '主干分支项目 README 文档', mime: 'text/markdown', policy: 'Allowed' }
-          ],
-          prompts: [
-            { name: 'review_pull_request', desc: '针对 PR Diff 生成结构化代码审查报告', args: 'pr_number: int, focus: string', policy: 'Allowed' },
-            { name: 'summarize_issues', desc: '按严重级别汇总本周未解决 Issues', args: 'time_window: string', policy: 'Allowed' }
-          ]
-        },
-        'database-mcp': {
-          tools: [
-            { name: 'query_read', desc: '执行只读 SQL 查询 (SELECT 语句严格校验)', schema: '{"sql": "string", "max_rows": 100}', risk: 'Low', policy: 'Read-Only Guard (只读拦截器)' },
-            { name: 'list_tables', desc: '列出当前 Schema 内所有可见的数据表与视图', schema: '{"schema": "public"}', risk: 'Unclassified', policy: 'Allowed (直接放行)' },
-            { name: 'describe_table', desc: '查询目标表的字段定义、数据类型与主外键约束', schema: '{"table": "string"}', risk: 'Unclassified', policy: 'Allowed (直接放行)' }
-          ],
-          resources: [
-            { uri: 'db://postgres/schema', desc: '动态数据库 Schema DDL 导出定义', mime: 'application/sql', policy: 'Allowed' }
-          ],
-          prompts: [
-            { name: 'sql_explain', desc: '针对慢查询生成 EXPLAIN ANALYZE 调优分析报告', args: 'query_id: string', policy: 'Allowed' }
-          ]
-        },
-        'filesystem-mcp': {
-          tools: [
-            { name: 'read_file', desc: '读取沙箱受限目录内的文件文本内容', schema: '{"path": "string"}', risk: 'Low', policy: 'Chroot Guard (目录沙箱)' },
-            { name: 'write_file', desc: '在沙箱允许路径内写入或追加文件', schema: '{"path": "string", "content": "string"}', risk: 'High', policy: 'Sandbox Chroot (写入审计)' },
-            { name: 'list_directory', desc: '递归列出目录文件清单与属性', schema: '{"dir": "string", "depth": 2}', risk: 'Unclassified', policy: 'Allowed (直接放行)' }
-          ],
-          resources: [
-            { uri: 'file:///workspace/logs', desc: '沙箱容器标准执行日志流', mime: 'text/plain', policy: 'Allowed' }
-          ],
-          prompts: [
-            { name: 'diff_files', desc: '比对两个代码文件的 Unified Diff 变更', args: 'file_a: string, file_b: string', policy: 'Allowed' }
-          ]
-        }
-      };
-
       const configuredServer = mcpBackends.find(b => b.name === curServer.name);
-      const curCapSet = state.showExamples ? (allCapabilities[curServer.name] || { tools: [], resources: [], prompts: [] }) : {
+      const curCapSet = {
         tools: (configuredServer?.tools || []).map(name => ({ name, desc: uiText('Declared in configuration', '配置声明的工具'), schema: '—', risk: 'Unclassified', policy: '—' })),
-        resources: [], prompts: []
+        resources: (configuredServer?.resources || []).map(uri => ({ uri, desc: uiText('Declared resource', '配置声明的资源'), mime: '—', policy: '—' })),
+        prompts: (configuredServer?.prompts || []).map(name => ({ name, desc: uiText('Declared prompt', '配置声明的提示词'), args: '—', policy: '—' }))
       };
       const activeTab = window.mcpCapActiveTab || 'tools';
 
       if ($('mcp-cap-panel-title')) {
-        $('mcp-cap-panel-title').textContent = curServer.name + ' · ' + (state.showExamples ? uiText('Example capabilities', '示例能力目录') : uiText('Configured capabilities', '配置声明的能力'));
+        $('mcp-cap-panel-title').textContent = curServer.name + ' · ' + uiText('Configured capabilities', '配置声明的能力');
       }
 
       // Update Capabilities Tab Buttons Text
@@ -8747,7 +8203,7 @@
           tbodyCap.innerHTML = items.map((t) => {
             const riskCls = t.risk.toLowerCase();
             return '<tr>'
-              + '<td class="code bold">' + esc(state.showExamples ? curServer.name + '__' + t.name : t.name) + '</td>'
+              + '<td class="code bold">' + esc(t.name) + '</td>'
               + '<td>' + esc(t.desc) + '</td>'
               + '<td><code style="font-size:10.5px;color:var(--muted);">' + esc(t.schema) + '</code></td>'
               + '<td><span class="risk-badge ' + riskCls + '">' + esc(t.risk) + '</span></td>'
@@ -8784,80 +8240,7 @@
       // 4. Invocations Dataset & Detail Inspector Assembly
       if (!tbodyCap.children.length) tbodyCap.innerHTML = emptyRow(5, uiText('No capability data for this selection.', '当前选择暂无能力数据。'));
 
-      const exampleInvocations = [
-        {
-          id: 'inv_001',
-          time: '14:32:18',
-          method: 'tools/call',
-          server: 'github-mcp',
-          op: 'search_repos',
-          caller: 'agent:dev-tools',
-          session: 'sess_01HZX8Y3A1ZK8',
-          status: '200 OK',
-          duration: '342ms',
-          policy: 'Allowed',
-          trace: '00-4bf92f3577b34da6a3ce929d0e0e4736',
-          args: '{\n  "q": "dxgate proxy",\n  "sort": "stars"\n}'
-        },
-        {
-          id: 'inv_002',
-          time: '14:32:05',
-          method: 'tools/call',
-          server: 'github-mcp',
-          op: 'create_repository',
-          caller: 'agent:release-bot',
-          session: 'sess_01HZX8Y3A1ZK8',
-          status: '403 Forbidden',
-          duration: '18ms',
-          policy: 'Manual Approval Required',
-          trace: '00-77b3da6a3ce94da6a3ce929d0e0e4736',
-          args: '{\n  "name": "demo-repo",\n  "private": false\n}'
-        },
-        {
-          id: 'inv_003',
-          time: '14:31:40',
-          method: 'resources/read',
-          server: 'github-mcp',
-          op: 'repo://dxgate/readme',
-          caller: 'agent:doc-writer',
-          session: 'sess_01HZX8Y3A2ZK9',
-          status: '200 OK',
-          duration: '86ms',
-          policy: 'Allowed',
-          trace: '00-88e09f12ac114da6a3ce929d0e0e4736',
-          args: '{\n  "uri": "repo://dxgate/readme"\n}'
-        },
-        {
-          id: 'inv_004',
-          time: '14:31:12',
-          method: 'tools/call',
-          server: 'database-mcp',
-          op: 'query_read',
-          caller: 'agent:analytics',
-          session: 'sess_01HZX8Y3B1ZK1',
-          status: '200 OK',
-          duration: '45ms',
-          policy: 'Allowed',
-          trace: '00-99d14f33bb444da6a3ce929d0e0e4736',
-          args: '{\n  "sql": "SELECT count(*) FROM orders",\n  "max_rows": 100\n}'
-        },
-        {
-          id: 'inv_005',
-          time: '14:30:50',
-          method: 'tools/call',
-          server: 'filesystem-mcp',
-          op: 'write_file',
-          caller: 'agent:untrusted',
-          session: 'sess_01HZX8Y3C1ZK4',
-          status: '403 Denied',
-          duration: '12ms',
-          policy: 'Sandbox Chroot Violation',
-          trace: '00-aa129e77ff554da6a3ce929d0e0e4736',
-          args: '{\n  "path": "/etc/passwd"\n}'
-        }
-      ];
-
-      const allInvocations = state.showExamples ? exampleInvocations.filter(inv => inv.server === curServer.name) : [];
+      const allInvocations = [];
       $('mcp-invocations-badge').textContent = allInvocations.length + uiText(' records', ' 条记录');
       if (state.mcpSelectedInvIdx >= allInvocations.length) {
         state.mcpSelectedInvIdx = 0;
@@ -8943,25 +8326,13 @@
       }
 
       // 2. Agent Registry Dataset Assembly
-      const defaultAgents = [
-        { name: 'planner-agent', role: 'orchestrator', roleLabel: 'Orchestrator', team: 'Ecommerce', caps: ['planning', 'delegation', 'routing'], status: 'Healthy', tasks: 18, latency: '142ms', endpoint: 'grpc://planner.svc:6000', spiffe: 'spiffe://acme.internal/agent/planner' },
-        { name: 'order-service-agent', role: 'orchestrator', roleLabel: 'Orchestrator', team: 'Ecommerce', caps: ['create_order', 'cancel_order'], status: 'Healthy', tasks: 12, latency: '182ms', endpoint: 'grpc://order-svc.svc:6000', spiffe: 'spiffe://acme.internal/agent/order-svc' },
-        { name: 'inventory-agent', role: 'worker', roleLabel: 'Worker', team: 'Ecommerce', caps: ['reserve_stock', 'check_stock'], status: 'Healthy', tasks: 8, latency: '156ms', endpoint: 'grpc://inventory.svc:6000', spiffe: 'spiffe://acme.internal/agent/inventory' },
-        { name: 'billing-agent', role: 'worker', roleLabel: 'Worker', team: 'Ecommerce', caps: ['create_invoice', 'charge_payment'], status: 'Healthy', tasks: 6, latency: '210ms', endpoint: 'grpc://billing.svc:6000', spiffe: 'spiffe://acme.internal/agent/billing' },
-        { name: 'shipping-agent', role: 'worker', roleLabel: 'Worker', team: 'Ecommerce', caps: ['create_shipment', 'track_shipment'], status: 'Degraded', tasks: 3, latency: '412ms', endpoint: 'http://shipping.svc:8080', spiffe: 'spiffe://acme.internal/agent/shipping' },
-        { name: 'fraud-agent', role: 'reviewer', roleLabel: 'Reviewer', team: 'Security & Risk', caps: ['score_fraud', 'hold_tx'], status: 'Healthy', tasks: 1, latency: '98ms', endpoint: 'grpc://fraud.svc:6000', spiffe: 'spiffe://acme.internal/agent/fraud' },
-        { name: 'k8s-sre-agent', role: 'worker', roleLabel: 'Worker', team: 'Infrastructure', caps: ['diagnose_pod', 'restart_deploy'], status: 'Healthy', tasks: 4, latency: '85ms', endpoint: 'http://k8s-agent.svc:8080', spiffe: 'spiffe://acme.internal/agent/k8s-sre' }
-      ];
-
       const agentMap = new Map();
-      if (state.showExamples) defaultAgents.forEach((a) => agentMap.set(a.name, a));
-
-      (state.showExamples ? [] : a2aBackends).forEach((b) => {
+      a2aBackends.forEach((b) => {
         if (!agentMap.has(b.name)) {
           agentMap.set(b.name, {
             name: b.name,
-            role: 'unknown', roleLabel: '—', team: '—', caps: [],
-            status: 'Unknown', tasks: '—', latency: '—',
+            role: 'worker', roleLabel: 'Worker', team: '—', caps: b.methods || [],
+            status: 'Healthy', tasks: 0, latency: '—',
             endpoint: b.endpoint || '—', spiffe: '—'
           });
         }
@@ -9057,29 +8428,10 @@
       }
 
       // 3. Task Dataset & Delegation Network Assembly
-      const exampleTasks = [
-        { reqId: 'task-001', parentTask: 'root-100', rootTask: 'root-100', source: 'planner-agent', target: 'inventory-agent', capability: 'reserve_stock', repUser: 'user:alice', status: 'Working', duration: '145ms', retries: 0, time: '01:18:22', policy: 'Allowed', depth: 1 },
-        { reqId: 'task-002', parentTask: 'root-100', rootTask: 'root-100', source: 'planner-agent', target: 'billing-agent', capability: 'create_invoice', repUser: 'user:alice', status: 'Success', duration: '428ms', retries: 1, time: '01:18:15', policy: 'Allowed', depth: 1 },
-        { reqId: 'task-003', parentTask: 'root-100', rootTask: 'root-100', source: 'planner-agent', target: 'shipping-agent', capability: 'create_shipment', repUser: 'user:alice', status: 'Working', duration: '312ms', retries: 0, time: '01:18:10', policy: 'Allowed', depth: 1 },
-        { reqId: 'task-004', parentTask: 'task-003', rootTask: 'root-100', source: 'shipping-agent', target: 'fraud-agent', capability: 'score_fraud', repUser: 'user:alice', status: 'Denied', duration: '76ms', retries: 0, time: '01:17:58', policy: 'Denied: high-risk address', depth: 2 },
-        { reqId: 'task-005', parentTask: 'root-098', rootTask: 'root-098', source: 'order-service-agent', target: 'inventory-agent', capability: 'check_stock', repUser: 'user:bob', status: 'Success', duration: '186ms', retries: 0, time: '01:16:40', policy: 'Allowed', depth: 1 },
-        { reqId: 'task-006', parentTask: 'root-095', rootTask: 'root-095', source: 'planner-agent', target: 'k8s-sre-agent', capability: 'diagnose_pod', repUser: 'admin:charlie', status: 'Success', duration: '92ms', retries: 0, time: '01:15:30', policy: 'Allowed', depth: 1 }
-      ];
-
-      // Filter tasks associated with curAgent and current filter tab
-      const allTasks = state.showExamples ? exampleTasks : [];
+      const allTasks = [];
       document.querySelector('[data-task-tab="all"]').textContent = uiText('All', '全部') + ' (' + allTasks.filter(t => t.source === curAgent.name || t.target === curAgent.name).length + ')';
       const taskTab = window.a2aTaskTab || 'all';
-      let agentTasks = allTasks.filter((t) => {
-        const isAssociated = t.source === curAgent.name || t.target === curAgent.name;
-        if (!isAssociated) return false;
-        if (taskTab === 'caller' && t.source !== curAgent.name) return false;
-        if (taskTab === 'callee' && t.target !== curAgent.name) return false;
-        if (taskTab === 'working' && t.status !== 'Working') return false;
-        if (taskTab === 'success' && t.status !== 'Success') return false;
-        if (taskTab === 'failed' && t.status !== 'Denied' && t.status !== 'Timeout') return false;
-        return true;
-      });
+      let agentTasks = [];
 
       if ($('a2a-tasks-scope-badge')) {
         $('a2a-tasks-scope-badge').textContent = curAgent.name + ' 关联任务 (' + agentTasks.length + ')';
@@ -9768,11 +9120,11 @@
         if (defaultMode === 'deny') {
           badgeElem.className = 'sec-default-policy-badge deny';
           badgeElem.textContent = 'DENY';
-          envElem.textContent = 'DXGATE_POLICY_DEFAULT=deny';
+          envElem.textContent = 'XGATE_POLICY_DEFAULT=deny';
         } else if (defaultMode === 'allow') {
           badgeElem.className = 'sec-default-policy-badge allow';
           badgeElem.textContent = 'ALLOW';
-          envElem.textContent = 'DXGATE_POLICY_DEFAULT=allow';
+          envElem.textContent = 'XGATE_POLICY_DEFAULT=allow';
         } else {
           badgeElem.className = 'status-pill unknown';
           badgeElem.textContent = '—';
@@ -10591,8 +9943,8 @@
           familySelect.addEventListener('change', () => {
             state.family = familySelect.value;
             state.model = 'all';
-            localStorage.setItem('dxgate-family', state.family);
-            localStorage.setItem('dxgate-model', 'all');
+            localStorage.setItem('xgate-family', state.family);
+            localStorage.setItem('xgate-model', 'all');
             load();
           });
         }
@@ -10612,7 +9964,7 @@
           modelSelect.dataset.ready = '1';
           modelSelect.addEventListener('change', () => {
             state.model = modelSelect.value;
-            localStorage.setItem('dxgate-model', state.model);
+            localStorage.setItem('xgate-model', state.model);
             load();
           });
         }
@@ -10631,7 +9983,7 @@
           billingSelect.dataset.ready = '1';
           billingSelect.addEventListener('change', () => {
             state.billing = billingSelect.value;
-            localStorage.setItem('dxgate-billing', state.billing);
+            localStorage.setItem('xgate-billing', state.billing);
             load();
           });
         }
@@ -10653,7 +10005,7 @@
         select.dataset.ready = '1';
         select.addEventListener('change', () => {
           state.country = select.value;
-          localStorage.setItem('dxgate-country', state.country);
+          localStorage.setItem('xgate-country', state.country);
           load();
         });
       } else if (select && cost.fx_country && select.value !== cost.fx_country) {
@@ -10756,8 +10108,8 @@
     function applyChrome() {
       document.documentElement.dataset.theme = state.theme;
       document.documentElement.lang = state.lang;
-      localStorage.setItem('dxgate-theme', state.theme);
-      localStorage.setItem('dxgate-lang', state.lang);
+      localStorage.setItem('xgate-theme', state.theme);
+      localStorage.setItem('xgate-lang', state.lang);
       document.querySelectorAll('[data-i18n]').forEach((el) => {
         el.textContent = t(el.dataset.i18n);
       });
@@ -10800,12 +10152,13 @@
       const requestedTab = state.tab;
       updatePageChrome();
       try {
-        const country = encodeURIComponent(state.country || localStorage.getItem('dxgate-country') || 'United States');
-        const family = encodeURIComponent(state.family || localStorage.getItem('dxgate-family') || 'chatgpt');
-        const model = encodeURIComponent(state.model || localStorage.getItem('dxgate-model') || 'all');
-        const billing = encodeURIComponent(state.billing || localStorage.getItem('dxgate-billing') || 'subscription');
+        const country = encodeURIComponent(state.country || localStorage.getItem('xgate-country') || localStorage.getItem('dxgate-country') || 'United States');
+        const family = encodeURIComponent(state.family || localStorage.getItem('xgate-family') || localStorage.getItem('dxgate-family') || 'chatgpt');
+        const model = encodeURIComponent(state.model || localStorage.getItem('xgate-model') || localStorage.getItem('dxgate-model') || 'all');
+        const billing = encodeURIComponent(state.billing || localStorage.getItem('xgate-billing') || localStorage.getItem('dxgate-billing') || 'subscription');
         const endpoints = [{ key: 'config', url: '/debug/config' }];
-        if (['llm', 'cost-control'].includes(state.tab)) endpoints.push({ key: 'cost', url: '/debug/cost?country=' + country + '&family=' + family + '&model=' + model + '&billing=' + billing });
+        if (state.tab === 'llm') endpoints.push({ key: 'llmData', url: '/debug/llm' });
+        if (state.tab === 'cost-control') endpoints.push({ key: 'cost', url: '/debug/cost?country=' + country + '&family=' + family + '&model=' + model + '&billing=' + billing });
         if (state.tab === 'observability') endpoints.push({ key: 'obsData', url: '/debug/observability' });
         if (state.tab === 'services') endpoints.push({ key: 'servicesData', url: '/debug/services' });
         if (state.tab === 'security') endpoints.push(
@@ -10829,7 +10182,7 @@
           }
         });
         if (results.every(result => result.status === 'fulfilled')) state.syncedAt[requestedTab] = new Date().toLocaleTimeString();
-        if (changed) render();
+        if (changed || requestedTab === 'llm') render();
       } catch (err) {
         $('error').textContent = err.message;
         $('error').classList.remove('hidden');
@@ -10895,13 +10248,13 @@
       applyChrome();
       render();
     });
-    $('reload-data').addEventListener('click', load);
-    $('poll-toggle').addEventListener('click', () => {
+    if ($('reload-data')) $('reload-data').addEventListener('click', load);
+    if ($('poll-toggle')) $('poll-toggle').addEventListener('click', () => {
       state.paused = !state.paused;
       updatePageChrome();
       if (!state.paused) load();
     });
-    $('examples-toggle').addEventListener('click', () => {
+    if ($('examples-toggle')) $('examples-toggle').addEventListener('click', () => {
       state.showExamples = !state.showExamples;
       window.selectedLlmProvider = 'all';
       state.mcpSelectedServer = null;

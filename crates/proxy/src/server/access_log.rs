@@ -21,15 +21,27 @@ pub(super) struct AccessLogConfig {
 
 impl AccessLogConfig {
     pub(super) fn from_env() -> Self {
-        let enabled = env::var("DXGATE_ACCESS_LOG").ok();
-        let format = env::var("DXGATE_ACCESS_LOG_FORMAT").ok();
-        let mode = env::var("DXGATE_ACCESS_LOG_MODE").ok();
-        let filter = env::var("DXGATE_ACCESS_LOG_FILTER").ok();
-        let tags = env::var("DXGATE_ACCESS_LOG_TAGS").ok();
-        // A dedicated logs endpoint wins. Existing deployments that only set
-        // DXGATE_OTEL_ENDPOINT retain the established collector fallback.
-        let otlp_endpoint = env::var("DXGATE_OTEL_LOGS_ENDPOINT")
+        let enabled = env::var("XGATE_ACCESS_LOG")
             .ok()
+            .or_else(|| env::var("DXGATE_ACCESS_LOG").ok());
+        let format = env::var("XGATE_ACCESS_LOG_FORMAT")
+            .ok()
+            .or_else(|| env::var("DXGATE_ACCESS_LOG_FORMAT").ok());
+        let mode = env::var("XGATE_ACCESS_LOG_MODE")
+            .ok()
+            .or_else(|| env::var("DXGATE_ACCESS_LOG_MODE").ok());
+        let filter = env::var("XGATE_ACCESS_LOG_FILTER")
+            .ok()
+            .or_else(|| env::var("DXGATE_ACCESS_LOG_FILTER").ok());
+        let tags = env::var("XGATE_ACCESS_LOG_TAGS")
+            .ok()
+            .or_else(|| env::var("DXGATE_ACCESS_LOG_TAGS").ok());
+        // A dedicated logs endpoint wins. Existing deployments that only set
+        // XGATE_OTEL_ENDPOINT / DXGATE_OTEL_ENDPOINT retain the established collector fallback.
+        let otlp_endpoint = env::var("XGATE_OTEL_LOGS_ENDPOINT")
+            .ok()
+            .or_else(|| env::var("DXGATE_OTEL_LOGS_ENDPOINT").ok())
+            .or_else(|| env::var("XGATE_OTEL_ENDPOINT").ok())
             .or_else(|| env::var("DXGATE_OTEL_ENDPOINT").ok());
         Self::from_options(
             enabled.as_deref(),
@@ -124,7 +136,7 @@ fn parse_access_log_mode(value: Option<&str>) -> (AccessLogMode, Option<String>)
     (
         AccessLogMode::ClientAndServer,
         Some(format!(
-            "invalid DXGATE_ACCESS_LOG_MODE {value:?}; using CLIENT_AND_SERVER"
+            "invalid XGATE_ACCESS_LOG_MODE {value:?}; using CLIENT_AND_SERVER"
         )),
     )
 }
@@ -165,7 +177,7 @@ fn parse_access_log_tags(value: Option<&str>) -> (BTreeMap<String, String>, Opti
             return (
                 BTreeMap::new(),
                 Some(format!(
-                    "invalid DXGATE_ACCESS_LOG_TAGS {value:?}; expected JSON object or key=value pairs"
+                    "invalid XGATE_ACCESS_LOG_TAGS {value:?}; expected JSON object or key=value pairs"
                 )),
             );
         };
@@ -174,7 +186,7 @@ fn parse_access_log_tags(value: Option<&str>) -> (BTreeMap<String, String>, Opti
             return (
                 BTreeMap::new(),
                 Some(format!(
-                    "invalid DXGATE_ACCESS_LOG_TAGS {value:?}; tag keys cannot be empty"
+                    "invalid XGATE_ACCESS_LOG_TAGS {value:?}; tag keys cannot be empty"
                 )),
             );
         }
@@ -200,7 +212,7 @@ impl AccessLogFilter {
             Err(err) => (
                 Self::Never,
                 Some(format!(
-                    "invalid DXGATE_ACCESS_LOG_FILTER {value:?}; access logging disabled for safety: {err}"
+                    "invalid XGATE_ACCESS_LOG_FILTER {value:?}; access logging disabled for safety: {err}"
                 )),
             ),
         }

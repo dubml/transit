@@ -25,18 +25,19 @@ pub(super) struct OtelAccessLogExporter {
 
 impl OtelAccessLogExporter {
     pub(super) fn new(endpoint: &str) -> Result<Self, opentelemetry::logs::LogError> {
-        let service_name =
-            env::var("DXGATE_OTEL_SERVICE_NAME").unwrap_or_else(|_| "dxgate".to_string());
+        let service_name = env::var("XGATE_OTEL_SERVICE_NAME")
+            .or_else(|_| env::var("DXGATE_OTEL_SERVICE_NAME"))
+            .unwrap_or_else(|_| "xgate".to_string());
         let mut resource_attributes = vec![
             KeyValue::new("service.name", service_name),
-            KeyValue::new("service.component", "dxgate.access"),
+            KeyValue::new("service.component", "xgate.access"),
         ];
         if let Ok(namespace) = env::var("POD_NAMESPACE") {
             if !namespace.trim().is_empty() {
                 resource_attributes.push(KeyValue::new("service.namespace", namespace));
             }
         }
-        if let Ok(gateway) = env::var("DXGATE_GATEWAY_NAME") {
+        if let Ok(gateway) = env::var("XGATE_GATEWAY_NAME").or_else(|_| env::var("DXGATE_GATEWAY_NAME")) {
             if !gateway.trim().is_empty() {
                 resource_attributes.push(KeyValue::new("gateway.name", gateway));
             }
@@ -54,13 +55,13 @@ impl OtelAccessLogExporter {
                     .with_resource(Resource::new(resource_attributes)),
             )
             .install_batch(opentelemetry_sdk::runtime::Tokio)?;
-        let logger = Arc::new(provider.logger("dxgate.access"));
+        let logger = Arc::new(provider.logger("xgate.access"));
         Ok(Self { provider, logger })
     }
 
     pub(super) fn emit(&self, event: &AccessLogEvent<'_>, tags: &BTreeMap<String, String>) {
         let mut record = self.logger.create_log_record();
-        record.set_event_name("dxgate.access");
+        record.set_event_name("xgate.access");
         record.set_timestamp(SystemTime::now());
         record.set_severity_number(Severity::Info);
         record.set_severity_text("INFO".into());
@@ -90,7 +91,7 @@ fn access_log_attributes(
     tags: &BTreeMap<String, String>,
 ) -> Vec<(String, AnyValue)> {
     let mut attributes = vec![
-        ("event.name".to_string(), AnyValue::from("dxgate.access")),
+        ("event.name".to_string(), AnyValue::from("xgate.access")),
         (
             "http.request.method".to_string(),
             AnyValue::from(event.method.to_string()),
@@ -128,15 +129,15 @@ fn access_log_attributes(
             AnyValue::from(event.route.to_string()),
         ),
         (
-            "dxgate.cluster".to_string(),
+            "xgate.cluster".to_string(),
             AnyValue::from(event.cluster.to_string()),
         ),
         (
-            "dxgate.protocol".to_string(),
+            "xgate.protocol".to_string(),
             AnyValue::from(event.protocol.to_string()),
         ),
         (
-            "dxgate.backend".to_string(),
+            "xgate.backend".to_string(),
             AnyValue::from(event.backend.to_string()),
         ),
     ];

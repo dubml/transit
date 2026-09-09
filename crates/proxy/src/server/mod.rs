@@ -9,7 +9,7 @@ use axum::http::{
 };
 use axum::routing::any;
 use axum::Router;
-use dxgate_core::{
+use xgate_core::{
     AgentProtocol, AgentRoute, AttributionMode, Backend, ConfigSnapshot, CostEvent, DataQuality,
     MatchInput, PricingStatus, RetryPolicy, TokenBreakdown, WeightedBackend, HTTP_LISTENER_PORT,
 };
@@ -46,7 +46,7 @@ use headers::{
     apply_provider_headers, apply_request_headers, apply_response_headers,
     remove_connection_headers,
 };
-use llm_flow::{finalize_llm_response, prepare_llm_exchange, usage_sink};
+use llm_flow::{finalize_llm_response, prepare_llm_exchange, prepare_oauth_exchange, usage_sink};
 use otel_log::OtelAccessLogExporter;
 use policy::{evaluate_policies, PolicyDefault, PolicyRuntime};
 use routing::{
@@ -96,7 +96,12 @@ impl ProxyServer {
             metrics_identity: MetricsIdentity::from_env(),
             access_log,
             otel_access_log,
-            max_body_bytes: parse_max_body_bytes(env::var("DXGATE_MAX_BODY_BYTES").ok().as_deref()),
+            max_body_bytes: parse_max_body_bytes(
+                env::var("XGATE_MAX_BODY_BYTES")
+                    .or_else(|_| env::var("DXGATE_MAX_BODY_BYTES"))
+                    .ok()
+                    .as_deref(),
+            ),
             listener_port: HTTP_LISTENER_PORT,
             jwt_key_cache: JwtKeyCache::default(),
         }
@@ -147,7 +152,8 @@ impl MetricsIdentity {
     fn from_env() -> Self {
         Self {
             namespace: env::var("POD_NAMESPACE").unwrap_or_else(|_| "unknown".to_string()),
-            gateway: env::var("DXGATE_GATEWAY_NAME")
+            gateway: env::var("XGATE_GATEWAY_NAME")
+                .or_else(|_| env::var("DXGATE_GATEWAY_NAME"))
                 .or_else(|_| env::var("GATEWAY_NAME"))
                 .unwrap_or_else(|_| "unknown".to_string()),
         }
@@ -205,7 +211,7 @@ async fn proxy_request(State(server): State<ProxyServer>, req: Request<Body>) ->
     let path = req.uri().path().to_string();
     let parent_context = extract_trace_context(req.headers());
     let span = tracing::info_span!(
-        "dxgate.request",
+        "xgate.request",
         http.method = %method,
         http.target = %path,
         http.status_code = tracing::field::Empty,
@@ -213,7 +219,7 @@ async fn proxy_request(State(server): State<ProxyServer>, req: Request<Body>) ->
         gateway.namespace = tracing::field::Empty,
         gateway.name = tracing::field::Empty,
         http.route = tracing::field::Empty,
-        dxgate.cluster = tracing::field::Empty,
+        xgate.cluster = tracing::field::Empty,
         upstream.address = tracing::field::Empty
     );
     span.set_parent(parent_context);
@@ -338,7 +344,7 @@ async fn forward_http(
 
     let route = match snapshot
         .route_for(server.listener_port, &input)
-        // grpc-engine terminates the xDS listener and forwards to dxgate's
+        // grpc-engine terminates the xDS listener and forwards to xgate's
         // local HTTP port, so the application request can lose the original
         // targetPort. Only fall back when one xDS listener port matches.
         .or_else(|_| snapshot.route_for_unique_port(&input))
@@ -618,7 +624,7 @@ fn record_http_span(
     );
     span.record("gateway.name", server.metrics_identity.gateway.as_str());
     span.record("http.route", route);
-    span.record("dxgate.cluster", cluster);
+    span.record("xgate.cluster", cluster);
     span.record("upstream.address", upstream);
     if status_code > 0 {
         span.record("http.status_code", status_code);
@@ -686,7 +692,7 @@ async fn forward_agent(
         .filter_map(|weighted| {
             let backend = snapshot.backend(&weighted.name)?;
             if backend_matches_protocol(backend, context.protocol)
-                && backend.supports_model(context.model.as_deref())
+                && oauth_supports_model(&server.state, backend, context.model.as_deref())
                 && backend.supports_tool(context.tool.as_deref())
                 && backend.supports_agent(context.agent.as_deref())
                 && backend_supports_llm_request(&snapshot, backend, &context)
@@ -818,8 +824,8 @@ fn apply_agent_path_rewrite(route: &AgentRoute, context: &mut AgentRequestContex
         return;
     };
     let suffix = match path_match {
-        dxgate_core::PathMatch::Prefix(prefix) => context.path.strip_prefix(prefix),
-        dxgate_core::PathMatch::Exact(exact) if context.path == *exact => Some(""),
+        xgate_core::PathMatch::Prefix(prefix) => context.path.strip_prefix(prefix),
+        xgate_core::PathMatch::Exact(exact) if context.path == *exact => Some(""),
         _ => None,
     };
     let Some(suffix) = suffix else {
@@ -858,7 +864,7 @@ async fn request_agent_with_failover(
             };
             let started = Instant::now();
             let upstream_span = tracing::info_span!(
-                "dxgate.agent.upstream",
+                "xgate.agent.upstream",
                 protocol = protocol_name(context.protocol),
                 route = %route.name,
                 backend = %backend.name,
@@ -882,8 +888,28 @@ async fn request_agent_with_failover(
                     upstream_span.record("http.status_code", status.as_u16());
                     let req_latency_ms = started.elapsed().as_millis() as u64;
                     update_mcp_session(&server.state, backend, context, response.headers(), status);
-                    record_mcp_tool_call(server, route, backend, context, status.is_success(), req_latency_ms, &parts.headers, body.len(), attempt);
-                    record_a2a_method_call(server, route, backend, context, status.is_success(), req_latency_ms, &parts.headers, body.len(), attempt);
+                    record_mcp_tool_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        status.is_success(),
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
+                    record_a2a_method_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        status.is_success(),
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
                     server.state.record_agent_request(
                         protocol_name(context.protocol),
                         &route.name,
@@ -911,8 +937,28 @@ async fn request_agent_with_failover(
                 Err(err) => {
                     let req_latency_ms = started.elapsed().as_millis() as u64;
                     upstream_span.record("http.status_code", err.0.as_u16());
-                    record_mcp_tool_call(server, route, backend, context, false, req_latency_ms, &parts.headers, body.len(), attempt);
-                    record_a2a_method_call(server, route, backend, context, false, req_latency_ms, &parts.headers, body.len(), attempt);
+                    record_mcp_tool_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        false,
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
+                    record_a2a_method_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        false,
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
                     server.state.record_agent_request(
                         protocol_name(context.protocol),
                         &route.name,
@@ -1139,10 +1185,30 @@ async fn request_agent_backend(
         )
     })?;
 
+    let bindings = server.state.llm_accounts().for_backend(&backend.name);
+    let account = if context.protocol == AgentProtocol::Llm && !bindings.is_empty() {
+        Some(
+            server
+                .state
+                .llm_accounts()
+                .select(backend, context.model.as_deref())
+                .ok_or_else(|| {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "No OAuth account supports this model".to_string(),
+                    )
+                })?,
+        )
+    } else {
+        None
+    };
     let exchange = if context.protocol == AgentProtocol::Llm {
-        Some(prepare_llm_exchange(
-            backend, provider, endpoint, context, body,
-        )?)
+        Some(match &account {
+            Some(account) => {
+                prepare_oauth_exchange(backend, provider, endpoint, context, body, account)?
+            }
+            None => prepare_llm_exchange(backend, provider, endpoint, context, body)?,
+        })
     } else {
         None
     };
@@ -1174,6 +1240,49 @@ async fn request_agent_backend(
         .and_then(|value| value.credential_ref.as_ref())
         .and_then(|reference| server.state.credential(reference));
     apply_provider_headers(&mut headers, provider, provider_secret.as_deref());
+    if let Some(account) = &account {
+        headers.remove("x-api-key");
+        headers.remove("x-goog-api-key");
+        headers.insert(
+            http::header::AUTHORIZATION,
+            HttpHeaderValue::from_str(&format!("Bearer {}", account.access_token())).map_err(
+                |_| {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        "Invalid OAuth authorization header".into(),
+                    )
+                },
+            )?,
+        );
+        if account.provider() == "codex" {
+            if let Some(id) = account
+                .document
+                .get("account_id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                headers.insert(
+                    "chatgpt-account-id",
+                    HttpHeaderValue::from_str(id).map_err(|_| {
+                        (StatusCode::BAD_GATEWAY, "Invalid OAuth account ID".into())
+                    })?,
+                );
+            }
+            headers.insert(
+                "openai-beta",
+                HttpHeaderValue::from_static("responses=experimental"),
+            );
+        } else {
+            headers.insert(
+                "anthropic-beta",
+                HttpHeaderValue::from_static("oauth-2025-04-20"),
+            );
+            headers.insert(
+                "anthropic-version",
+                HttpHeaderValue::from_static("2023-06-01"),
+            );
+        }
+    }
     headers.remove(http::header::HOST);
     // The agent path forwards a fully buffered body that may have been
     // rewritten (LLM translation, MCP alias/cursor pages); make the framing
@@ -1215,6 +1324,7 @@ async fn request_agent_backend(
 
     match exchange {
         Some(exchange) => {
+            let observation = crate::llm_timing::Observation::new(started);
             let (trace_id, span_id) = trace_and_span_ids(&parts.headers);
             let latency_ms = started.elapsed().as_millis() as u64;
             let sink = usage_sink(
@@ -1227,10 +1337,40 @@ async fn request_agent_backend(
                 Some(span_id),
                 latency_ms,
             );
-            finalize_llm_response(server, response, exchange, sink).await
+            let sink = observation.sink(sink);
+            let mut response = finalize_llm_response(server, response, exchange, sink).await?;
+            if !response.status().is_success() {
+                return Ok(response);
+            }
+            let streaming = is_event_stream(response.headers());
+            response.headers_mut().remove(http::header::CONTENT_LENGTH);
+            let (parts, body) = response.into_parts();
+            Ok(Response::from_parts(
+                parts,
+                crate::llm_timing::observe(
+                    body,
+                    streaming,
+                    backend.name.clone(),
+                    server.state.llm_timings().clone(),
+                    observation,
+                ),
+            ))
         }
         None => Ok(response),
     }
+}
+
+fn oauth_supports_model(state: &ProxyState, backend: &Backend, model: Option<&str>) -> bool {
+    let accounts = state.llm_accounts().for_backend(&backend.name);
+    if accounts.is_empty() {
+        return backend.supports_model(model);
+    }
+    accounts.iter().any(|a| {
+        model.is_none_or(|m| {
+            a.resolve_model(m)
+                .is_some_and(|(resolved, _)| backend.supports_model(Some(resolved)))
+        })
+    })
 }
 
 // Caps how many pages of one backend's list a single federated call drains,
@@ -1271,7 +1411,7 @@ async fn federate_mcp_list(
             };
             let started = Instant::now();
             let upstream_span = tracing::info_span!(
-                "dxgate.agent.upstream",
+                "xgate.agent.upstream",
                 protocol = protocol_name(context.protocol),
                 route = %route.name,
                 backend = %backend.name,
@@ -1521,7 +1661,7 @@ fn emit_access_log(server: &ProxyServer, event: &AccessLogEvent<'_>) {
         return;
     }
     let line = access_log_line(server.access_log.format, event, &server.access_log.tags);
-    info!(target: "dxgate.access", "{}", line);
+    info!(target: "xgate.access", "{}", line);
     if let Some(exporter) = &server.otel_access_log {
         exporter.emit(event, &server.access_log.tags);
     }
@@ -1547,7 +1687,7 @@ mod tests {
         mtls_cache_key, peer_identities, DynamicMtlsClientPool, GrpcBootstrap, MtlsClientPool,
     };
     use super::*;
-    use dxgate_core::{
+    use xgate_core::{
         ConfigDelta, ConfigStore, SourceId, TlsSecret, UpstreamTls, UpstreamTlsMode,
     };
     use hyper::body;
@@ -1656,8 +1796,8 @@ mod tests {
     async fn mtls_client_connects_with_bootstrap_certificate() {
         let ca = test_ca();
         let server_cert = signed_cert("nginx.app.svc.cluster.local");
-        let client_cert = signed_cert("dxgate.default.svc.cluster.local");
-        let dir = temp_dir("dxgate-mtls");
+        let client_cert = signed_cert("xgate.default.svc.cluster.local");
+        let dir = temp_dir("xgate-mtls");
         fs::create_dir_all(&dir).unwrap();
 
         let cert_chain = dir.join("cert-chain.pem");
@@ -2034,8 +2174,8 @@ mod tests {
     #[tokio::test]
     async fn dynamic_sds_mtls_rotates_the_client_certificate() {
         let ca = test_ca();
-        let first_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/dxgate-one");
-        let second_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/dxgate-two");
+        let first_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate-one");
+        let second_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate-two");
         let upstream = signed_cert("nginx.app.svc.cluster.local");
         let store = ConfigStore::new();
         let mut pool = DynamicMtlsClientPool::default();
@@ -2054,7 +2194,7 @@ mod tests {
         assert_eq!(first_response.status(), StatusCode::OK);
         assert_eq!(
             peer_identities(&first_peer.await.unwrap()).unwrap(),
-            ["spiffe://cluster.local/ns/default/sa/dxgate-one"]
+            ["spiffe://cluster.local/ns/default/sa/xgate-one"]
         );
 
         store.apply(SourceId::Xds, sds_delta("sds-2", &ca, &second_client));
@@ -2069,18 +2209,18 @@ mod tests {
         assert_eq!(second_response.status(), StatusCode::OK);
         assert_eq!(
             peer_identities(&second_peer.await.unwrap()).unwrap(),
-            ["spiffe://cluster.local/ns/default/sa/dxgate-two"]
+            ["spiffe://cluster.local/ns/default/sa/xgate-two"]
         );
     }
 
     #[tokio::test]
     async fn mtls_accepts_upstream_matching_configured_spiffe_identity() {
         let ca = test_ca();
-        let dir = temp_dir("dxgate-mtls-san-ok");
+        let dir = temp_dir("xgate-mtls-san-ok");
         let bootstrap = write_bootstrap(
             &dir,
             &ca,
-            &spiffe_cert("spiffe://cluster.local/ns/default/sa/dxgate"),
+            &spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate"),
         );
         let addr =
             spawn_tls_server(&ca, &spiffe_cert("spiffe://cluster.local/ns/app/sa/orders")).await;
@@ -2105,11 +2245,11 @@ mod tests {
     #[tokio::test]
     async fn mtls_rejects_upstream_whose_spiffe_identity_is_not_allowed() {
         let ca = test_ca();
-        let dir = temp_dir("dxgate-mtls-san-bad");
+        let dir = temp_dir("xgate-mtls-san-bad");
         let bootstrap = write_bootstrap(
             &dir,
             &ca,
-            &spiffe_cert("spiffe://cluster.local/ns/default/sa/dxgate"),
+            &spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate"),
         );
         // The upstream holds a valid cert from the same CA, just not the identity the
         // route pinned. Chain verification alone would have accepted it.

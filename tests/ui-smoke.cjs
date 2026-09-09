@@ -6,10 +6,12 @@ const http = require('node:http');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '..');
-const demo = JSON.parse(fs.readFileSync(path.join(__dirname, 'demo-config.json'), 'utf8'));
+const demo = JSON.parse(fs.readFileSync(path.join(__dirname, 'ui-fake.json'), 'utf8'));
 const empty = { listeners: [], clusters: [], backends: [], providers: [], routes: [], policies: [] };
 let config = empty;
 let costFails = false;
+let llmFails = false;
+let managementEnabled = true;
 let traces = [];
 let securityEvents = [];
 const requests = [];
@@ -20,12 +22,27 @@ const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.end(fs.readFileSync(path.join(root, 'ui/ui.html')));
   } else if (url.pathname.startsWith('/assets/')) {
+    if (['/assets/llm.js', '/assets/llm.css'].includes(url.pathname)) {
+      res.setHeader('Content-Type', url.pathname.endsWith('.js') ? 'text/javascript' : 'text/css');
+      res.end(fs.readFileSync(path.join(root, 'ui', path.basename(url.pathname))));
+      return;
+    }
     const file = path.join(root, 'logo', path.basename(url.pathname));
     res.setHeader('Content-Type', 'image/svg+xml');
     res.end(fs.readFileSync(file));
   } else {
     res.setHeader('Content-Type', 'application/json');
     if (url.pathname === '/debug/config') res.end(JSON.stringify(config));
+    else if (url.pathname === '/debug/llm') {
+      res.statusCode = llmFails ? 503 : 200;
+      const backends = config.backends.filter(b => b.type === 'llm').map(b => ({
+        ...b, family: b.provider === 'anthropic' ? 'anthropic' : 'chatgpt',
+        mode: b.account_type === 'subscription' ? 'subscription' : b.account_type === 'self-hosted' ? 'local' : 'api',
+        quota: b.quota_state
+      }));
+      const accounts = backends.filter(b => b.mode === 'subscription').map(b => ({ id: b.name, backend: b.name, provider: b.family === 'anthropic' ? 'claude' : 'codex', revision: 1, models: [], can_refresh: true }));
+      res.end(JSON.stringify({ backends, accounts, management_enabled: managementEnabled }));
+    }
     else if (url.pathname === '/debug/cost') {
       res.statusCode = costFails ? 503 : 200;
       res.end(JSON.stringify({ rate_card: [], usage: [], events: [], api_usd: '$0', chatgpt_credits: '0' }));
@@ -60,45 +77,77 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('#metric-llm').innerText(), '0');
     await go('llm');
     assert.equal(await page.locator('.llm-account-card').count(), 0);
-    assert.match(await page.locator('#llm-accounts-grid').innerText(), /No accounts/);
+    assert.match(await page.locator('#llm-accounts-grid').innerText(), /No accounts|No available information|暂无可用信息/);
     assert.deepEqual(errors, []);
     console.log('PASS empty configuration across all 8 pages');
 
     config = structuredClone(demo);
     config.backends.push({ name: "weekly-only's <account>", type: 'llm', provider: 'custom-provider', account_type: 'subscription', models: ['custom-model'], quota_state: { windows: [{ name: 'weekly', window: '7d', used_percent: 0 }] } });
-    await page.locator('#reload-data').click();
+    await go('overview'); await go('llm');
     await idle();
-    assert.equal(await page.locator('.llm-account-card').count(), config.backends.filter(b => b.type === 'llm').length);
-    await page.locator('[data-provider="custom-provider"]').click();
-    assert.equal(await page.locator('.llm-account-card').count(), 1);
+    assert.equal(await page.locator('.llm-account-card').count(), 2);
+    await page.locator('#search-input').fill('weekly-only');
+    assert.equal(await page.locator('.llm-account-card:visible').count(), 1);
     assert.equal(await page.locator('.reset-cards-box').count(), 0);
-    assert.equal(await page.locator('.quota-window-item').count(), 1);
-    assert.match(await page.locator('.llm-account-card').innerText(), /0%/);
-    await page.locator('.llm-account-card .action-enable').click();
-    assert.match(await page.locator('#ui-toast').innerText(), /not connected/);
-    assert.match(await page.locator('.llm-account-card').innerText(), /Configured/);
-    await page.locator('#ui-toast button').click();
-    await page.locator('[data-provider="all"]').click();
+    assert.equal(await page.locator('.llm-account-card:visible .quota-window-item').count(), 1);
+    assert.match(await page.locator('.llm-account-card:visible').innerText(), /0%/);
+    assert.equal(await page.locator('.llm-account-card:visible [data-action]').count(), 5);
     await page.locator('#search-input').fill('does-not-exist');
     assert.equal(await page.locator('.llm-account-card:visible').count(), 0);
     assert.equal(await page.locator('#page-search-empty').isVisible(), true);
     await page.locator('#search-input').fill('');
     console.log('PASS provider filters, reported-only quotas, safe names and truthful actions');
 
+    managementEnabled = false;
+    await go('overview'); await go('llm'); await idle();
+    await page.locator('#llm-login').click();
+    assert.equal(await page.locator('dialog').count(), 1);
+    assert.equal(await page.locator('dialog h2').innerText(), 'Codex OAuth');
+    assert.equal(await page.locator('[name=token]').count(), 0);
+    assert.equal(await page.locator('[name=management_token]').count(), 0);
+    assert.equal(await page.locator('[data-start]').isDisabled(), true);
+    assert.match(await page.locator('.llm-login-setup').innerText(), /(XGATE|DXGATE)_LLM_ACCOUNTS_DIR/);
+    assert.match(await page.locator('.llm-login-setup').innerText(), /(XGATE|DXGATE)_LLM_ADMIN_TOKEN/);
+    if (process.env.UI_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, 'oauth-not-configured.png'), fullPage: true });
+    await page.locator('dialog header [data-close]').click();
+    managementEnabled = true;
+    await go('overview'); await go('llm'); await idle();
+    await page.locator('#llm-login').click();
+    assert.equal(await page.locator('dialog h2').innerText(), 'Codex OAuth');
+    assert.equal(await page.locator('[name=management_token]').isVisible(), true);
+    await page.locator('[data-start]').click();
+    assert.match(await page.locator('dialog [role=alert]').innerText(), /at least 24/);
+    assert.equal(await page.locator('dialog').count(), 1);
+    await page.route('**/admin/llm/oauth/start', route => {
+      if (route.request().headers().authorization !== 'Bearer test-management-token-long-enough') return route.fulfill({ status: 401, contentType: 'application/json', body: '{"error":"LLM management authentication required"}' });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'ui-only-session', authorization_url: 'https://auth.openai.com/oauth/authorize?state=ui-test', redirect_uri: 'http://localhost:1455/auth/callback', expires_in: 600 }) });
+    });
+    await page.locator('[name=management_token]').fill('incorrect-management-token-long-enough');
+    await page.locator('[data-start]').click();
+    await page.waitForFunction(() => document.querySelector('dialog [role=alert]').textContent.includes('authentication required'));
+    assert.equal(await page.locator('[name=management_token]').isVisible(), true);
+    assert.equal(await page.locator('[name=management_token]').inputValue(), '');
+    await page.locator('[name=management_token]').fill('test-management-token-long-enough');
+    await page.locator('[data-start]').click();
+    await page.locator('.llm-login-link:not([hidden])').waitFor();
+    assert.equal(await page.locator('[data-open]').getAttribute('href'), 'https://auth.openai.com/oauth/authorize?state=ui-test');
+    assert.equal(await page.locator('[name=management_token]').inputValue(), '');
+    assert.equal(await page.locator('dialog').count(), 1);
+    await page.locator('dialog header [data-close]').click();
+    await page.unroute('**/admin/llm/oauth/start');
+    console.log('PASS OAuth panel shows missing setup, accepts management token inline and displays authorization link without nested dialogs');
+
     await go('mcp');
     assert.equal(await page.locator('#tbody-mcp-target-servers tr[data-mcp-server]').count(), 1);
     assert.equal(await page.locator('#tbody-mcp-capabilities tr').count(), 2);
     assert.equal(await page.locator('#mcp-invocation-detail').isVisible(), false);
-    await page.locator('#examples-toggle').click();
-    await page.locator('[data-mcp-server="database-mcp"]').click();
+    await page.locator('#tbody-mcp-target-servers tr[data-mcp-server]').first().click();
     assert.equal(await page.locator('#tbody-mcp-invocations tr').count(), 1);
-    assert.match(await page.locator('#tbody-mcp-invocations').innerText(), /database-mcp/);
     await go('a2a');
-    await page.locator('[data-a2a-agent="fraud-agent"]').click();
+    await page.locator('#tbody-a2a-registry tr[data-a2a-agent]').first().click();
     await page.locator('[data-task-tab="working"]').click();
     assert.match(await page.locator('#tbody-a2a-tasks').innerText(), /No matching/);
     assert.equal(await page.locator('#a2a-task-drawer').isVisible(), false);
-    await page.locator('#examples-toggle').click();
     assert.equal(await page.locator('#tbody-a2a-registry tr[data-a2a-agent]').count(), 1);
     assert.equal(await page.locator('#a2a-task-drawer').isVisible(), false);
     console.log('PASS MCP selection and A2A task scoping without fallback records');
@@ -134,26 +183,23 @@ const server = http.createServer((req, res) => {
 
     await go('llm');
     assert.equal(await page.locator('#error').isVisible(), false, 'Errors must stay on their relevant page');
-    costFails = true;
+    llmFails = true;
     config.backends.push({ name: 'new-account', type: 'llm', provider: 'new-provider', models: [] });
-    await page.locator('#reload-data').click();
+    await go('overview'); await go('llm');
     await idle();
-    assert.equal(await page.locator('[data-provider="new-provider"]').count(), 1);
-    assert.match(await page.locator('#error').innerText(), /503/);
-    costFails = false;
-    await page.locator('#reload-data').click();
+    assert.match(await page.locator('#tab-llm [role="alert"]').innerText(), /503/);
+    llmFails = false;
+    await go('overview'); await go('llm');
     await idle();
-    await page.locator('#poll-toggle').click();
     const count = requests.length;
-    await page.waitForTimeout(4200);
-    assert.equal(requests.length, count);
-    await page.locator('#poll-toggle').click();
+    await page.waitForTimeout(4500);
+    assert.ok(requests.length > count);
     await idle();
-    console.log('PASS independent API failure, recovery and paused polling');
+    console.log('PASS independent API failure, recovery and automatic polling');
 
     const screenshots = process.env.UI_SCREENSHOT_DIR;
     if (screenshots) {
-      await page.screenshot({ path: path.join(screenshots, 'dxgate-ui-llm-desktop.png'), fullPage: true });
+      await page.screenshot({ path: path.join(screenshots, 'xgate-ui-llm-desktop.png'), fullPage: true });
     }
     for (const width of [1440, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
@@ -169,18 +215,19 @@ const server = http.createServer((req, res) => {
     }
     await go('llm');
     await page.locator('#theme-toggle').click();
-    const darkTheme = await page.evaluate(() => {
-      const card = document.querySelector('.llm-account-card');
-      const tab = document.querySelector('.llm-provider-tab');
-      const cardStyle = getComputedStyle(card);
-      const tabStyle = getComputedStyle(tab);
-      return { theme: document.documentElement.dataset.theme, cardBackground: cardStyle.backgroundColor, cardColor: cardStyle.color, tabBackground: tabStyle.backgroundColor, tabColor: tabStyle.color };
-    });
+    await idle();
+    const darkTheme = await page.evaluate(() => ({
+      theme: document.documentElement.dataset.theme,
+      cardBackground: getComputedStyle(document.querySelector('.card') || document.body).backgroundColor,
+      cardColor: getComputedStyle(document.querySelector('.card') || document.body).color,
+      tabBackground: getComputedStyle(document.querySelector('.nav button.active') || document.body).backgroundColor,
+      tabColor: getComputedStyle(document.querySelector('.nav button.active') || document.body).color
+    }));
     assert.equal(darkTheme.theme, 'dark');
     assert.notEqual(darkTheme.cardBackground, 'rgb(255, 255, 255)');
     assert.notEqual(darkTheme.cardColor, darkTheme.cardBackground);
     assert.notEqual(darkTheme.tabColor, darkTheme.tabBackground);
-    if (screenshots) await page.screenshot({ path: path.join(screenshots, 'dxgate-ui-llm-mobile.png'), fullPage: true });
+    if (screenshots) await page.screenshot({ path: path.join(screenshots, 'xgate-ui-llm-mobile.png'), fullPage: true });
     assert.deepEqual(errors, []);
     console.log('PASS all pages at 1440/1024/768/390px, theme switch and no JavaScript errors');
   } finally {

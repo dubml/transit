@@ -3,7 +3,7 @@
 
 use super::headers::header_contains;
 use axum::http::HeaderMap;
-use dxgate_core::AgentProtocol;
+use xgate_core::AgentProtocol;
 
 pub(super) fn is_event_stream(headers: &HeaderMap) -> bool {
     header_contains(headers, http::header::CONTENT_TYPE, "text/event-stream")

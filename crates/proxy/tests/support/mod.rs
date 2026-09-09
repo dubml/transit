@@ -3,11 +3,11 @@
 use axum::http::Uri;
 use axum::routing::any;
 use axum::Router;
-use dxgate_core::{
+use xgate_core::{
     Cluster, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, RuntimeConfig,
     VirtualHost, WeightedCluster,
 };
-use dxgate_proxy::{ProxyServer, ProxyState};
+use xgate_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use std::net::{SocketAddr, TcpListener};
@@ -83,6 +83,12 @@ pub async fn run_concurrent_requests(addr: SocketAddr, requests: usize) -> Vec<D
 
 pub fn env_usize(name: &str, default: usize) -> usize {
     std::env::var(name)
+        .or_else(|_| {
+            name.strip_prefix("XGATE_")
+                .map(|s| format!("DXGATE_{s}"))
+                .and_then(|k| std::env::var(k).ok())
+                .ok_or(std::env::VarError::NotPresent)
+        })
         .ok()
         .and_then(|raw| raw.parse().ok())
         .unwrap_or(default)
@@ -99,7 +105,7 @@ fn spawn_backend(addr: SocketAddr) -> JoinHandle<()> {
         .route("/health", any(|| async { "ok" }))
         .fallback(any(|uri: Uri| async move {
             let path = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
-            format!("dxgate example backend path={path}")
+            format!("xgate example backend path={path}")
         }));
 
     tokio::spawn(async move {

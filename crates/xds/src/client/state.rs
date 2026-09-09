@@ -1,7 +1,7 @@
-//! The xDS resource cache and its projection onto dxgate's configuration model.
+//! The xDS resource cache and its projection onto xgate's configuration model.
 //!
-//! A dxgate `Cluster` is a join of an xDS `Cluster` with its
-//! `ClusterLoadAssignment`, and a dxgate `Listener` is a join of an xDS
+//! A xgate `Cluster` is a join of an xDS `Cluster` with its
+//! `ClusterLoadAssignment`, and a xgate `Listener` is a join of an xDS
 //! `Listener` with the `RouteConfiguration`s it names over RDS. Neither join can
 //! be computed from a single incoming resource, so the client keeps the raw xDS
 //! resources here and re-projects them after every update.
@@ -21,7 +21,7 @@ use crate::proto::extensions::transport_sockets::tls::v1 as xds_tls;
 use crate::proto::listener::v1 as xds_listener;
 use crate::proto::route::v1 as xds_route;
 use crate::proto::service::discovery::v1::DiscoveryResponse;
-use dxgate_core::{
+use xgate_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, AuthorizationAction,
     AuthorizationCondition, AuthorizationPolicy, AuthorizationRule, AuthorizationSource, Backend,
     BackendKind, CircuitBreakerConfig, Cluster, Collection, ConfigDelta,
@@ -274,7 +274,7 @@ impl AdsState {
         Some(change)
     }
 
-    /// Projects the cached xDS resources onto dxgate's configuration model and
+    /// Projects the cached xDS resources onto xgate's configuration model and
     /// diffs the result against what was published last, so the store receives
     /// removals for resources this source stopped producing.
     pub(super) fn config_delta(&mut self, version: &str) -> ConfigDelta {
@@ -1448,15 +1448,15 @@ fn sorted_unique(names: impl IntoIterator<Item = String>) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::proto::core::v1::{address, socket_address, Address, SocketAddress};
-    use dxgate_core::{ResourceKey, ResourceKind, RouterIdentity};
     use prost_types::Any;
     use rcgen::{BasicConstraints, Certificate as RcgenCertificate, CertificateParams, IsCa};
     use std::collections::HashMap;
+    use xgate_core::{ResourceKey, ResourceKind, RouterIdentity};
 
     #[test]
     fn identity_metadata_selects_dubbod_grpc_generator() {
         let identity = RouterIdentity {
-            pod_name: "dxgate-abc".into(),
+            pod_name: "xgate-abc".into(),
             namespace: "app".into(),
             pod_ip: "10.0.0.10".into(),
             node_name: Some("node-a".into()),
@@ -1472,7 +1472,7 @@ mod tests {
         let route_name = "outbound|80||orders.app.svc.cluster.local";
         let cluster_name = "outbound|8080||orders.app.svc.cluster.local";
         let listener = xds_listener::Listener {
-            name: "dxgate.app.svc.cluster.local:80".into(),
+            name: "xgate.app.svc.cluster.local:80".into(),
             address: Some(socket("10.96.0.10", 80)),
             api_listener: Some(xds_listener::ApiListener {
                 api_listener: Some(any(
@@ -1568,7 +1568,7 @@ mod tests {
         };
 
         let mut state = AdsState::default();
-        state.begin_stream(vec!["dxgate.app.svc.cluster.local:80".into()]);
+        state.begin_stream(vec!["xgate.app.svc.cluster.local:80".into()]);
 
         state
             .apply_sotw(&response(LISTENER_TYPE, vec![any(LISTENER_TYPE, listener)]))
@@ -2081,7 +2081,7 @@ mod tests {
         .expect("missing path specifier should default to a prefix match");
         assert_eq!(defaulted.path, PathMatch::Prefix("/".into()));
 
-        // dxgate has no regex matcher, so a regex route must be dropped rather than
+        // xgate has no regex matcher, so a regex route must be dropped rather than
         // silently widened into a prefix that matches more traffic than intended.
         assert!(convert_route_match(&xds_route::RouteMatch {
             path_specifier: Some(xds_route::route_match::PathSpecifier::SafeRegex(
@@ -2096,7 +2096,7 @@ mod tests {
     fn security_filters_preserve_required_jwt_and_identity_fields() {
         let jwt = convert_jwt_provider(&xds_jwt::JwtProvider {
             issuer: "https://issuer.example".into(),
-            audiences: vec!["dxgate".into()],
+            audiences: vec!["xgate".into()],
             jwks_uri: "https://issuer.example/jwks".into(),
             jwks: String::new(),
             from_headers: vec![xds_jwt::JwtHeader {
@@ -2106,7 +2106,7 @@ mod tests {
             from_params: vec!["token".into()],
         });
         assert_eq!(jwt.issuer, "https://issuer.example");
-        assert_eq!(jwt.audiences, ["dxgate"]);
+        assert_eq!(jwt.audiences, ["xgate"]);
 
         let authorization = convert_authorization(&xds_rbac::Rbac {
             action: xds_rbac::rbac::Action::Allow as i32,
@@ -2315,7 +2315,7 @@ mod tests {
         ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let ca = RcgenCertificate::from_params(ca_params).unwrap();
         let certificate =
-            RcgenCertificate::from_params(CertificateParams::new(vec!["dxgate.mesh.test".into()]))
+            RcgenCertificate::from_params(CertificateParams::new(vec!["xgate.mesh.test".into()]))
                 .unwrap();
         let certificate_pem = certificate.serialize_pem_with_signer(&ca).unwrap();
         let private_key_pem = certificate.serialize_private_key_pem();

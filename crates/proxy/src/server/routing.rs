@@ -3,7 +3,7 @@
 //! depend only on config types and `HeaderMap`, not on server state.
 
 use axum::http::{HeaderMap, StatusCode, Uri};
-use dxgate_core::{
+use xgate_core::{
     AgentProtocol, Backend, BackendKind, ConfigSnapshot, Endpoint, Provider, UpstreamTls,
     UpstreamTlsMode,
 };

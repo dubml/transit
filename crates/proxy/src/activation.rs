@@ -34,12 +34,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dxgate_core::Cluster;
-use dxgate_xds::activation::activation_demand_client::ActivationDemandClient;
-use dxgate_xds::activation::{DemandSnapshot, TargetDemand};
 use tokio::sync::Notify;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, warn};
+use xgate_core::Cluster;
+use xgate_xds::activation::activation_demand_client::ActivationDemandClient;
+use xgate_xds::activation::{DemandSnapshot, TargetDemand};
 
 use crate::state::ProxyState;
 
@@ -47,12 +47,12 @@ use crate::state::ProxyState;
 /// not to a load-balanced VIP: KEDA polls whichever replica it lands on, so a
 /// report delivered to only one of them would leave the request waiting on a
 /// scale-up that the polled replica never learns about.
-const CONTROL_PLANE_ENV: &str = "DXGATE_ACTIVATION_CONTROL_PLANE";
+const CONTROL_PLANE_ENV: &str = "XGATE_ACTIVATION_CONTROL_PLANE";
 /// Identity of this gateway in reports. Two gateways sharing it would overwrite
 /// each other's counts, so it must be the pod name, not the Deployment name.
 const REPORTER_ENV: &str = "POD_NAME";
-const HOLD_TIMEOUT_ENV: &str = "DXGATE_ACTIVATION_HOLD_TIMEOUT";
-const MAX_PENDING_ENV: &str = "DXGATE_ACTIVATION_MAX_PENDING_REQUESTS";
+const HOLD_TIMEOUT_ENV: &str = "XGATE_ACTIVATION_HOLD_TIMEOUT";
+const MAX_PENDING_ENV: &str = "XGATE_ACTIVATION_MAX_PENDING_REQUESTS";
 
 /// How long a request waits for its target to come up before giving up. Cold
 /// start of a JVM service routinely exceeds 30s, but a caller that has already
@@ -134,11 +134,12 @@ struct Inner {
 
 impl Activator {
     /// Reads configuration from the environment. Absent
-    /// `DXGATE_ACTIVATION_CONTROL_PLANE` disables activation entirely, which is
+    /// `XGATE_ACTIVATION_CONTROL_PLANE` disables activation entirely, which is
     /// the state of every gateway that has no scaled-to-zero backends: the
     /// request path then behaves exactly as it did before this existed.
     pub fn from_env() -> Self {
         let Some(control_plane) = env::var(CONTROL_PLANE_ENV)
+            .or_else(|_| env::var("DXGATE_ACTIVATION_CONTROL_PLANE"))
             .ok()
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
@@ -461,6 +462,12 @@ async fn stream_once(inner: &Arc<Inner>, endpoint: &str) -> Result<(), tonic::St
 
 fn env_duration(key: &str, default: Duration) -> Duration {
     env::var(key)
+        .or_else(|_| {
+            key.strip_prefix("XGATE_")
+                .map(|s| format!("DXGATE_{s}"))
+                .and_then(|k| env::var(k).ok())
+                .ok_or(env::VarError::NotPresent)
+        })
         .ok()
         .and_then(|raw| raw.trim().parse::<u64>().ok())
         .filter(|secs| *secs > 0)
@@ -469,6 +476,12 @@ fn env_duration(key: &str, default: Duration) -> Duration {
 
 fn env_usize(key: &str, default: usize) -> usize {
     env::var(key)
+        .or_else(|_| {
+            key.strip_prefix("XGATE_")
+                .map(|s| format!("DXGATE_{s}"))
+                .and_then(|k| env::var(k).ok())
+                .ok_or(env::VarError::NotPresent)
+        })
         .ok()
         .and_then(|raw| raw.trim().parse::<usize>().ok())
         .filter(|value| *value > 0)
@@ -485,6 +498,19 @@ mod tests {
             Target::from_cluster_name("outbound|8080||payment.default.svc.cluster.local").unwrap();
         assert_eq!(target.namespace, "default");
         assert_eq!(target.name, "payment");
+    }
+
+    #[test]
+    fn parses_service_without_cluster_suffix() {
+		let target = Target::from_cluster_name("outbound|8080||orders.default.svc").unwrap();
+        assert_eq!(target.namespace, "default");
+        assert_eq!(target.name, "orders");
+    }
+
+    #[test]
+    fn rejects_unparseable_cluster_names() {
+        assert!(Target::from_cluster_name("").is_none());
+        assert!(Target::from_cluster_name("outbound|||broken").is_none());
     }
 
     #[test]
@@ -520,7 +546,7 @@ mod tests {
 
     fn test_inner(max_pending: usize) -> Arc<Inner> {
         Arc::new(Inner {
-            reporter: "dxgate-0".to_string(),
+            reporter: "xgate-0".to_string(),
             hold_timeout: Duration::from_millis(50),
             max_pending,
             demand: Mutex::new(HashMap::new()),
@@ -544,7 +570,7 @@ mod tests {
         let _c = Hold::acquire(Arc::clone(&inner), target("orders")).unwrap();
 
         let snapshot = inner.snapshot();
-        assert_eq!(snapshot.reporter, "dxgate-0");
+        assert_eq!(snapshot.reporter, "xgate-0");
         assert_eq!(snapshot.targets.len(), 2);
         assert_eq!(snapshot.targets[0].service, "orders");
         assert_eq!(snapshot.targets[0].pending, 1);

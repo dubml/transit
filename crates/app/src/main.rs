@@ -1,11 +1,11 @@
 use clap::Parser;
-use dxgate_core::{
+use xgate_core::{
     AuthPolicy, ConfigStore, RouterIdentity, RuntimeConfig, SecretKeyReference, DEFAULT_CLUSTER_ID,
     DEFAULT_DNS_DOMAIN,
 };
-use dxgate_proxy::{ProxyServer, ProxyState};
-use dxgate_ui::UiServer;
-use dxgate_xds::{BootstrapConfig, XdsClient, XdsClientConfig};
+use xgate_proxy::{ProxyServer, ProxyState};
+use xgate_ui::UiServer;
+use xgate_xds::{BootstrapConfig, XdsClient, XdsClientConfig};
 use k8s_openapi::api::core::v1::Secret;
 use kube::{Api, Client};
 use opentelemetry::KeyValue;
@@ -25,55 +25,63 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Debug, Parser)]
-#[command(name = "dxgate")]
+#[command(name = "xgate")]
 #[command(about = "Pure Rust north-south proxy for Dubbo Gateway API traffic")]
 struct Args {
     #[arg(
         long,
-        env = "DXGATE_XDS_ADDRESS",
+        env = "XGATE_XDS_ADDRESS",
         default_value = "https://dubbod.dubbo-system.svc:26012"
     )]
     xds_address: String,
 
-    #[arg(long, env = "DXGATE_XDS_ENABLED")]
+    #[arg(long, env = "XGATE_XDS_ENABLED")]
     xds_enabled: Option<bool>,
 
-    #[arg(long, env = "DXGATE_HTTP_ADDR", default_value = "0.0.0.0:80")]
+    #[arg(long, env = "XGATE_HTTP_ADDR", default_value = "0.0.0.0:80")]
     http_addr: SocketAddr,
 
-    #[arg(long, env = "DXGATE_UI_ADDR", default_value = "0.0.0.0:15021")]
+    #[arg(long, env = "XGATE_UI_ADDR", default_value = "0.0.0.0:15021")]
     ui_addr: SocketAddr,
 
-    #[arg(long, env = "DXGATE_METRICS_ENABLED", default_value_t = true)]
+    /// Directory containing gateway-managed OAuth accounts.
+    #[arg(long, env = "XGATE_LLM_ACCOUNTS_DIR")]
+    llm_accounts_dir: Option<PathBuf>,
+
+    /// Management bearer token; required when OAuth account storage is enabled.
+    #[arg(long, env = "XGATE_LLM_ADMIN_TOKEN", hide_env_values = true)]
+    llm_admin_token: Option<String>,
+
+    #[arg(long, env = "XGATE_METRICS_ENABLED", default_value_t = true)]
     metrics_enabled: bool,
 
     // Should be <= the pod's terminationGracePeriodSeconds, or Kubernetes SIGKILLs
     // the process mid-drain and the graceful shutdown buys nothing.
-    #[arg(long, env = "DXGATE_DRAIN_TIMEOUT_SECONDS", default_value_t = 30)]
+    #[arg(long, env = "XGATE_DRAIN_TIMEOUT_SECONDS", default_value_t = 30)]
     drain_timeout_seconds: u64,
 
-    #[arg(long, env = "DXGATE_BOOTSTRAP")]
+    #[arg(long, env = "XGATE_BOOTSTRAP")]
     bootstrap: Option<PathBuf>,
 
-    #[arg(long, env = "DXGATE_STATIC_CONFIG")]
+    #[arg(long, env = "XGATE_STATIC_CONFIG")]
     static_config: Option<PathBuf>,
 
-    #[arg(long, env = "DXGATE_OTEL_ENDPOINT")]
+    #[arg(long, env = "XGATE_OTEL_ENDPOINT")]
     otel_endpoint: Option<String>,
 
-    #[arg(long, env = "DXGATE_OTEL_SERVICE_NAME", default_value = "dxgate")]
+    #[arg(long, env = "XGATE_OTEL_SERVICE_NAME", default_value = "xgate")]
     otel_service_name: String,
 
-    #[arg(long, env = "DXGATE_OTEL_SAMPLING_PERCENTAGE", default_value_t = 100.0)]
+    #[arg(long, env = "XGATE_OTEL_SAMPLING_PERCENTAGE", default_value_t = 100.0)]
     otel_sampling_percentage: f64,
 
-    #[arg(long, env = "DXGATE_OTEL_TAGS")]
+    #[arg(long, env = "XGATE_OTEL_TAGS")]
     otel_tags: Option<String>,
 
-    #[arg(long, env = "DXGATE_LISTENER_NAMES", value_delimiter = ',')]
+    #[arg(long, env = "XGATE_LISTENER_NAMES", value_delimiter = ',')]
     listener_names: Vec<String>,
 
-    #[arg(long, env = "POD_NAME", default_value = "dxgate")]
+    #[arg(long, env = "POD_NAME", default_value = "xgate")]
     pod_name: String,
 
     #[arg(long, env = "POD_NAMESPACE", default_value = "dubbo-system")]
@@ -150,7 +158,7 @@ fn run_ledger(
     json: bool,
     country: Option<String>,
 ) -> std::io::Result<()> {
-    use dxgate_core::{quote_tokens, ContextBand, ServiceTier, TokenCounts};
+    use xgate_core::{quote_tokens, ContextBand, ServiceTier, TokenCounts};
     let tier = match tier.to_ascii_lowercase().as_str() {
         "standard" => ServiceTier::Standard,
         "fast" | "priority" => ServiceTier::Fast,
@@ -188,7 +196,7 @@ fn run_ledger(
     if json {
         let payload = if let Some(country) = country.as_deref() {
             let fx =
-                dxgate_core::convert_usd_nanos(quote.api_usd_nanos, country).map_err(|err| {
+                xgate_core::convert_usd_nanos(quote.api_usd_nanos, country).map_err(|err| {
                     std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
                 })?;
             serde_json::json!({ "quote": quote, "fx": fx })
@@ -223,14 +231,14 @@ fn run_ledger(
             "line\t{}\ttokens={}\tusd={}\tcredits={}",
             item.component,
             item.tokens,
-            dxgate_core::format_usd_nanos(item.api_usd_nanos),
+            xgate_core::format_usd_nanos(item.api_usd_nanos),
             item.chatgpt_credit_micros
-                .map(dxgate_core::format_credit_micros)
+                .map(xgate_core::format_credit_micros)
                 .unwrap_or_else(|| "unpublished".into())
         );
     }
     if let Some(country) = country {
-        let fx = dxgate_core::convert_usd_nanos(quote.api_usd_nanos, &country).map_err(|err| {
+        let fx = xgate_core::convert_usd_nanos(quote.api_usd_nanos, &country).map_err(|err| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
         })?;
         println!("fx_country\t{}", fx.country);
@@ -248,14 +256,14 @@ fn run_local_ledger(
     claude_home: Option<String>,
     codex_home: Option<String>,
 ) -> std::io::Result<()> {
-    let mut paths = dxgate_core::LocalScanPaths::from_env();
+    let mut paths = xgate_core::LocalScanPaths::from_env();
     if let Some(value) = claude_home {
-        paths.claude_roots = dxgate_core::LocalScanPaths::parse_roots(&value);
+        paths.claude_roots = xgate_core::LocalScanPaths::parse_roots(&value);
     }
     if let Some(value) = codex_home {
-        paths.codex_roots = dxgate_core::LocalScanPaths::parse_roots(&value);
+        paths.codex_roots = xgate_core::LocalScanPaths::parse_roots(&value);
     }
-    let report = dxgate_core::scan_local_usage(&paths);
+    let report = xgate_core::scan_local_usage(&paths);
     if json {
         println!(
             "{}",
@@ -284,8 +292,25 @@ fn run_local_ledger(
     Ok(())
 }
 
+fn sync_legacy_envs() {
+    for (key, val) in std::env::vars() {
+        if let Some(rest) = key.strip_prefix("DXGATE_") {
+            let xgate_key = format!("XGATE_{rest}");
+            if std::env::var_os(&xgate_key).is_none() {
+                std::env::set_var(&xgate_key, &val);
+            }
+        } else if let Some(rest) = key.strip_prefix("XGATE_") {
+            let dxgate_key = format!("DXGATE_{rest}");
+            if std::env::var_os(&dxgate_key).is_none() {
+                std::env::set_var(&dxgate_key, &val);
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    sync_legacy_envs();
     let args = Args::parse();
     if let Some(Command::Ledger {
         action,
@@ -355,12 +380,18 @@ async fn main() -> std::io::Result<()> {
         dns_domain: args.dns_domain,
     };
 
-    info!(node_id = %identity.node_id(), "starting dxgate router proxy");
+    info!(node_id = %identity.node_id(), "starting xgate router proxy");
 
     // dubbod is the sole configuration source. Kubernetes access is limited to
     // resolving Secret values referenced by the xDS configuration.
     let store = Arc::new(ConfigStore::new());
     let state = ProxyState::with_store(store.clone());
+    configure_llm_accounts(
+        &state,
+        args.ui_addr,
+        args.llm_accounts_dir.as_deref(),
+        args.llm_admin_token.as_deref(),
+    )?;
 
     if run_xds {
         let xds = XdsClient::new(XdsClientConfig {
@@ -435,6 +466,55 @@ async fn main() -> std::io::Result<()> {
 }
 
 /// Resolves on SIGTERM (what Kubernetes sends first) or SIGINT (Ctrl-C).
+fn configure_llm_accounts(
+    state: &ProxyState,
+    ui_addr: SocketAddr,
+    directory: Option<&std::path::Path>,
+    token: Option<&str>,
+) -> std::io::Result<()> {
+    let local = ui_addr.ip().is_loopback();
+    if !local && directory.is_none() && token.is_none() {
+        return Ok(());
+    }
+    if !local && token.is_none() {
+        return Err(std::io::Error::other(
+            "XGATE_LLM_ADMIN_TOKEN is required for OAuth management on a non-loopback UI",
+        ));
+    }
+    let directory = match directory {
+        Some(path) => path.to_path_buf(),
+        None => {
+            let base = std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config"))
+                })
+                .ok_or_else(|| {
+                    std::io::Error::other(
+                        "Set XGATE_LLM_ACCOUNTS_DIR when no home directory is available",
+                    )
+                })?;
+            let xgate_dir = base.join("xgate/accounts");
+            let dxgate_dir = base.join("dxgate/accounts");
+            if !xgate_dir.exists() && dxgate_dir.exists() {
+                dxgate_dir
+            } else {
+                xgate_dir
+            }
+        }
+    };
+    if let Some(token) = token {
+        state
+            .llm_accounts()
+            .configure(&directory, token.to_string())?;
+    } else {
+        state.llm_accounts().configure_local(&directory)?;
+    }
+    info!(path = %directory.display(), local_session = token.is_none(), "OAuth account storage enabled");
+    Ok(())
+}
+
 async fn termination_signal() {
     #[cfg(unix)]
     {
@@ -605,7 +685,7 @@ fn parse_otel_tags(raw: Option<&str>) -> std::io::Result<Vec<KeyValue>> {
         return Ok(Vec::new());
     };
     let tags: std::collections::BTreeMap<String, String> = serde_json::from_str(raw)
-        .map_err(|err| std::io::Error::other(format!("parse DXGATE_OTEL_TAGS: {err}")))?;
+        .map_err(|err| std::io::Error::other(format!("parse XGATE_OTEL_TAGS: {err}")))?;
     Ok(tags
         .into_iter()
         .map(|(name, value)| KeyValue::new(name, value))
@@ -656,7 +736,7 @@ fn apply_bootstrap(args: &mut Args, bootstrap: BootstrapConfig) {
     }
 }
 
-/// Whether to open an ADS stream. dxgate is a delegated data plane, so the xDS
+/// Whether to open an ADS stream. xgate is a delegated data plane, so the xDS
 /// client is on unless explicitly disabled — a proxy without its control plane
 /// has nothing to route.
 fn should_run_xds(args: &Args) -> bool {
@@ -665,8 +745,64 @@ fn should_run_xds(args: &Args) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn loopback_management_initializes_without_env_and_remote_requires_token() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("xgate-local-init-{nonce}"));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(directory.clone());
+        let local = super::ProxyState::new();
+        super::configure_llm_accounts(
+            &local,
+            "127.0.0.1:15021".parse().unwrap(),
+            Some(&directory),
+            None,
+        )
+        .unwrap();
+        assert!(local.llm_accounts().enabled());
+        let token = local.llm_accounts().local_session_token().unwrap();
+        assert!(local.llm_accounts().authorized(&token));
+        let restarted = super::ProxyState::new();
+        super::configure_llm_accounts(
+            &restarted,
+            "127.0.0.1:15021".parse().unwrap(),
+            Some(&directory),
+            None,
+        )
+        .unwrap();
+        assert!(!restarted.llm_accounts().authorized(&token));
+
+        let remote = super::ProxyState::new();
+        let err = super::configure_llm_accounts(
+            &remote,
+            "0.0.0.0:15021".parse().unwrap(),
+            Some(&directory),
+            None,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("XGATE_LLM_ADMIN_TOKEN"));
+        assert!(!remote.llm_accounts().enabled());
+        super::configure_llm_accounts(
+            &remote,
+            "0.0.0.0:15021".parse().unwrap(),
+            Some(&directory),
+            Some("test-explicit-management-token-long-enough"),
+        )
+        .unwrap();
+        assert!(remote.llm_accounts().enabled());
+        assert!(remote.llm_accounts().authorized("test-explicit-management-token-long-enough"));
+        assert!(remote.llm_accounts().local_session_token().is_none());
+    }
     use super::{apply_bootstrap, parse_otel_tags, should_run_xds, Args};
-    use dxgate_xds::BootstrapConfig;
+    use xgate_xds::BootstrapConfig;
     use std::net::SocketAddr;
     use std::path::PathBuf;
 
@@ -676,16 +812,18 @@ mod tests {
             xds_enabled: None,
             http_addr: "0.0.0.0:80".parse().unwrap(),
             ui_addr: "0.0.0.0:15021".parse().unwrap(),
+            llm_accounts_dir: None,
+            llm_admin_token: None,
             metrics_enabled: true,
             drain_timeout_seconds: 30,
-            bootstrap: Some(PathBuf::from("/etc/dxgate/bootstrap.json")),
+            bootstrap: Some(PathBuf::from("/etc/xgate/bootstrap.json")),
             static_config: None,
             otel_endpoint: None,
-            otel_service_name: "dxgate".to_string(),
+            otel_service_name: "xgate".to_string(),
             otel_sampling_percentage: 100.0,
             otel_tags: None,
             listener_names: Vec::new(),
-            pod_name: "dxgate".to_string(),
+            pod_name: "xgate".to_string(),
             namespace: "dubbo-system".to_string(),
             pod_ip: "127.0.0.1".to_string(),
             node_name: None,
@@ -725,7 +863,7 @@ mod tests {
         assert_eq!(args.http_addr.port(), 8080);
         assert_eq!(args.cluster_id, "Kubernetes");
         assert_eq!(args.dns_domain, "svc.local");
-        assert_eq!(args.pod_name, "dxgate");
+        assert_eq!(args.pod_name, "xgate");
         assert_eq!(
             args.listener_names,
             ["public-dubbo.app.svc.cluster.local:80"]
@@ -734,8 +872,8 @@ mod tests {
 
     #[test]
     fn demo_config_deserializes() {
-        let raw = include_str!("../../../examples/demo-config.json");
-        let cfg: dxgate_core::RuntimeConfig = serde_json::from_str(raw).unwrap();
+        let raw = include_str!("../../../tests/ui-fake.json");
+        let cfg: xgate_core::RuntimeConfig = serde_json::from_str(raw).unwrap();
         assert_eq!(cfg.clusters.len(), 3);
         assert_eq!(cfg.providers.len(), 2);
         assert_eq!(cfg.backends.len(), 7);

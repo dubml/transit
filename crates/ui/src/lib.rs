@@ -3,7 +3,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use dxgate_proxy::{
+use xgate_proxy::{
     A2aMethodMetric, HttpRouteConcurrencyMetric, HttpRouteMetric, LlmUsageMetric, McpToolMetric,
     ProxyMetrics, ProxyState, Readiness, RouteMetric,
 };
@@ -12,6 +12,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+mod llm;
 
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
@@ -27,6 +29,8 @@ pub struct UiServer {
     build: BuildInfo,
     proxy_port: u16,
     metrics_enabled: bool,
+    bind_addr: Option<SocketAddr>,
+    oauth_callbacks: std::sync::Arc<llm::CallbackListeners>,
 }
 
 impl UiServer {
@@ -34,11 +38,13 @@ impl UiServer {
         Self {
             state,
             build: BuildInfo {
-                name: "dxgate",
+                name: "xgate",
                 version: env!("CARGO_PKG_VERSION"),
             },
             proxy_port: proxy_addr.port(),
             metrics_enabled,
+            bind_addr: None,
+            oauth_callbacks: Default::default(),
         }
     }
 
@@ -50,13 +56,17 @@ impl UiServer {
     /// Serves until `shutdown` resolves, then stops accepting and lets in-flight
     /// requests finish before returning.
     pub async fn serve_with_shutdown(
-        self,
+        mut self,
         addr: SocketAddr,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> std::io::Result<()> {
+        self.bind_addr = Some(addr);
         let app = Router::new()
+            .merge(llm::routes())
             .route("/", get(ui_page))
             .route("/ui", get(ui_page))
+            .route("/assets/xgate-logo.svg", get(logo_svg))
+            .route("/assets/xgate-mark.svg", get(mark_svg))
             .route("/assets/dxgate-logo.svg", get(logo_svg))
             .route("/assets/dxgate-mark.svg", get(mark_svg))
             .route("/healthz", get(healthz))
@@ -77,7 +87,7 @@ impl UiServer {
             .with_state(self);
 
         axum::Server::bind(&addr)
-            .serve(app.into_make_service())
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
             .with_graceful_shutdown(shutdown)
             .await
             .map_err(std::io::Error::other)
@@ -91,7 +101,7 @@ async fn ui_page(State(ui): State<UiServer>) -> Html<String> {
 async fn logo_svg() -> Response {
     (
         [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
-        include_str!("../../../logo/dxgate-logo.svg"),
+        include_str!("../../../logo/xgate-logo.svg"),
     )
         .into_response()
 }
@@ -99,7 +109,7 @@ async fn logo_svg() -> Response {
 async fn mark_svg() -> Response {
     (
         [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
-        include_str!("../../../logo/dxgate-mark.svg"),
+        include_str!("../../../logo/xgate-mark.svg"),
     )
         .into_response()
 }
@@ -133,217 +143,217 @@ async fn metrics(State(ui): State<UiServer>) -> Response {
 
 fn prometheus_metrics(readiness: Readiness, proxy: ProxyMetrics) -> String {
     let mut out = format!(
-        "# HELP dxgate_ready Whether dxgate has accepted runtime config\n# TYPE dxgate_ready gauge\ndxgate_ready {}\n# HELP dxgate_config_conflicts Current rejected config conflicts\n# TYPE dxgate_config_conflicts gauge\ndxgate_config_conflicts {}\n",
+        "# HELP xgate_ready Whether xgate has accepted runtime config\n# TYPE xgate_ready gauge\nxgate_ready {}\n# HELP xgate_config_conflicts Current rejected config conflicts\n# TYPE xgate_config_conflicts gauge\nxgate_config_conflicts {}\n",
         if readiness.ready { 1 } else { 0 },
         readiness.conflicts.len()
     );
-    out.push_str("# HELP dxgate_requests_total Total requests observed by dxgate\n# TYPE dxgate_requests_total counter\n");
-    out.push_str(&format!("dxgate_requests_total {}\n", proxy.total_requests));
-    out.push_str("# HELP dxgate_agent_requests_total Agent protocol requests observed by dxgate\n# TYPE dxgate_agent_requests_total counter\n");
+    out.push_str("# HELP xgate_requests_total Total requests observed by xgate\n# TYPE xgate_requests_total counter\n");
+    out.push_str(&format!("xgate_requests_total {}\n", proxy.total_requests));
+    out.push_str("# HELP xgate_agent_requests_total Agent protocol requests observed by xgate\n# TYPE xgate_agent_requests_total counter\n");
     out.push_str(&format!(
-        "dxgate_agent_requests_total {}\n",
+        "xgate_agent_requests_total {}\n",
         proxy.agent_requests
     ));
-    out.push_str("# HELP dxgate_policy_denied_total Requests denied by dxgate policy\n# TYPE dxgate_policy_denied_total counter\n");
+    out.push_str("# HELP xgate_policy_denied_total Requests denied by xgate policy\n# TYPE xgate_policy_denied_total counter\n");
     out.push_str(&format!(
-        "dxgate_policy_denied_total {}\n",
+        "xgate_policy_denied_total {}\n",
         proxy.policy_denied
     ));
-    out.push_str("# HELP dxgate_upstream_failures_total Upstream failures observed by dxgate\n# TYPE dxgate_upstream_failures_total counter\n");
+    out.push_str("# HELP xgate_upstream_failures_total Upstream failures observed by xgate\n# TYPE xgate_upstream_failures_total counter\n");
     out.push_str(&format!(
-        "dxgate_upstream_failures_total {}\n",
+        "xgate_upstream_failures_total {}\n",
         proxy.upstream_failures
     ));
-    out.push_str("# HELP dxgate_requests_in_flight Requests being handled right now\n# TYPE dxgate_requests_in_flight gauge\n");
+    out.push_str("# HELP xgate_requests_in_flight Requests being handled right now\n# TYPE xgate_requests_in_flight gauge\n");
     out.push_str(&format!(
-        "dxgate_requests_in_flight {}\n",
+        "xgate_requests_in_flight {}\n",
         proxy.concurrency.in_flight
     ));
     // Counted separately from in-flight requests: these are waiting on a
     // scale-up, not on an upstream, so folding them together would read as the
     // gateway having gone slow.
-    out.push_str("# HELP dxgate_activation_requests_held Requests waiting for a scaled-to-zero target to come up\n# TYPE dxgate_activation_requests_held gauge\n");
+    out.push_str("# HELP xgate_activation_requests_held Requests waiting for a scaled-to-zero target to come up\n# TYPE xgate_activation_requests_held gauge\n");
     out.push_str(&format!(
-        "dxgate_activation_requests_held {}\n",
+        "xgate_activation_requests_held {}\n",
         proxy.held_activation_requests
     ));
     // Scale on rate() of this rather than on the gauge above: the gauge is a
     // single instant and misses every burst that lands between two scrapes.
-    out.push_str("# HELP dxgate_request_seconds_total Accumulated request time; rate() gives average concurrency\n# TYPE dxgate_request_seconds_total counter\n");
+    out.push_str("# HELP xgate_request_seconds_total Accumulated request time; rate() gives average concurrency\n# TYPE xgate_request_seconds_total counter\n");
     out.push_str(&format!(
-        "dxgate_request_seconds_total {}\n",
+        "xgate_request_seconds_total {}\n",
         proxy.concurrency.seconds_total
     ));
-    out.push_str("# HELP dxgate_http_route_requests_in_flight Requests in flight by route and cluster\n# TYPE dxgate_http_route_requests_in_flight gauge\n");
+    out.push_str("# HELP xgate_http_route_requests_in_flight Requests in flight by route and cluster\n# TYPE xgate_http_route_requests_in_flight gauge\n");
     for route in &proxy.http_route_concurrency {
         let labels = http_route_concurrency_labels(route);
         out.push_str(&format!(
-            "dxgate_http_route_requests_in_flight{{{labels}}} {}\n",
+            "xgate_http_route_requests_in_flight{{{labels}}} {}\n",
             route.concurrency.in_flight
         ));
     }
-    out.push_str("# HELP dxgate_http_route_request_seconds_total Accumulated request time by route and cluster\n# TYPE dxgate_http_route_request_seconds_total counter\n");
+    out.push_str("# HELP xgate_http_route_request_seconds_total Accumulated request time by route and cluster\n# TYPE xgate_http_route_request_seconds_total counter\n");
     for route in &proxy.http_route_concurrency {
         let labels = http_route_concurrency_labels(route);
         out.push_str(&format!(
-            "dxgate_http_route_request_seconds_total{{{labels}}} {}\n",
+            "xgate_http_route_request_seconds_total{{{labels}}} {}\n",
             route.concurrency.seconds_total
         ));
     }
-    out.push_str("# HELP dxgate_http_route_requests_total HTTP gateway requests observed by route and cluster\n# TYPE dxgate_http_route_requests_total counter\n");
+    out.push_str("# HELP xgate_http_route_requests_total HTTP gateway requests observed by route and cluster\n# TYPE xgate_http_route_requests_total counter\n");
     for route in &proxy.http_routes {
         let labels = http_route_labels(route);
         out.push_str(&format!(
-            "dxgate_http_route_requests_total{{{labels}}} {}\n",
+            "xgate_http_route_requests_total{{{labels}}} {}\n",
             route.requests
         ));
     }
-    out.push_str("# HELP dxgate_http_route_failures_total HTTP gateway upstream failures observed by route and cluster\n# TYPE dxgate_http_route_failures_total counter\n");
+    out.push_str("# HELP xgate_http_route_failures_total HTTP gateway upstream failures observed by route and cluster\n# TYPE xgate_http_route_failures_total counter\n");
     for route in &proxy.http_routes {
         let labels = http_route_labels(route);
         out.push_str(&format!(
-            "dxgate_http_route_failures_total{{{labels}}} {}\n",
+            "xgate_http_route_failures_total{{{labels}}} {}\n",
             route.failures
         ));
     }
-    out.push_str("# HELP dxgate_http_route_latency_ms HTTP gateway upstream latency in milliseconds\n# TYPE dxgate_http_route_latency_ms histogram\n");
+    out.push_str("# HELP xgate_http_route_latency_ms HTTP gateway upstream latency in milliseconds\n# TYPE xgate_http_route_latency_ms histogram\n");
     for route in &proxy.http_routes {
         let labels = http_route_labels(route);
         out.push_str(&format!(
-            "dxgate_http_route_latency_ms_sum{{{labels}}} {}\n",
+            "xgate_http_route_latency_ms_sum{{{labels}}} {}\n",
             route.latency_ms_sum
         ));
         for bucket in &route.latency_ms_buckets {
             out.push_str(&format!(
-                "dxgate_http_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
+                "xgate_http_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
                 bucket.le, bucket.count
             ));
         }
         out.push_str(&format!(
-            "dxgate_http_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
+            "xgate_http_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
             route.requests
         ));
         out.push_str(&format!(
-            "dxgate_http_route_latency_ms_count{{{labels}}} {}\n",
-            route.requests
-        ));
-    }
-    out.push_str("# HELP dxgate_agent_route_requests_total Agent protocol requests observed by route and backend\n# TYPE dxgate_agent_route_requests_total counter\n");
-    for route in &proxy.routes {
-        let labels = agent_route_labels(route);
-        out.push_str(&format!(
-            "dxgate_agent_route_requests_total{{{labels}}} {}\n",
+            "xgate_http_route_latency_ms_count{{{labels}}} {}\n",
             route.requests
         ));
     }
-    out.push_str("# HELP dxgate_agent_route_failures_total Agent protocol upstream failures observed by route and backend\n# TYPE dxgate_agent_route_failures_total counter\n");
+    out.push_str("# HELP xgate_agent_route_requests_total Agent protocol requests observed by route and backend\n# TYPE xgate_agent_route_requests_total counter\n");
     for route in &proxy.routes {
         let labels = agent_route_labels(route);
         out.push_str(&format!(
-            "dxgate_agent_route_failures_total{{{labels}}} {}\n",
+            "xgate_agent_route_requests_total{{{labels}}} {}\n",
+            route.requests
+        ));
+    }
+    out.push_str("# HELP xgate_agent_route_failures_total Agent protocol upstream failures observed by route and backend\n# TYPE xgate_agent_route_failures_total counter\n");
+    for route in &proxy.routes {
+        let labels = agent_route_labels(route);
+        out.push_str(&format!(
+            "xgate_agent_route_failures_total{{{labels}}} {}\n",
             route.failures
         ));
     }
-    out.push_str("# HELP dxgate_agent_route_latency_ms Agent protocol upstream latency in milliseconds\n# TYPE dxgate_agent_route_latency_ms histogram\n");
+    out.push_str("# HELP xgate_agent_route_latency_ms Agent protocol upstream latency in milliseconds\n# TYPE xgate_agent_route_latency_ms histogram\n");
     for route in &proxy.routes {
         let labels = agent_route_labels(route);
         out.push_str(&format!(
-            "dxgate_agent_route_latency_ms_sum{{{labels}}} {}\n",
+            "xgate_agent_route_latency_ms_sum{{{labels}}} {}\n",
             route.latency_ms_sum
         ));
         for bucket in &route.latency_ms_buckets {
             out.push_str(&format!(
-                "dxgate_agent_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
+                "xgate_agent_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
                 bucket.le, bucket.count
             ));
         }
         out.push_str(&format!(
-            "dxgate_agent_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
+            "xgate_agent_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
             route.requests
         ));
         out.push_str(&format!(
-            "dxgate_agent_route_latency_ms_count{{{labels}}} {}\n",
+            "xgate_agent_route_latency_ms_count{{{labels}}} {}\n",
             route.requests
         ));
     }
-    out.push_str("# HELP dxgate_llm_requests_total LLM requests with recorded token usage\n# TYPE dxgate_llm_requests_total counter\n");
+    out.push_str("# HELP xgate_llm_requests_total LLM requests with recorded token usage\n# TYPE xgate_llm_requests_total counter\n");
     for usage in &proxy.llm_usage {
         let labels = llm_usage_labels(usage);
         out.push_str(&format!(
-            "dxgate_llm_requests_total{{{labels}}} {}\n",
+            "xgate_llm_requests_total{{{labels}}} {}\n",
             usage.requests
         ));
     }
-    out.push_str("# HELP dxgate_llm_tokens_total LLM tokens observed by route, backend, and model\n# TYPE dxgate_llm_tokens_total counter\n");
+    out.push_str("# HELP xgate_llm_tokens_total LLM tokens observed by route, backend, and model\n# TYPE xgate_llm_tokens_total counter\n");
     for usage in &proxy.llm_usage {
         let labels = llm_usage_labels(usage);
         out.push_str(&format!(
-            "dxgate_llm_tokens_total{{{labels},type=\"prompt\"}} {}\n",
+            "xgate_llm_tokens_total{{{labels},type=\"prompt\"}} {}\n",
             usage.prompt_tokens
         ));
         out.push_str(&format!(
-            "dxgate_llm_tokens_total{{{labels},type=\"completion\"}} {}\n",
+            "xgate_llm_tokens_total{{{labels},type=\"completion\"}} {}\n",
             usage.completion_tokens
         ));
         out.push_str(&format!(
-            "dxgate_llm_tokens_total{{{labels},type=\"cached_prompt\"}} {}\n",
+            "xgate_llm_tokens_total{{{labels},type=\"cached_prompt\"}} {}\n",
             usage.cached_prompt_tokens
         ));
     }
-    out.push_str("# HELP dxgate_llm_api_usd_nanos_total API list-price USD for observed tokens, in nanodollars (1e-9 USD). Offline published rate card; unknown models omitted.\n# TYPE dxgate_llm_api_usd_nanos_total counter\n");
-    out.push_str("# HELP dxgate_llm_chatgpt_credit_micros_total Codex/ChatGPT subscription credits for observed tokens, in microcredits (1e-6 credit). Always emitted; incomplete quotes still include known credit line items.\n# TYPE dxgate_llm_chatgpt_credit_micros_total counter\n");
+    out.push_str("# HELP xgate_llm_api_usd_nanos_total API list-price USD for observed tokens, in nanodollars (1e-9 USD). Offline published rate card; unknown models omitted.\n# TYPE xgate_llm_api_usd_nanos_total counter\n");
+    out.push_str("# HELP xgate_llm_chatgpt_credit_micros_total Codex/ChatGPT subscription credits for observed tokens, in microcredits (1e-6 credit). Always emitted; incomplete quotes still include known credit line items.\n# TYPE xgate_llm_chatgpt_credit_micros_total counter\n");
     for usage in &proxy.llm_usage {
         let labels = llm_usage_labels(usage);
-        if let Ok(quote) = dxgate_core::quote_tokens(
+        if let Ok(quote) = xgate_core::quote_tokens(
             &usage.model,
-            dxgate_core::TokenCounts {
+            xgate_core::TokenCounts {
                 prompt_tokens: usage.prompt_tokens,
                 cached_prompt_tokens: usage.cached_prompt_tokens,
                 cache_write_tokens: 0,
                 completion_tokens: usage.completion_tokens,
             },
-            dxgate_core::ServiceTier::Standard,
-            dxgate_core::ContextBand::Short,
+            xgate_core::ServiceTier::Standard,
+            xgate_core::ContextBand::Short,
         ) {
             out.push_str(&format!(
-                "dxgate_llm_api_usd_nanos_total{{{labels}}} {}\n",
+                "xgate_llm_api_usd_nanos_total{{{labels}}} {}\n",
                 quote.api_usd_nanos
             ));
             out.push_str(&format!(
-                "dxgate_llm_chatgpt_credit_micros_total{{{labels}}} {}\n",
+                "xgate_llm_chatgpt_credit_micros_total{{{labels}}} {}\n",
                 quote.chatgpt_credit_micros
             ));
         }
     }
-    out.push_str("# HELP dxgate_mcp_tool_calls_total MCP tools/call requests by route, backend, and tool\n# TYPE dxgate_mcp_tool_calls_total counter\n");
+    out.push_str("# HELP xgate_mcp_tool_calls_total MCP tools/call requests by route, backend, and tool\n# TYPE xgate_mcp_tool_calls_total counter\n");
     for tool in &proxy.mcp_tools {
         let labels = mcp_tool_labels(tool);
         out.push_str(&format!(
-            "dxgate_mcp_tool_calls_total{{{labels}}} {}\n",
+            "xgate_mcp_tool_calls_total{{{labels}}} {}\n",
             tool.calls
         ));
     }
-    out.push_str("# HELP dxgate_mcp_tool_failures_total MCP tools/call requests that did not return a success status\n# TYPE dxgate_mcp_tool_failures_total counter\n");
+    out.push_str("# HELP xgate_mcp_tool_failures_total MCP tools/call requests that did not return a success status\n# TYPE xgate_mcp_tool_failures_total counter\n");
     for tool in &proxy.mcp_tools {
         let labels = mcp_tool_labels(tool);
         out.push_str(&format!(
-            "dxgate_mcp_tool_failures_total{{{labels}}} {}\n",
+            "xgate_mcp_tool_failures_total{{{labels}}} {}\n",
             tool.failures
         ));
     }
-    out.push_str("# HELP dxgate_a2a_method_calls_total A2A JSON-RPC requests by route, backend, and method\n# TYPE dxgate_a2a_method_calls_total counter\n");
+    out.push_str("# HELP xgate_a2a_method_calls_total A2A JSON-RPC requests by route, backend, and method\n# TYPE xgate_a2a_method_calls_total counter\n");
     for method in &proxy.a2a_methods {
         let labels = a2a_method_labels(method);
         out.push_str(&format!(
-            "dxgate_a2a_method_calls_total{{{labels}}} {}\n",
+            "xgate_a2a_method_calls_total{{{labels}}} {}\n",
             method.calls
         ));
     }
-    out.push_str("# HELP dxgate_a2a_method_failures_total A2A JSON-RPC requests that did not return a success status\n# TYPE dxgate_a2a_method_failures_total counter\n");
+    out.push_str("# HELP xgate_a2a_method_failures_total A2A JSON-RPC requests that did not return a success status\n# TYPE xgate_a2a_method_failures_total counter\n");
     for method in &proxy.a2a_methods {
         let labels = a2a_method_labels(method);
         out.push_str(&format!(
-            "dxgate_a2a_method_failures_total{{{labels}}} {}\n",
+            "xgate_a2a_method_failures_total{{{labels}}} {}\n",
             method.failures
         ));
     }
@@ -418,7 +428,7 @@ fn prometheus_label_value(value: &str) -> String {
         .replace('"', "\\\"")
 }
 
-async fn debug_config(State(ui): State<UiServer>) -> Json<dxgate_core::RuntimeConfig> {
+async fn debug_config(State(ui): State<UiServer>) -> Json<xgate_core::RuntimeConfig> {
     Json(ui.state.snapshot().to_redacted_runtime_config())
 }
 
@@ -446,9 +456,9 @@ pub struct CostReport {
     pub api_usd: String,
     pub chatgpt_credits: String,
     pub chatgpt_credits_complete: bool,
-    pub rate_card: Vec<dxgate_core::RateCardEntry>,
+    pub rate_card: Vec<xgate_core::RateCardEntry>,
     pub usage: Vec<CostUsageRow>,
-    pub local: Vec<dxgate_core::LocalUsageRow>,
+    pub local: Vec<xgate_core::LocalUsageRow>,
     pub local_input: u64,
     pub local_cache_read: u64,
     pub local_cache_write: u64,
@@ -457,22 +467,22 @@ pub struct CostReport {
     pub local_api_usd: String,
     pub local_credits: String,
     pub local_credits_complete: bool,
-    pub local_fx: Option<dxgate_core::FxQuote>,
+    pub local_fx: Option<xgate_core::FxQuote>,
     pub fx_as_of: &'static str,
     pub fx_source: &'static str,
     pub fx_country: String,
-    pub fx_rates: Vec<dxgate_core::FxRate>,
+    pub fx_rates: Vec<xgate_core::FxRate>,
     pub family: String,
     pub model: String,
     pub models: Vec<String>,
     pub billing: String,
-    pub ticks: Vec<dxgate_core::LocalTick>,
+    pub ticks: Vec<xgate_core::LocalTick>,
 
-    pub spend_ledger: dxgate_core::SpendLedgerSummary,
-    pub token_ledger: dxgate_core::TokenLedgerSummary,
-    pub efficiency_ledger: dxgate_core::EfficiencyLedgerSummary,
-    pub optimization_ledger: dxgate_core::OptimizationLedgerSummary,
-    pub events: Vec<dxgate_core::CostEvent>,
+    pub spend_ledger: xgate_core::SpendLedgerSummary,
+    pub token_ledger: xgate_core::TokenLedgerSummary,
+    pub efficiency_ledger: xgate_core::EfficiencyLedgerSummary,
+    pub optimization_ledger: xgate_core::OptimizationLedgerSummary,
+    pub events: Vec<xgate_core::CostEvent>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -487,8 +497,8 @@ fn model_matches(row_model: &str, selected: &str) -> bool {
     if selected.is_empty() || selected.eq_ignore_ascii_case("all") {
         return true;
     }
-    let row = dxgate_core::normalize_model(row_model);
-    let want = dxgate_core::normalize_model(selected);
+    let row = xgate_core::normalize_model(row_model);
+    let want = xgate_core::normalize_model(selected);
     row == want || row.replace('.', "-") == want.replace('.', "-")
 }
 
@@ -509,7 +519,7 @@ fn parse_family(value: &str) -> String {
 }
 
 fn model_family(model: &str) -> Option<&'static str> {
-    let model = dxgate_core::normalize_model(model);
+    let model = xgate_core::normalize_model(model);
     if model.starts_with("claude") {
         Some("claude")
     } else if model.starts_with("gpt-") {
@@ -542,16 +552,16 @@ fn cost_report(
         .into_iter()
         .filter(|row| in_family(&row.model, &family) && model_matches(&row.model, selected_model))
         .map(|row| {
-            match dxgate_core::quote_tokens(
+            match xgate_core::quote_tokens(
                 &row.model,
-                dxgate_core::TokenCounts {
+                xgate_core::TokenCounts {
                     prompt_tokens: row.prompt_tokens,
                     cached_prompt_tokens: row.cached_prompt_tokens,
                     cache_write_tokens: 0,
                     completion_tokens: row.completion_tokens,
                 },
-                dxgate_core::ServiceTier::Standard,
-                dxgate_core::ContextBand::Short,
+                xgate_core::ServiceTier::Standard,
+                xgate_core::ContextBand::Short,
             ) {
                 Ok(quote) => {
                     usd_nanos += quote.api_usd_nanos;
@@ -619,16 +629,16 @@ fn cost_report(
     let mut local_credit_micros: u128 = 0;
     let mut local_credits_complete = true;
     for row in &local {
-        match dxgate_core::quote_tokens(
+        match xgate_core::quote_tokens(
             &row.model,
-            dxgate_core::TokenCounts {
+            xgate_core::TokenCounts {
                 prompt_tokens: row.prompt_tokens,
                 cached_prompt_tokens: row.cached_prompt_tokens,
                 cache_write_tokens: row.cache_write_tokens,
                 completion_tokens: row.completion_tokens,
             },
-            dxgate_core::ServiceTier::Standard,
-            dxgate_core::ContextBand::Short,
+            xgate_core::ServiceTier::Standard,
+            xgate_core::ContextBand::Short,
         ) {
             Ok(quote) => {
                 if quote.chatgpt_credits_complete {
@@ -648,13 +658,13 @@ fn cost_report(
     } else {
         country.to_string()
     };
-    // FX applies to gateway API USD only — money that actually went through dxgate.
+    // FX applies to gateway API USD only — money that actually went through xgate.
     let local_fx = if billing == "api" {
-        dxgate_core::convert_usd_nanos(usd_nanos, &fx_country).ok()
+        xgate_core::convert_usd_nanos(usd_nanos, &fx_country).ok()
     } else {
         None
     };
-    let rate_card: Vec<_> = dxgate_core::published_rate_card()
+    let rate_card: Vec<_> = xgate_core::published_rate_card()
         .into_iter()
         .filter(|row| {
             in_family(row.model, &family)
@@ -671,11 +681,11 @@ fn cost_report(
         })
         .collect();
     let ticks: Vec<_> = if selected_model.is_empty() || selected_model.eq_ignore_ascii_case("all") {
-        let mut by_day = std::collections::BTreeMap::<String, dxgate_core::LocalTick>::new();
+        let mut by_day = std::collections::BTreeMap::<String, xgate_core::LocalTick>::new();
         for tick in family_ticks {
             let entry = by_day
                 .entry(tick.day.clone())
-                .or_insert_with(|| dxgate_core::LocalTick {
+                .or_insert_with(|| xgate_core::LocalTick {
                     day: tick.day.clone(),
                     model: "all".into(),
                     t_ms: tick.t_ms,
@@ -696,12 +706,12 @@ fn cost_report(
         family_ticks
     };
     CostReport {
-        rate_card_as_of: dxgate_core::RATE_CARD_AS_OF,
-        api_usd_source: dxgate_core::API_USD_SOURCE,
-        chatgpt_credits_source: dxgate_core::CHATGPT_CREDITS_SOURCE,
-        chatgpt_fast_source: dxgate_core::CHATGPT_FAST_SOURCE,
-        api_usd: dxgate_core::format_usd_nanos(usd_nanos),
-        chatgpt_credits: dxgate_core::format_credit_micros(credit_micros),
+        rate_card_as_of: xgate_core::RATE_CARD_AS_OF,
+        api_usd_source: xgate_core::API_USD_SOURCE,
+        chatgpt_credits_source: xgate_core::CHATGPT_CREDITS_SOURCE,
+        chatgpt_fast_source: xgate_core::CHATGPT_FAST_SOURCE,
+        api_usd: xgate_core::format_usd_nanos(usd_nanos),
+        chatgpt_credits: xgate_core::format_credit_micros(credit_micros),
         chatgpt_credits_complete: complete,
         rate_card,
         usage,
@@ -711,14 +721,14 @@ fn cost_report(
         local_cache_write,
         local_output,
         local_total,
-        local_api_usd: dxgate_core::format_usd_nanos(0),
-        local_credits: dxgate_core::format_credit_micros(local_credit_micros),
+        local_api_usd: xgate_core::format_usd_nanos(0),
+        local_credits: xgate_core::format_credit_micros(local_credit_micros),
         local_credits_complete,
         local_fx,
-        fx_as_of: dxgate_core::FX_AS_OF,
-        fx_source: dxgate_core::FX_SOURCE,
+        fx_as_of: xgate_core::FX_AS_OF,
+        fx_source: xgate_core::FX_SOURCE,
         fx_country,
-        fx_rates: dxgate_core::published_fx_rates(),
+        fx_rates: xgate_core::published_fx_rates(),
         family,
         model: if selected_model.is_empty() {
             "all".to_string()
@@ -738,14 +748,14 @@ fn cost_report(
 
 struct LocalCostCache {
     at: Instant,
-    report: dxgate_core::LocalUsageReport,
+    report: xgate_core::LocalUsageReport,
 }
 
 static LOCAL_COST: Mutex<Option<LocalCostCache>> = Mutex::new(None);
 
-fn local_usage_cached() -> dxgate_core::LocalUsageReport {
+fn local_usage_cached() -> xgate_core::LocalUsageReport {
     if cfg!(test) {
-        return dxgate_core::LocalUsageReport::default();
+        return xgate_core::LocalUsageReport::default();
     }
     const TTL: Duration = Duration::from_secs(60);
     {
@@ -756,7 +766,7 @@ fn local_usage_cached() -> dxgate_core::LocalUsageReport {
             }
         }
     }
-    let report = dxgate_core::scan_local_usage(&dxgate_core::LocalScanPaths::from_env());
+    let report = xgate_core::scan_local_usage(&xgate_core::LocalScanPaths::from_env());
     let mut guard = LOCAL_COST.lock().unwrap();
     *guard = Some(LocalCostCache {
         at: Instant::now(),
@@ -887,7 +897,8 @@ async fn debug_security_posture(State(ui): State<UiServer>) -> Json<SecurityPost
     let total_decisions = decisions.len();
     let allowed_decisions = decisions.iter().filter(|d| d.decision == "allowed").count();
     let denied_decisions = decisions.iter().filter(|d| d.decision == "denied").count();
-    let policy_default = std::env::var("DXGATE_POLICY_DEFAULT")
+    let policy_default = std::env::var("XGATE_POLICY_DEFAULT")
+        .or_else(|_| std::env::var("DXGATE_POLICY_DEFAULT"))
         .unwrap_or_else(|_| "allow".to_string())
         .to_lowercase();
     let identities = security_identities_from_snapshot(&snapshot);
@@ -902,7 +913,9 @@ async fn debug_security_posture(State(ui): State<UiServer>) -> Json<SecurityPost
     })
 }
 
-async fn debug_security_events(State(ui): State<UiServer>) -> Json<Vec<dxgate_core::SecurityDecision>> {
+async fn debug_security_events(
+    State(ui): State<UiServer>,
+) -> Json<Vec<xgate_core::SecurityDecision>> {
     Json(ui.state.security_decisions())
 }
 
@@ -1002,7 +1015,7 @@ async fn debug_observability(State(ui): State<UiServer>) -> Json<ObservabilityDa
             }
         }
         if p95_latency_ms == 0 {
-            p95_latency_ms = 18;
+            p95_latency_ms = bucket_thresholds[0];
         }
     } else if !decisions.is_empty() {
         let sum_lat: u64 = decisions.iter().map(|d| d.latency_ms).sum();
@@ -1019,12 +1032,19 @@ async fn debug_observability(State(ui): State<UiServer>) -> Json<ObservabilityDa
         0.0
     };
 
-    let otlp_endpoint = std::env::var("DXGATE_OTEL_ENDPOINT").ok();
-    let otlp_sampling = std::env::var("DXGATE_OTEL_SAMPLING_PERCENTAGE")
+    let otlp_endpoint = std::env::var("XGATE_OTEL_ENDPOINT")
+        .or_else(|_| std::env::var("DXGATE_OTEL_ENDPOINT"))
+        .ok();
+    let otlp_sampling = std::env::var("XGATE_OTEL_SAMPLING_PERCENTAGE")
+        .or_else(|_| std::env::var("DXGATE_OTEL_SAMPLING_PERCENTAGE"))
         .map(|s| format!("{s}%"))
         .unwrap_or_else(|_| "100%".to_string());
-    let access_log_format = std::env::var("DXGATE_ACCESS_LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
-    let access_log_mode = std::env::var("DXGATE_ACCESS_LOG_MODE").unwrap_or_else(|_| "server".to_string());
+    let access_log_format = std::env::var("XGATE_ACCESS_LOG_FORMAT")
+        .or_else(|_| std::env::var("DXGATE_ACCESS_LOG_FORMAT"))
+        .unwrap_or_else(|_| "text".to_string());
+    let access_log_mode = std::env::var("XGATE_ACCESS_LOG_MODE")
+        .or_else(|_| std::env::var("DXGATE_ACCESS_LOG_MODE"))
+        .unwrap_or_else(|_| "server".to_string());
 
     let traces: Vec<ObsTraceItem> = decisions
         .into_iter()
@@ -1057,14 +1077,22 @@ async fn debug_observability(State(ui): State<UiServer>) -> Json<ObservabilityDa
                     service: "Native Policy Engine".to_string(),
                     duration_ms: pol_ms,
                     offset_ms: gw_ms,
-                    status: if d.decision == "denied" { "Denied".to_string() } else { "Success".to_string() },
+                    status: if d.decision == "denied" {
+                        "Denied".to_string()
+                    } else {
+                        "Success".to_string()
+                    },
                 },
                 ObsSpanItem {
                     name: format!("Target: {}", d.backend),
                     service: d.route.clone(),
                     duration_ms: up_ms,
                     offset_ms: gw_ms + pol_ms,
-                    status: if d.status_code >= 400 { "Error".to_string() } else { "Success".to_string() },
+                    status: if d.status_code >= 400 {
+                        "Error".to_string()
+                    } else {
+                        "Success".to_string()
+                    },
                 },
             ];
 
@@ -1114,7 +1142,7 @@ async fn debug_observability(State(ui): State<UiServer>) -> Json<ObservabilityDa
     })
 }
 
-fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> Vec<IdentityItem> {
+fn security_identities_from_snapshot(snapshot: &xgate_core::ConfigSnapshot) -> Vec<IdentityItem> {
     let mut items = Vec::new();
     let cfg = snapshot.to_runtime_config();
 
@@ -1143,7 +1171,12 @@ fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> 
     for policy in &cfg.policies {
         if let Some(auth) = &policy.auth {
             match auth {
-                dxgate_core::AuthPolicy::ApiKey { header, values, value_env, secret_ref } => {
+                xgate_core::AuthPolicy::ApiKey {
+                    header,
+                    values,
+                    value_env,
+                    secret_ref,
+                } => {
                     let fp = if let Some(sr) = secret_ref {
                         format!("SecretRef: {sr:?}")
                     } else if let Some(env_name) = value_env {
@@ -1164,13 +1197,22 @@ fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> 
                         category: "apikey".into(),
                         trust_domain: "gateway.local".into(),
                         principal: format!("Policy: {}", policy.name),
-                        bound_targets: if attached.is_empty() { vec!["Unbound".into()] } else { attached },
+                        bound_targets: if attached.is_empty() {
+                            vec!["Unbound".into()]
+                        } else {
+                            attached
+                        },
                         status: "active".into(),
                         fingerprint: fp,
                         detail: format!("Header: {header}"),
                     });
                 }
-                dxgate_core::AuthPolicy::Jwt { header, issuer, audiences, hmac_secret_env } => {
+                xgate_core::AuthPolicy::Jwt {
+                    header,
+                    issuer,
+                    audiences,
+                    hmac_secret_env,
+                } => {
                     let attached: Vec<String> = snapshot
                         .policy_refs(&policy.name)
                         .iter()
@@ -1182,7 +1224,11 @@ fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> 
                         category: "jwt".into(),
                         trust_domain: issuer.clone().unwrap_or_else(|| "local-hmac".into()),
                         principal: format!("Policy: {}", policy.name),
-                        bound_targets: if attached.is_empty() { vec!["Unbound".into()] } else { attached },
+                        bound_targets: if attached.is_empty() {
+                            vec!["Unbound".into()]
+                        } else {
+                            attached
+                        },
                         status: "active".into(),
                         fingerprint: hmac_secret_env.clone().unwrap_or_else(|| "inline".into()),
                         detail: format!("Header: {header}, Audiences: {audiences:?}"),
@@ -1207,8 +1253,16 @@ fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> 
                 },
                 bound_targets: vec![format!("Cluster: {}", cluster.name)],
                 status: "active".into(),
-                fingerprint: tls.certificate_secret.clone().or_else(|| tls.validation_secret.clone()).unwrap_or_else(|| "system-root-ca".into()),
-                detail: format!("SNI: {}, Mode: {:?}", tls.sni.as_deref().unwrap_or("none"), tls.mode),
+                fingerprint: tls
+                    .certificate_secret
+                    .clone()
+                    .or_else(|| tls.validation_secret.clone())
+                    .unwrap_or_else(|| "system-root-ca".into()),
+                detail: format!(
+                    "SNI: {}, Mode: {:?}",
+                    tls.sni.as_deref().unwrap_or("none"),
+                    tls.mode
+                ),
             });
         }
     }
@@ -1221,7 +1275,12 @@ fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> 
             category: "secrets".into(),
             trust_domain: "secrets.cluster.local".into(),
             principal: format!("Secret: {}", secret.name),
-            bound_targets: cfg.listeners.iter().filter(|l| l.tls_secret.as_deref() == Some(&secret.name)).map(|l| format!("Listener: {}", l.name)).collect(),
+            bound_targets: cfg
+                .listeners
+                .iter()
+                .filter(|l| l.tls_secret.as_deref() == Some(&secret.name))
+                .map(|l| format!("Listener: {}", l.name))
+                .collect(),
             status: "active".into(),
             fingerprint: format!("Cert: {} bytes", secret.certificate_chain_pem.len()),
             detail: "Server TLS Secret".into(),
@@ -1230,7 +1289,7 @@ fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> 
 
     // 5. Agent Principals
     for backend in &cfg.backends {
-        if let dxgate_core::BackendKind::A2a { endpoint, agent } = &backend.kind {
+        if let xgate_core::BackendKind::A2a { endpoint, agent } = &backend.kind {
             let agent_name = agent.clone().unwrap_or_else(|| backend.name.clone());
             items.push(IdentityItem {
                 id: format!("agent-{}", backend.name),
@@ -1244,43 +1303,6 @@ fn security_identities_from_snapshot(snapshot: &dxgate_core::ConfigSnapshot) -> 
                 detail: "A2A Inter-Agent Mesh Principal".into(),
             });
         }
-    }
-
-    // Ensure fallback canonical identity items if configuration has none
-    if items.is_empty() {
-        items.push(IdentityItem {
-            id: "agent-planner".into(),
-            name: "Agent: planner".into(),
-            category: "agents".into(),
-            trust_domain: "acme.internal".into(),
-            principal: "spiffe://acme.internal/ns/prod/sa/planner".into(),
-            bound_targets: vec!["Backend: planner-agent".into(), "Route: chat-completions".into()],
-            status: "active".into(),
-            fingerprint: "sha256:7f9a2b81ec".into(),
-            detail: "Autonomous Task Planner Agent".into(),
-        });
-        items.push(IdentityItem {
-            id: "apikey-gateway-auth".into(),
-            name: "API Key: auth".into(),
-            category: "apikey".into(),
-            trust_domain: "gateway.local".into(),
-            principal: "Policy: auth".into(),
-            bound_targets: vec!["Route: chat".into(), "Backend: codex-pro".into()],
-            status: "active".into(),
-            fingerprint: "sk-***[9a2b81]".into(),
-            detail: "Header: authorization (Bearer Token)".into(),
-        });
-        items.push(IdentityItem {
-            id: "mtls-claude-upstream".into(),
-            name: "Upstream mTLS: claude".into(),
-            category: "mtls".into(),
-            trust_domain: "api.anthropic.com".into(),
-            principal: "spiffe://acme.internal/ns/gateway/sa/dxgate".into(),
-            bound_targets: vec!["Cluster: claude-upstream".into()],
-            status: "active".into(),
-            fingerprint: "sha256:ca-root-anthropic".into(),
-            detail: "SNI: api.anthropic.com, SAN verified".into(),
-        });
     }
 
     items
@@ -1376,15 +1398,19 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
             for domain in &host.domains {
                 domains_set.insert(domain.clone());
             }
-            let primary_domain = host.domains.first().cloned().unwrap_or_else(|| "*".to_string());
+            let primary_domain = host
+                .domains
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "*".to_string());
 
             for route in &host.routes {
                 let id = format!("xds:{}:{}:{}", listener.name, primary_domain, route.name);
 
                 let (path_str, match_type) = if let Some(m) = route.matches.first() {
                     match &m.path {
-                        dxgate_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
-                        dxgate_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
+                        xgate_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
+                        xgate_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
                     }
                 } else {
                     ("/".to_string(), "prefix".to_string())
@@ -1426,24 +1452,32 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
                         route_tls_modes.push(tls_mode.clone());
                     }
 
-                    let circuit_breaker = cluster_opt
-                        .and_then(|c| c.circuit_breaker.as_ref())
-                        .map(|cb| {
-                            format!(
-                                "Max Conns: {}, Max Pending: {}",
-                                cb.max_connections.map(|v| v.to_string()).unwrap_or_else(|| "default".into()),
-                                cb.http1_max_pending_requests.map(|v| v.to_string()).unwrap_or_else(|| "default".into())
-                            )
-                        });
-                    let outlier = cluster_opt
-                        .and_then(|c| c.outlier_detection.as_ref())
-                        .map(|od| {
-                            format!(
-                                "Consecutive 5xx: {}, Interval: {}",
-                                od.consecutive_5xx_errors.map(|v| v.to_string()).unwrap_or_else(|| "5".into()),
-                                od.interval.as_deref().unwrap_or("10s")
-                            )
-                        });
+                    let circuit_breaker =
+                        cluster_opt
+                            .and_then(|c| c.circuit_breaker.as_ref())
+                            .map(|cb| {
+                                format!(
+                                    "Max Conns: {}, Max Pending: {}",
+                                    cb.max_connections
+                                        .map(|v| v.to_string())
+                                        .unwrap_or_else(|| "default".into()),
+                                    cb.http1_max_pending_requests
+                                        .map(|v| v.to_string())
+                                        .unwrap_or_else(|| "default".into())
+                                )
+                            });
+                    let outlier =
+                        cluster_opt
+                            .and_then(|c| c.outlier_detection.as_ref())
+                            .map(|od| {
+                                format!(
+                                    "Consecutive 5xx: {}, Interval: {}",
+                                    od.consecutive_5xx_errors
+                                        .map(|v| v.to_string())
+                                        .unwrap_or_else(|| "5".into()),
+                                    od.interval.as_deref().unwrap_or("10s")
+                                )
+                            });
 
                     let mut endpoints = Vec::new();
                     if let Some(c) = cluster_opt {
@@ -1573,14 +1607,14 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
 
     // 2. Process AgentRoute with protocol: Http or BackendKind::Http
     for route in &cfg.routes {
-        if route.protocol == dxgate_core::AgentProtocol::Http {
+        if route.protocol == xgate_core::AgentProtocol::Http {
             let id = format!("agent:http:{}", route.name);
             domains_set.insert("agent-mesh.local".to_string());
 
             let (path_str, match_type) = if let Some(m) = route.matches.first() {
                 match &m.path {
-                    dxgate_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
-                    dxgate_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
+                    xgate_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
+                    xgate_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
                 }
             } else {
                 ("/".to_string(), "prefix".to_string())
@@ -1677,7 +1711,7 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
                     requests: reqs,
                     failures: fails,
                     in_flight: 0,
-                    p95_ms: 8,
+                    p95_ms: 0,
                     error_rate_pct: err_pct,
                 },
                 policies: route.policies.clone(),
@@ -1688,7 +1722,7 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
         }
     }
 
-    let total_services = domains_set.len().max(1);
+    let total_services = domains_set.len();
     let total_routes = unified.len();
     let total_reqs = metrics.total_requests;
     let total_fails = metrics.upstream_failures;
@@ -1712,7 +1746,9 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
 }
 
 fn ui_html(proxy_port: u16) -> String {
-    UI_HTML.replace("__DXGATE_PROXY_PORT__", &proxy_port.to_string())
+    UI_HTML
+        .replace("__XGATE_PROXY_PORT__", &proxy_port.to_string())
+        .replace("__DXGATE_PROXY_PORT__", &proxy_port.to_string())
 }
 
 const UI_HTML: &str = include_str!("../../../ui/ui.html");
@@ -1727,7 +1763,7 @@ mod tests {
     use axum::extract::{Query, State};
     use axum::http::StatusCode;
     use axum::Json;
-    use dxgate_proxy::{
+    use xgate_proxy::{
         A2aMethodMetric, ConcurrencyMetric, HttpRouteConcurrencyMetric, HttpRouteMetric,
         LatencyBucket, LlmUsageMetric, McpToolMetric, ProxyMetrics, ProxyState, Readiness,
     };
@@ -1838,7 +1874,7 @@ mod tests {
         assert_eq!(ev.trace_id, "trace_abc123");
         assert_eq!(ev.span_id, "span_001");
         assert_eq!(ev.latency_ms, 350);
-        assert_eq!(ev.data_quality, dxgate_core::DataQuality::Complete);
+        assert_eq!(ev.data_quality, xgate_core::DataQuality::Complete);
     }
 
     #[tokio::test]
@@ -1852,7 +1888,7 @@ mod tests {
         let html = ui_html(18080);
 
         assert!(html.contains("Overview"));
-        assert!(html.contains("rel=\"icon\" href=\"/assets/dxgate-mark.svg\""));
+        assert!(html.contains("rel=\"icon\" href=\"/assets/xgate-mark.svg\""));
         assert!(!html.contains("href=\"data:,\""));
         assert!(html.contains("id=\"tab-overview\""));
         assert!(html.contains("class=\"overview-kpi-grid\""));
@@ -1958,9 +1994,9 @@ mod tests {
         assert!(!html.contains("id=\"metric-failures\""));
         assert!(!html.contains("id=\"traffic-table\""));
         assert!(!html.contains("Route traffic"));
-        assert!(!html.contains("dxgate_requests_total"));
+        assert!(!html.contains("xgate_requests_total"));
         assert!(!html.contains("class=\"mark\""));
-        assert!(!html.contains("<strong>dxgate</strong>"));
+        assert!(!html.contains("<strong>xgate</strong>"));
         assert!(!html.contains("<span>ui</span>"));
         assert!(!html.contains("id=\"statusline\""));
         assert!(!html.contains("id=\"source-line\""));
@@ -2004,23 +2040,23 @@ mod tests {
 
         let text = prometheus_metrics(ready(), proxy);
 
-        assert!(text.contains("# TYPE dxgate_requests_in_flight gauge"));
-        assert!(text.contains("dxgate_requests_in_flight 7"));
+        assert!(text.contains("# TYPE xgate_requests_in_flight gauge"));
+        assert!(text.contains("xgate_requests_in_flight 7"));
         // A counter, so rate() over it is average concurrency regardless of
         // when the scrape lands.
-        assert!(text.contains("# TYPE dxgate_request_seconds_total counter"));
-        assert!(text.contains("dxgate_request_seconds_total 12.5"));
+        assert!(text.contains("# TYPE xgate_request_seconds_total counter"));
+        assert!(text.contains("xgate_request_seconds_total 12.5"));
         assert!(text.contains(
-            "dxgate_http_route_requests_in_flight{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 3"
+            "xgate_http_route_requests_in_flight{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 3"
         ));
         assert!(text.contains(
-            "dxgate_http_route_request_seconds_total{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 4.25"
+            "xgate_http_route_request_seconds_total{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 4.25"
         ));
         // Per-route concurrency cannot carry method or status: neither is known
         // while the request is still in flight.
         let in_flight_line = text
             .lines()
-            .find(|line| line.starts_with("dxgate_http_route_requests_in_flight{"))
+            .find(|line| line.starts_with("xgate_http_route_requests_in_flight{"))
             .expect("in-flight series");
         assert!(!in_flight_line.contains("method="));
         assert!(!in_flight_line.contains("status_code="));
@@ -2068,6 +2104,7 @@ mod tests {
                     prompt_tokens: 30,
                     cached_prompt_tokens: 0,
                     completion_tokens: 12,
+                    ..LlmUsageMetric::default()
                 }],
                 mcp_tools: vec![McpToolMetric {
                     route: "mcp".into(),
@@ -2091,44 +2128,74 @@ mod tests {
         assert!(text.contains("route=\"default\\\\route\""));
         assert!(text.contains("method=\"GET\""));
         assert!(text.contains("status_code=\"502\""));
-        assert!(text.contains("dxgate_http_route_latency_ms_sum{"));
-        assert!(text.contains("dxgate_http_route_latency_ms_count{"));
+        assert!(text.contains("xgate_http_route_latency_ms_sum{"));
+        assert!(text.contains("xgate_http_route_latency_ms_count{"));
         assert!(text.contains("le=\"+Inf\""));
         assert!(text.contains(
-            "dxgate_mcp_tool_calls_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 3"
+            "xgate_mcp_tool_calls_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 3"
         ));
         assert!(text.contains(
-            "dxgate_mcp_tool_failures_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 1"
+            "xgate_mcp_tool_failures_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 1"
         ));
         assert!(text.contains(
-            "dxgate_a2a_method_calls_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 4"
+            "xgate_a2a_method_calls_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 4"
         ));
         assert!(text.contains(
-            "dxgate_a2a_method_failures_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 2"
+            "xgate_a2a_method_failures_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 2"
         ));
     }
 
     #[tokio::test]
     async fn debug_security_endpoints_return_real_models() {
         let state = ProxyState::new();
-        let ui = UiServer::new(state, "127.0.0.1:8080".parse().unwrap(), true);
+        let ui = UiServer::new(state.clone(), "127.0.0.1:8080".parse().unwrap(), true);
 
         let Json(posture) = debug_security_posture(State(ui.clone())).await;
         assert_eq!(posture.engine, "Native Rust Policy Engine");
-        assert!(posture.total_decisions > 0);
+        assert_eq!(posture.total_decisions, 0);
 
         let Json(events) = debug_security_events(State(ui.clone())).await;
-        assert!(!events.is_empty());
-        assert_eq!(events[0].trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert!(events.is_empty());
 
         let Json(identities) = debug_security_identities(State(ui.clone())).await;
-        assert!(!identities.is_empty());
+        assert!(identities.is_empty());
 
-        let Json(obs) = debug_observability(State(ui)).await;
+        let Json(obs) = debug_observability(State(ui.clone())).await;
         assert!(obs.telemetry.metrics_enabled);
-        assert!(!obs.traces.is_empty());
-        assert_eq!(obs.traces[0].trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
-        assert_eq!(obs.traces[0].spans.len(), 3);
+        assert!(obs.traces.is_empty());
+
+        let decision = xgate_core::SecurityDecision {
+            event_id: "sec-live-01".into(),
+            trace_id: "trace-live-01".into(),
+            timestamp: "2026-09-08T12:00:00Z".into(),
+            listener: "http-8080".into(),
+            route: "chat".into(),
+            backend: "codex".into(),
+            protocol: "llm".into(),
+            actor: "agent:tester".into(),
+            principal: "spiffe://acme.internal/sa/tester".into(),
+            authn_method: "jwt".into(),
+            enforcement_point: "PEP: RouteAuthZ".into(),
+            policy_id: "auth".into(),
+            resource_kind: "route".into(),
+            resource_id: "/chat".into(),
+            decision: "allowed".into(),
+            reason_code: "authz.allow".into(),
+            status_code: 200,
+            latency_ms: 15,
+            evidence_hash: "hash".into(),
+            redacted_attributes: std::collections::BTreeMap::new(),
+        };
+        state.record_security_decision(decision);
+
+        let Json(posture2) = debug_security_posture(State(ui.clone())).await;
+        assert_eq!(posture2.total_decisions, 1);
+        let Json(events2) = debug_security_events(State(ui.clone())).await;
+        assert_eq!(events2.len(), 1);
+        assert_eq!(events2[0].trace_id, "trace-live-01");
+        let Json(obs2) = debug_observability(State(ui)).await;
+        assert_eq!(obs2.traces.len(), 1);
+        assert_eq!(obs2.traces[0].trace_id, "trace-live-01");
     }
 
     #[tokio::test]
@@ -2137,6 +2204,7 @@ mod tests {
         let ui = UiServer::new(state, "127.0.0.1:8080".parse().unwrap(), true);
         let Json(data) = debug_services(State(ui)).await;
         assert_eq!(data.kpis.error_rate_pct, 0.0);
-        assert!(data.kpis.total_services >= 1);
+        assert_eq!(data.kpis.total_services, 0);
+        assert_eq!(data.kpis.total_routes, 0);
     }
 }

@@ -7,7 +7,7 @@ import "google/protobuf/duration.proto";
 option go_package = "github.com/kdubbo/xds-api/route/v1;routev1";
 
 // AgentConfig is the mesh-native LLM, MCP, and A2A slice compiled by dubbod
-// from DxgateService and HTTPRoute resources.
+// from XgateService and HTTPRoute resources.
 message AgentConfig {
   repeated AgentProvider providers = 1;
   repeated AgentBackend backends = 2;

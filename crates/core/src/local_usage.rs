@@ -26,7 +26,8 @@ impl LocalScanPaths {
 
     pub fn from_env() -> Self {
         let home = home_dir();
-        let claude_roots = env_paths("DXGATE_CLAUDE_HOME")
+        let claude_roots = env_paths("XGATE_CLAUDE_HOME")
+            .or_else(|| env_paths("DXGATE_CLAUDE_HOME"))
             .or_else(|| env_paths("CLAUDE_CONFIG_DIR"))
             .unwrap_or_else(|| {
                 let mut roots = Vec::new();
@@ -36,7 +37,8 @@ impl LocalScanPaths {
                 }
                 roots
             });
-        let codex_roots = env_paths("DXGATE_CODEX_HOME")
+        let codex_roots = env_paths("XGATE_CODEX_HOME")
+            .or_else(|| env_paths("DXGATE_CODEX_HOME"))
             .or_else(|| env_paths("CODEX_HOME"))
             .unwrap_or_else(|| {
                 home.map(|home| vec![home.join(".codex")])
@@ -561,7 +563,7 @@ mod tests {
 
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "dxgate-local-usage-{}-{}-{}",
+            "xgate-local-usage-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

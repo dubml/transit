@@ -3,7 +3,7 @@
 //! state; they operate only on a `HeaderMap` and config values.
 
 use axum::http::{HeaderMap, HeaderName, HeaderValue as HttpHeaderValue};
-use dxgate_core::{HeaderTransform, Provider, ProviderKind};
+use xgate_core::{HeaderTransform, Provider, ProviderKind};
 use std::env;
 
 pub(super) fn remove_connection_headers(headers: &mut HeaderMap) {

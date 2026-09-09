@@ -10,12 +10,14 @@ use super::{read_body_limited, ProxyServer};
 use crate::llm::{self, LlmDialect, LlmUsage, UsageSink};
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue as HttpHeaderValue, Response, StatusCode, Uri};
-use dxgate_core::{AgentRoute, Backend, Provider};
+use xgate_core::{AgentRoute, Backend, Provider};
 use hyper::body::Bytes;
 use serde_json::Value;
 use std::sync::Arc;
 
 pub(super) struct LlmExchange {
+    pub(super) native_responses: bool,
+    pub(super) include_usage: bool,
     pub(super) uri: Uri,
     pub(super) body: Bytes,
     pub(super) dialect: LlmDialect,
@@ -75,7 +77,7 @@ pub(super) fn prepare_llm_exchange(
                 "LLM request must name a model".to_string(),
             ));
         };
-        let (url, translated) = match dialect {
+        let (url, mut translated) = match dialect {
             LlmDialect::Anthropic => (
                 llm::anthropic_messages_url(endpoint),
                 llm::anthropic_request(request_json, &model),
@@ -84,8 +86,11 @@ pub(super) fn prepare_llm_exchange(
                 llm::gemini_generate_url(endpoint, &model, streaming),
                 llm::gemini_request(request_json),
             ),
-            LlmDialect::OpenAi => unreachable!("openai dialect is not translated"),
+            LlmDialect::OpenAi | LlmDialect::Codex => unreachable!("dialect is handled separately"),
         };
+        if dialect == LlmDialect::Anthropic {
+            apply_anthropic_thinking(request_json, &mut translated, &model)?;
+        }
         let uri = url.parse::<Uri>().map_err(|e| {
             (
                 StatusCode::BAD_GATEWAY,
@@ -93,6 +98,8 @@ pub(super) fn prepare_llm_exchange(
             )
         })?;
         return Ok(LlmExchange {
+            native_responses: false,
+            include_usage: false,
             uri,
             body: Bytes::from(translated.to_string()),
             dialect,
@@ -113,6 +120,8 @@ pub(super) fn prepare_llm_exchange(
     };
     let body_rewritten = rewritten.is_some();
     Ok(LlmExchange {
+        native_responses: false,
+        include_usage: false,
         uri,
         body: rewritten.unwrap_or_else(|| body.clone()),
         dialect,
@@ -120,6 +129,162 @@ pub(super) fn prepare_llm_exchange(
         body_rewritten,
         model: model_label,
     })
+}
+
+fn apply_anthropic_thinking(
+    source: &Value,
+    request: &mut Value,
+    model: &str,
+) -> Result<(), (StatusCode, String)> {
+    if let Some(thinking) = source.get("thinking") {
+        request["thinking"] = thinking.clone();
+        if let Some(output_config) = source.get("output_config") {
+            request["output_config"] = output_config.clone();
+        }
+        return Ok(());
+    }
+    let Some(effort) = source
+        .get("reasoning_effort")
+        .or_else(|| source.pointer("/reasoning/effort"))
+        .and_then(Value::as_str)
+    else {
+        return Ok(());
+    };
+    if effort == "none" {
+        request["thinking"] = serde_json::json!({"type":"disabled"});
+        return Ok(());
+    }
+    let adaptive = [
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-fable-5",
+        "claude-mythos-5",
+    ]
+    .iter()
+    .any(|prefix| model.starts_with(prefix));
+    if adaptive {
+        request["thinking"] = serde_json::json!({"type":"adaptive"});
+        request["output_config"] =
+            serde_json::json!({"effort":if effort == "minimal" { "low" } else { effort }});
+    } else {
+        let budget = match effort {
+            "minimal" | "low" => 1024,
+            "medium" => 8192,
+            "high" => 24576,
+            "xhigh" => 32768,
+            _ => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Unsupported Anthropic reasoning effort".into(),
+                ))
+            }
+        };
+        let max_tokens = request["max_tokens"].as_u64().unwrap_or(4096);
+        if max_tokens <= 1024 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Anthropic thinking requires max_tokens greater than 1024".into(),
+            ));
+        }
+        request["thinking"] =
+            serde_json::json!({"type":"enabled","budget_tokens":budget.min(max_tokens - 1)});
+    }
+    request.as_object_mut().unwrap().remove("temperature");
+    request.as_object_mut().unwrap().remove("top_p");
+    Ok(())
+}
+
+pub(super) fn prepare_oauth_exchange(
+    backend: &Backend,
+    provider: Option<&Provider>,
+    endpoint: &str,
+    context: &AgentRequestContext,
+    body: &Bytes,
+    account: &crate::OAuthAccount,
+) -> Result<LlmExchange, (StatusCode, String)> {
+    let bad = |message: String| (StatusCode::BAD_REQUEST, message);
+    let mut value: Value =
+        serde_json::from_slice(body).map_err(|_| bad("LLM request must be JSON".into()))?;
+    if !value.is_object() {
+        return Err(bad("LLM request must be a JSON object".into()));
+    }
+    let requested = context
+        .model
+        .as_deref()
+        .ok_or_else(|| bad("LLM request must name a model".into()))?;
+    let (model, effort) = account
+        .resolve_model(requested)
+        .ok_or_else(|| bad("Model is disabled for this OAuth account".into()))?;
+    value["model"] = Value::String(model.to_string());
+    if !effort.is_empty()
+        && value.get("reasoning_effort").is_none()
+        && value.pointer("/reasoning/effort").is_none()
+        && value.get("thinking").is_none()
+    {
+        if context.path == "/v1/responses" {
+            value["reasoning"] = serde_json::json!({"effort":effort});
+        } else {
+            value["reasoning_effort"] = Value::String(effort.to_string());
+        }
+    }
+    let mut context = context.clone();
+    context.model = Some(model.to_string());
+    if account.provider() == "codex" {
+        let native = context.path == "/v1/responses";
+        if !native && context.path != llm::OPENAI_CHAT_COMPLETIONS_PATH {
+            return Err(bad(
+                "Codex OAuth supports /v1/chat/completions and /v1/responses".into(),
+            ));
+        }
+        let streaming = llm::is_streaming_request(&value);
+        let include_usage = value
+            .pointer("/stream_options/include_usage")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let effective_model = backend.rewrite_model(model).unwrap_or(model);
+        value["model"] = Value::String(effective_model.to_string());
+        let translated = crate::codex::request(&value, native).map_err(bad)?;
+        let base = match &backend.kind {
+            xgate_core::BackendKind::Llm {
+                endpoint: Some(endpoint),
+                ..
+            } => endpoint.as_str(),
+            _ => "https://chatgpt.com/backend-api/codex",
+        };
+        let uri = format!("{}/responses", base.trim_end_matches('/'))
+            .parse()
+            .map_err(|_| bad("Invalid Codex endpoint".into()))?;
+        return Ok(LlmExchange {
+            uri,
+            body: Bytes::from(translated.to_string()),
+            dialect: LlmDialect::Codex,
+            streaming,
+            body_rewritten: true,
+            model: effective_model.to_string(),
+            native_responses: native,
+            include_usage,
+        });
+    }
+    let mut provider = provider.cloned().unwrap_or(Provider {
+        name: String::new(),
+        kind: xgate_core::ProviderKind::Anthropic,
+        base_url: endpoint.to_string(),
+        api_key_env: None,
+        credential_ref: None,
+        request_headers: Vec::new(),
+    });
+    provider.kind = xgate_core::ProviderKind::Anthropic;
+    prepare_llm_exchange(
+        backend,
+        Some(&provider),
+        endpoint,
+        &context,
+        &Bytes::from(value.to_string()),
+    )
 }
 
 pub(super) fn usage_sink(
@@ -183,6 +348,44 @@ pub(super) async fn finalize_llm_response(
 ) -> Result<Response<Body>, (StatusCode, String)> {
     let (mut parts, body) = response.into_parts();
     match exchange.dialect {
+        LlmDialect::Codex => {
+            if !parts.status.is_success() {
+                return Ok(Response::from_parts(parts, body));
+            }
+            if !is_event_stream(&parts.headers) {
+                return Err((
+                    StatusCode::BAD_GATEWAY,
+                    "Codex OAuth upstream did not return an event stream".into(),
+                ));
+            }
+            parts.headers.remove(http::header::CONTENT_LENGTH);
+            if exchange.streaming {
+                return Ok(Response::from_parts(
+                    parts,
+                    crate::codex::stream(
+                        body,
+                        exchange.model,
+                        exchange.native_responses,
+                        exchange.include_usage,
+                        sink,
+                    ),
+                ));
+            }
+            let bytes = read_llm_upstream_body(server, &parts.headers, body).await?;
+            let response = crate::codex::completed(&bytes)
+                .map_err(|message| (StatusCode::BAD_GATEWAY, message))?;
+            sink(crate::codex::usage(&response));
+            let value = if exchange.native_responses {
+                response
+            } else {
+                crate::codex::chat_response(&response)
+            };
+            parts.headers.insert(
+                http::header::CONTENT_TYPE,
+                HttpHeaderValue::from_static("application/json"),
+            );
+            Ok(Response::from_parts(parts, Body::from(value.to_string())))
+        }
         LlmDialect::OpenAi => {
             if is_event_stream(&parts.headers) {
                 // SSE responses carry no content-length, so hyper polls the

@@ -1,4 +1,4 @@
-//! The one keyed collection dxgate applies resource events to.
+//! The one keyed collection xgate applies resource events to.
 //!
 //! Every component that consumes a stream of resource events needs the same
 //! three operations: upsert one key, remove one key, and — when a source can
@@ -8,7 +8,7 @@
 //! "was that an add or an update", "which index still holds the old key", and
 //! "what did the source stop sending".
 //!
-//! dxgate had five hand-written versions of this. It now has one, and the
+//! xgate had five hand-written versions of this. It now has one, and the
 //! invariants that matter — an add followed by a remove leaves no trace,
 //! reordering independent updates converges to the same state, replaying the
 //! same state-of-the-world twice is a no-op — are property-tested in one place

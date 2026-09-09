@@ -1,0 +1,76 @@
+.llm-workspace { max-width: 1600px; margin: 0 auto; }
+.llm-workspace-toolbar, .llm-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+.llm-mode-tabs { display: inline-flex; align-items: center; padding: 2px; gap: 2px; background: var(--soft); border: 1px solid var(--line); border-radius: 6px; }
+.llm-mode-tabs button { border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 4px; padding: 4px 11px; font: inherit; font-size: 12px; font-weight: 500; line-height: 1.35; cursor: pointer; white-space: nowrap; transition: color 0.12s ease, background 0.12s ease; }
+.llm-mode-tabs button:hover:not([aria-pressed="true"]) { color: var(--ink); }
+.llm-mode-tabs button[aria-pressed="true"] { color: var(--ink); background: var(--panel); border-color: var(--line); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }
+.llm-family-dropdown { position: relative; display: inline-flex; font-size: 12px; }
+.llm-family-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; padding: 0 10px 0 12px; font: inherit; font-size: 12px; font-weight: 500; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); transition: border-color 0.12s ease, background 0.12s ease; user-select: none; }
+.llm-family-trigger:hover { border-color: var(--muted); }
+.llm-family-trigger:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.llm-family-chevron { color: var(--muted); transition: transform 0.15s ease; }
+.llm-family-trigger[aria-expanded="true"] .llm-family-chevron { transform: rotate(180deg); }
+.llm-family-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 100; min-width: 130px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.04); display: flex; flex-direction: column; gap: 2px; animation: llmMenuFade 0.12s ease-out; }
+.llm-family-menu[hidden] { display: none !important; }
+@keyframes llmMenuFade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.llm-family-option { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 6px 10px; border: none; background: transparent; color: var(--ink); font: inherit; font-size: 12px; font-weight: 450; border-radius: 5px; cursor: pointer; text-align: left; transition: background 0.1s ease, color 0.1s ease; }
+.llm-family-option:hover { background: var(--soft); }
+.llm-family-option.active { font-weight: 600; }
+.llm-family-check { color: var(--ink); opacity: 0; margin-left: 8px; flex-shrink: 0; }
+.llm-family-option.active .llm-family-check { opacity: 1; }
+.llm-accounts-grid .ui-empty { grid-column: 1 / -1; width: 100%; text-align: center; padding: 64px 20px !important; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.llm-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.llm-kpi { padding: 20px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
+.llm-kpi span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+.llm-kpi strong { font-size: clamp(20px, 2vw, 29px); font-weight: 550; letter-spacing: -.7px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.llm-metric-note { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 12px 0 30px; }
+.llm-section-heading h3 { margin: 0; font-size: 15px; }
+.llm-heading-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.llm-login-dialog { width: min(960px, calc(100vw - 32px)); }
+.llm-login-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.llm-login-heading p { flex: 1; min-width: 180px; margin: 0; color: var(--muted); line-height: 1.7; }
+.llm-login-link { padding: 18px; border: 1px dashed var(--line); border-radius: 8px; }
+.llm-login-link [data-url] { overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; font-weight: 600; user-select: text; }
+.llm-login-link a { text-decoration: none; color: var(--ink); }
+.llm-login-status { margin: 0; width: fit-content; max-width: 100%; overflow-wrap: anywhere; padding: 7px 12px; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); font-size: 12px; }
+.llm-login-callback span { line-height: 1.7; }
+.llm-login-setup { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); }
+.llm-login-setup p, [data-login-management] p { margin: 8px 0; font-size: 12px; line-height: 1.7; color: var(--muted); }
+.llm-login-setup code { font-size: 12px; overflow-wrap: anywhere; }
+.llm-login-dialog [hidden] { display: none !important; }
+.llm-section-heading button { display: inline-flex; align-items: center; gap: 8px; }
+.llm-workspace .llm-accounts-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+.llm-workspace .llm-account-actions { gap: 5px; flex-wrap: wrap; }
+.llm-workspace .llm-account-footer { gap: 12px; flex-wrap: wrap; }
+.llm-icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; min-height: 34px; padding: 6px; }
+.llm-workspace progress { width: 100%; height: 6px; accent-color: var(--focus); }
+.llm-workspace button:disabled, .llm-dialog button:disabled { opacity: .45; cursor: wait; }
+.llm-workspace button:focus-visible, .llm-workspace select:focus-visible, .llm-dialog :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.llm-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--panel); box-shadow: 0 24px 80px #0004; }
+.llm-dialog::backdrop { background: #0007; backdrop-filter: blur(3px); }
+.llm-dialog header, .llm-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 22px; }
+.llm-dialog header { border-bottom: 1px solid var(--line); }
+.llm-dialog h2 { margin: 0; font-size: 17px; }
+.llm-dialog footer { justify-content: flex-end; border-top: 1px solid var(--line); }
+.llm-dialog-body { padding: 22px; display: grid; gap: 18px; }
+.llm-dialog label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; min-width: 0; }
+.llm-dialog input, .llm-dialog textarea, .llm-dialog select { box-sizing: border-box; width: 100%; padding: 9px 10px; background: var(--input); color: var(--ink); border: 1px solid var(--line); border-radius: 5px; font: inherit; }
+.llm-dialog textarea { font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
+.llm-dialog input[type="checkbox"] { width: auto; }
+.llm-form-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.llm-model-rules { display: grid; gap: 12px; }
+.llm-model-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr auto auto; gap: 9px; padding-bottom: 14px; border-bottom: 1px solid var(--line); align-items: end; }
+.llm-model-row .llm-check { display: flex; align-items: center; padding-bottom: 10px; }
+.llm-form-error { color: var(--danger); font-size: 12px; padding: 0 22px; overflow-wrap: anywhere; }
+.llm-primary { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+@media (max-width: 700px) {
+  .llm-mode-tabs { width: 100%; }
+  .llm-mode-tabs button { flex: 1; padding: 5px 3px; font-size: 11px; }
+  .llm-family-dropdown { width: 100%; }
+  .llm-family-trigger { width: 100%; }
+  .llm-family-menu { width: 100%; left: 0; right: 0; }
+  .llm-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .llm-kpi { padding: 16px; }
+  .llm-form-pair, .llm-model-row { grid-template-columns: 1fr 1fr; }
+  .llm-dialog-body { padding: 16px; }
+}

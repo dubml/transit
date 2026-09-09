@@ -2,11 +2,11 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, Uri};
 use axum::routing::post;
 use axum::{Json, Router};
-use dxgate_core::{
+use xgate_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, PathMatch, RuntimeConfig,
     WeightedBackend,
 };
-use dxgate_proxy::{ProxyServer, ProxyState};
+use xgate_proxy::{ProxyServer, ProxyState};
 use hyper::{body, Client};
 use serde_json::{json, Value};
 use std::net::{SocketAddr, TcpListener};

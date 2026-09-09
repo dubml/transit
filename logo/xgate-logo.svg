@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="742" height="300" viewBox="78 0 742 300" role="img" aria-labelledby="title desc">
-  <title id="title">dxgate logo</title>
-  <desc id="desc">Flat ice-blue D gateway mark with dxgate wordmark.</desc>
+  <title id="title">xgate logo</title>
+  <desc id="desc">Flat ice-blue X gateway mark with xgate wordmark.</desc>
   <g shape-rendering="geometricPrecision">
     <g transform="translate(56 46) scale(.62)">
       <path fill="#E6F8FC" fill-rule="evenodd" d="M177 0h72c113 0 181 90 181 193S362 386 249 386h-72v-58h72c77 0 123-62 123-135S326 58 249 58h-72zM219 88h30c58 0 92 47 92 105s-34 105-92 105h-30v-56h30c25 0 43-21 43-49s-18-49-43-49h-30z"/>
@@ -14,7 +14,7 @@
       <path fill="#9BEAF7" d="M96 222h122l48-29H138z"/>
     </g>
     <text x="370" y="224" font-family="Avenir Next, Inter, Segoe UI, Arial, sans-serif" font-size="112" font-weight="700" letter-spacing="0">
-      <tspan fill="#18B8F5">dx</tspan><tspan fill="#102E40">gate</tspan>
+      <tspan fill="#18B8F5">x</tspan><tspan fill="#102E40">gate</tspan>
     </text>
   </g>
 </svg>
