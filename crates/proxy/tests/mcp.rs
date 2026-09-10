@@ -2,11 +2,11 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, Uri};
 use axum::routing::post;
 use axum::{Json, Router};
-use xgate_core::{
+use transit_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, PathMatch, RuntimeConfig,
     WeightedBackend,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
+use transit_proxy::{ProxyServer, ProxyState};
 use hyper::{body, Client};
 use serde_json::{json, Value};
 use std::net::{SocketAddr, TcpListener};
@@ -315,6 +315,7 @@ fn config(backends: Vec<(&str, SocketAddr)>) -> RuntimeConfig {
             })
             .collect(),
         routes: vec![AgentRoute {
+            listener_ports: Vec::new(),
             name: "mcp".into(),
             protocol: AgentProtocol::Mcp,
             matches: vec![AgentRouteMatch {

@@ -1,4 +1,4 @@
-//! Property tests for the one primitive every xgate resource cache is built
+//! Property tests for the one primitive every transit resource cache is built
 //! on.
 //!
 //! These encode the invariants that hand-written state management gets wrong.
@@ -16,10 +16,10 @@
 //!   re-list a safe recovery action after a lost watch.
 //!
 //! Testing them here, once, is the point: the alternative is re-arguing them at
-//! every call site, which is how xgate previously shipped an xDS client that
+//! every call site, which is how transit previously shipped an xDS client that
 //! never re-subscribed after a reconnect.
 
-use xgate_core::store::Collection;
+use transit_core::store::Collection;
 use proptest::prelude::*;
 use std::collections::BTreeMap;
 

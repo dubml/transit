@@ -24,11 +24,11 @@
 use axum::http::Uri;
 use axum::routing::any;
 use axum::Router;
-use xgate_core::{
+use transit_core::{
     Cluster, ConfigStore, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch,
     RuntimeConfig, VirtualHost, WeightedCluster,
 };
-use xgate_proxy::{Activator, ProxyServer, ProxyState};
+use transit_proxy::{Activator, ProxyServer, ProxyState};
 use hyper::{body, Client};
 use std::net::{SocketAddr, TcpListener};
 use std::sync::Arc;
@@ -288,7 +288,7 @@ async fn get(addr: SocketAddr, path: &str) -> (u16, String) {
 
 fn spawn_backend(addr: SocketAddr) -> tokio::task::JoinHandle<()> {
     let app = Router::new().fallback(any(|uri: Uri| async move {
-        format!("xgate example backend path={}", uri.path())
+        format!("transit example backend path={}", uri.path())
     }));
     tokio::spawn(async move {
         axum::Server::bind(&addr)

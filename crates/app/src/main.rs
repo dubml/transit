@@ -1,11 +1,11 @@
 use clap::Parser;
-use xgate_core::{
-    AuthPolicy, ConfigStore, RouterIdentity, RuntimeConfig, SecretKeyReference, DEFAULT_CLUSTER_ID,
+use transit_core::{
+    AuthPolicy, ConfigStore, RouterIdentity, RuntimeConfig, RuntimeMode, SecretKeyReference, DEFAULT_CLUSTER_ID,
     DEFAULT_DNS_DOMAIN,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
-use xgate_ui::UiServer;
-use xgate_xds::{BootstrapConfig, XdsClient, XdsClientConfig};
+use transit_proxy::{ProxyServer, ProxyState};
+use transit_ui::UiServer;
+use transit_xds::{BootstrapConfig, XdsClient, XdsClientConfig};
 use k8s_openapi::api::core::v1::Secret;
 use kube::{Api, Client};
 use opentelemetry::KeyValue;
@@ -24,64 +24,78 @@ use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+mod mode;
+
 #[derive(Debug, Parser)]
-#[command(name = "xgate")]
+#[command(name = "transit")]
 #[command(about = "Pure Rust north-south proxy for Dubbo Gateway API traffic")]
 struct Args {
+    /// Deployment environment; never inferred from kubeconfig or service-account files.
+    #[arg(long, env = "TRANSIT_MODE", default_value = "standalone")]
+    mode: RuntimeMode,
+
     #[arg(
         long,
-        env = "XGATE_XDS_ADDRESS",
-        default_value = "https://dubbod.dubbo-system.svc:26012"
+        env = "TRANSIT_XDS_ADDRESS",
+        default_value = ""
     )]
     xds_address: String,
 
-    #[arg(long, env = "XGATE_XDS_ENABLED")]
+    #[arg(long, env = "TRANSIT_XDS_ENABLED")]
     xds_enabled: Option<bool>,
 
-    #[arg(long, env = "XGATE_HTTP_ADDR", default_value = "0.0.0.0:80")]
+    #[arg(long, env = "TRANSIT_HTTP_ADDR", default_value = "0.0.0.0:80")]
     http_addr: SocketAddr,
 
-    #[arg(long, env = "XGATE_UI_ADDR", default_value = "0.0.0.0:15021")]
+    #[arg(long, env = "TRANSIT_UI_ADDR", default_value = "0.0.0.0:15021")]
     ui_addr: SocketAddr,
 
     /// Directory containing gateway-managed OAuth accounts.
-    #[arg(long, env = "XGATE_LLM_ACCOUNTS_DIR")]
+    #[arg(long, env = "TRANSIT_LLM_ACCOUNTS_DIR")]
     llm_accounts_dir: Option<PathBuf>,
 
-    /// Management bearer token; required when OAuth account storage is enabled.
-    #[arg(long, env = "XGATE_LLM_ADMIN_TOKEN", hide_env_values = true)]
+    /// Initial management key; a key saved in Configuration takes precedence.
+    #[arg(long, env = "TRANSIT_LLM_ADMIN_TOKEN", hide_env_values = true)]
     llm_admin_token: Option<String>,
 
-    #[arg(long, env = "XGATE_METRICS_ENABLED", default_value_t = true)]
+    /// Persistent access/authentication settings edited by the Configuration page.
+    #[arg(long, env = "TRANSIT_ACCESS_CONFIG")]
+    access_config: Option<PathBuf>,
+
+    #[arg(long, env = "TRANSIT_METRICS_ENABLED", default_value_t = true)]
     metrics_enabled: bool,
 
     // Should be <= the pod's terminationGracePeriodSeconds, or Kubernetes SIGKILLs
     // the process mid-drain and the graceful shutdown buys nothing.
-    #[arg(long, env = "XGATE_DRAIN_TIMEOUT_SECONDS", default_value_t = 30)]
+    #[arg(long, env = "TRANSIT_DRAIN_TIMEOUT_SECONDS", default_value_t = 30)]
     drain_timeout_seconds: u64,
 
-    #[arg(long, env = "XGATE_BOOTSTRAP")]
+    #[arg(long, env = "TRANSIT_BOOTSTRAP")]
     bootstrap: Option<PathBuf>,
 
-    #[arg(long, env = "XGATE_STATIC_CONFIG")]
+    #[arg(long, env = "TRANSIT_STATIC_CONFIG")]
     static_config: Option<PathBuf>,
 
-    #[arg(long, env = "XGATE_OTEL_ENDPOINT")]
+    #[arg(long, env = "TRANSIT_OTEL_ENDPOINT")]
     otel_endpoint: Option<String>,
 
-    #[arg(long, env = "XGATE_OTEL_SERVICE_NAME", default_value = "xgate")]
+    #[arg(long, env = "TRANSIT_OTEL_SERVICE_NAME", default_value = "transit")]
     otel_service_name: String,
 
-    #[arg(long, env = "XGATE_OTEL_SAMPLING_PERCENTAGE", default_value_t = 100.0)]
+    #[arg(
+        long,
+        env = "TRANSIT_OTEL_SAMPLING_PERCENTAGE",
+        default_value_t = 100.0
+    )]
     otel_sampling_percentage: f64,
 
-    #[arg(long, env = "XGATE_OTEL_TAGS")]
+    #[arg(long, env = "TRANSIT_OTEL_TAGS")]
     otel_tags: Option<String>,
 
-    #[arg(long, env = "XGATE_LISTENER_NAMES", value_delimiter = ',')]
+    #[arg(long, env = "TRANSIT_LISTENER_NAMES", value_delimiter = ',')]
     listener_names: Vec<String>,
 
-    #[arg(long, env = "POD_NAME", default_value = "xgate")]
+    #[arg(long, env = "POD_NAME", default_value = "transit")]
     pod_name: String,
 
     #[arg(long, env = "POD_NAMESPACE", default_value = "dubbo-system")]
@@ -158,7 +172,7 @@ fn run_ledger(
     json: bool,
     country: Option<String>,
 ) -> std::io::Result<()> {
-    use xgate_core::{quote_tokens, ContextBand, ServiceTier, TokenCounts};
+    use transit_core::{quote_tokens, ContextBand, ServiceTier, TokenCounts};
     let tier = match tier.to_ascii_lowercase().as_str() {
         "standard" => ServiceTier::Standard,
         "fast" | "priority" => ServiceTier::Fast,
@@ -196,7 +210,7 @@ fn run_ledger(
     if json {
         let payload = if let Some(country) = country.as_deref() {
             let fx =
-                xgate_core::convert_usd_nanos(quote.api_usd_nanos, country).map_err(|err| {
+                transit_core::convert_usd_nanos(quote.api_usd_nanos, country).map_err(|err| {
                     std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
                 })?;
             serde_json::json!({ "quote": quote, "fx": fx })
@@ -231,14 +245,14 @@ fn run_ledger(
             "line\t{}\ttokens={}\tusd={}\tcredits={}",
             item.component,
             item.tokens,
-            xgate_core::format_usd_nanos(item.api_usd_nanos),
+            transit_core::format_usd_nanos(item.api_usd_nanos),
             item.chatgpt_credit_micros
-                .map(xgate_core::format_credit_micros)
+                .map(transit_core::format_credit_micros)
                 .unwrap_or_else(|| "unpublished".into())
         );
     }
     if let Some(country) = country {
-        let fx = xgate_core::convert_usd_nanos(quote.api_usd_nanos, &country).map_err(|err| {
+        let fx = transit_core::convert_usd_nanos(quote.api_usd_nanos, &country).map_err(|err| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string())
         })?;
         println!("fx_country\t{}", fx.country);
@@ -256,14 +270,14 @@ fn run_local_ledger(
     claude_home: Option<String>,
     codex_home: Option<String>,
 ) -> std::io::Result<()> {
-    let mut paths = xgate_core::LocalScanPaths::from_env();
+    let mut paths = transit_core::LocalScanPaths::from_env();
     if let Some(value) = claude_home {
-        paths.claude_roots = xgate_core::LocalScanPaths::parse_roots(&value);
+        paths.claude_roots = transit_core::LocalScanPaths::parse_roots(&value);
     }
     if let Some(value) = codex_home {
-        paths.codex_roots = xgate_core::LocalScanPaths::parse_roots(&value);
+        paths.codex_roots = transit_core::LocalScanPaths::parse_roots(&value);
     }
-    let report = xgate_core::scan_local_usage(&paths);
+    let report = transit_core::scan_local_usage(&paths);
     if json {
         println!(
             "{}",
@@ -292,25 +306,8 @@ fn run_local_ledger(
     Ok(())
 }
 
-fn sync_legacy_envs() {
-    for (key, val) in std::env::vars() {
-        if let Some(rest) = key.strip_prefix("DXGATE_") {
-            let xgate_key = format!("XGATE_{rest}");
-            if std::env::var_os(&xgate_key).is_none() {
-                std::env::set_var(&xgate_key, &val);
-            }
-        } else if let Some(rest) = key.strip_prefix("XGATE_") {
-            let dxgate_key = format!("DXGATE_{rest}");
-            if std::env::var_os(&dxgate_key).is_none() {
-                std::env::set_var(&dxgate_key, &val);
-            }
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    sync_legacy_envs();
     let args = Args::parse();
     if let Some(Command::Ledger {
         action,
@@ -370,7 +367,8 @@ async fn main() -> std::io::Result<()> {
         args.otel_tags.as_deref(),
     )?;
 
-    let run_xds = should_run_xds(&args);
+    let startup = mode::StartupPlan::from_args(&args)
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
     let identity = RouterIdentity {
         pod_name: args.pod_name,
         namespace: args.namespace.clone(),
@@ -380,22 +378,69 @@ async fn main() -> std::io::Result<()> {
         dns_domain: args.dns_domain,
     };
 
-    info!(node_id = %identity.node_id(), "starting xgate router proxy");
+    info!(node_id = %identity.node_id(), "starting transit router proxy");
 
-    // dubbod is the sole configuration source. Kubernetes access is limited to
-    // resolving Secret values referenced by the xDS configuration.
+    // Startup selects exactly one routing configuration owner.
     let store = Arc::new(ConfigStore::new());
     let state = ProxyState::with_store(store.clone());
-    configure_llm_accounts(
+    let access_base = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let access_path = args
+        .access_config
+        .clone()
+        .unwrap_or_else(|| access_base.join("transit/access.json"));
+    let access_path = if access_path.is_absolute() {
+        access_path
+    } else {
+        std::env::current_dir()?.join(access_path)
+    };
+    let account_dir = args
+        .llm_accounts_dir
+        .clone()
+        .unwrap_or_else(|| access_base.join("transit/accounts"));
+    let account_dir = if account_dir.is_absolute() {
+        account_dir
+    } else {
+        std::env::current_dir()?.join(account_dir)
+    };
+    let access_defaults = transit_proxy::access_settings::AccessConfig {
+            host: args.http_addr.ip().to_string(),
+            port: args.http_addr.port(),
+            auth_dir: account_dir.display().to_string(),
+            api_keys: Vec::new(),
+            tls: Default::default(),
+            remote_management: transit_proxy::access_settings::RemoteManagement {
+                allow_remote: args.llm_admin_token.is_some(),
+                secret_key: args.llm_admin_token.clone().unwrap_or_default(),
+                ..Default::default()
+            },
+        };
+    let access = if args.mode == RuntimeMode::Standalone {
+        state.access_settings().configure(access_path, access_defaults)?
+    } else {
+        state.access_settings().configure_read_only(args.access_config.as_deref(), access_defaults)?
+    };
+    let http_addr = SocketAddr::new(
+        access.host.parse().map_err(std::io::Error::other)?,
+        access.port,
+    );
+    if args.mode == RuntimeMode::Standalone || args.llm_accounts_dir.is_some() {
+        configure_llm_accounts(
         &state,
         args.ui_addr,
-        args.llm_accounts_dir.as_deref(),
+        Some(&transit_proxy::access_settings::expand_path(
+            &access.auth_dir,
+        )?),
         args.llm_admin_token.as_deref(),
-    )?;
+        )?;
+    }
 
-    if run_xds {
+    if let Some(endpoint) = startup.xds_endpoint {
         let xds = XdsClient::new(XdsClientConfig {
-            endpoint: args.xds_address,
+            endpoint,
             identity,
             listener_names: args.listener_names,
             reconnect_delay: Duration::from_secs(10),
@@ -412,7 +457,10 @@ async fn main() -> std::io::Result<()> {
 
     if let Some(path) = args.static_config.clone() {
         let cfg = load_runtime_config(&path).await?;
-        match state.apply_config(cfg) {
+        cfg.validate().map_err(|errors| std::io::Error::new(
+            std::io::ErrorKind::InvalidData, format!("Invalid standalone configuration: {errors:?}")
+        ))?;
+        match state.apply_config_from(transit_core::SourceId::Static, cfg) {
             Ok(()) => info!(path = %path.display(), "static config applied"),
             Err(conflicts) => {
                 warn!(path = %path.display(), ?conflicts, "static config applied with conflicts")
@@ -420,18 +468,18 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    tokio::spawn(sync_referenced_secrets(
-        state.clone(),
-        args.namespace.clone(),
-    ));
+    if args.mode == RuntimeMode::Kubernetes {
+        tokio::spawn(sync_referenced_secrets(state.clone(), args.namespace.clone()));
+    }
 
     let proxy = ProxyServer::new(state.clone());
     let access_log_proxy = proxy.clone();
-    let ui = UiServer::new(state, args.http_addr, args.metrics_enabled);
+    let ui = UiServer::new(state, http_addr, args.metrics_enabled)
+        .with_version(env!("CARGO_PKG_VERSION"))
+        .with_runtime_mode(startup.runtime);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let mut proxy_task = tokio::spawn(
-        proxy.serve_with_shutdown(args.http_addr, shutdown_requested(shutdown_rx.clone())),
-    );
+    let mut proxy_task =
+        tokio::spawn(proxy.serve_with_shutdown(http_addr, shutdown_requested(shutdown_rx.clone())));
     let mut ui_task =
         tokio::spawn(ui.serve_with_shutdown(args.ui_addr, shutdown_requested(shutdown_rx)));
 
@@ -472,13 +520,19 @@ fn configure_llm_accounts(
     directory: Option<&std::path::Path>,
     token: Option<&str>,
 ) -> std::io::Result<()> {
+    if state.access_settings().configured() {
+        return state.llm_accounts().configure_local(
+            directory
+                .ok_or_else(|| std::io::Error::other("Authentication directory unavailable"))?,
+        );
+    }
     let local = ui_addr.ip().is_loopback();
     if !local && directory.is_none() && token.is_none() {
         return Ok(());
     }
     if !local && token.is_none() {
         return Err(std::io::Error::other(
-            "XGATE_LLM_ADMIN_TOKEN is required for OAuth management on a non-loopback UI",
+            "TRANSIT_LLM_ADMIN_TOKEN is required for OAuth management on a non-loopback UI",
         ));
     }
     let directory = match directory {
@@ -492,16 +546,10 @@ fn configure_llm_accounts(
                 })
                 .ok_or_else(|| {
                     std::io::Error::other(
-                        "Set XGATE_LLM_ACCOUNTS_DIR when no home directory is available",
+                        "Set TRANSIT_LLM_ACCOUNTS_DIR when no home directory is available",
                     )
                 })?;
-            let xgate_dir = base.join("xgate/accounts");
-            let dxgate_dir = base.join("dxgate/accounts");
-            if !xgate_dir.exists() && dxgate_dir.exists() {
-                dxgate_dir
-            } else {
-                xgate_dir
-            }
+            base.join("transit/accounts")
         }
     };
     if let Some(token) = token {
@@ -685,7 +733,7 @@ fn parse_otel_tags(raw: Option<&str>) -> std::io::Result<Vec<KeyValue>> {
         return Ok(Vec::new());
     };
     let tags: std::collections::BTreeMap<String, String> = serde_json::from_str(raw)
-        .map_err(|err| std::io::Error::other(format!("parse XGATE_OTEL_TAGS: {err}")))?;
+        .map_err(|err| std::io::Error::other(format!("parse TRANSIT_OTEL_TAGS: {err}")))?;
     Ok(tags
         .into_iter()
         .map(|(name, value)| KeyValue::new(name, value))
@@ -736,13 +784,6 @@ fn apply_bootstrap(args: &mut Args, bootstrap: BootstrapConfig) {
     }
 }
 
-/// Whether to open an ADS stream. xgate is a delegated data plane, so the xDS
-/// client is on unless explicitly disabled — a proxy without its control plane
-/// has nothing to route.
-fn should_run_xds(args: &Args) -> bool {
-    args.xds_enabled.unwrap_or(true)
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -751,7 +792,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let directory = std::env::temp_dir().join(format!("xgate-local-init-{nonce}"));
+        let directory = std::env::temp_dir().join(format!("transit-local-init-{nonce}"));
         struct Cleanup(std::path::PathBuf);
         impl Drop for Cleanup {
             fn drop(&mut self) {
@@ -788,7 +829,7 @@ mod tests {
             None,
         )
         .unwrap_err();
-        assert!(err.to_string().contains("XGATE_LLM_ADMIN_TOKEN"));
+        assert!(err.to_string().contains("TRANSIT_LLM_ADMIN_TOKEN"));
         assert!(!remote.llm_accounts().enabled());
         super::configure_llm_accounts(
             &remote,
@@ -798,32 +839,36 @@ mod tests {
         )
         .unwrap();
         assert!(remote.llm_accounts().enabled());
-        assert!(remote.llm_accounts().authorized("test-explicit-management-token-long-enough"));
+        assert!(remote
+            .llm_accounts()
+            .authorized("test-explicit-management-token-long-enough"));
         assert!(remote.llm_accounts().local_session_token().is_none());
     }
-    use super::{apply_bootstrap, parse_otel_tags, should_run_xds, Args};
-    use xgate_xds::BootstrapConfig;
+    use super::{apply_bootstrap, parse_otel_tags, Args};
+    use transit_xds::BootstrapConfig;
     use std::net::SocketAddr;
     use std::path::PathBuf;
 
     fn base_args() -> Args {
         Args {
+            mode: transit_core::RuntimeMode::Standalone,
             xds_address: "http://old:15012".to_string(),
             xds_enabled: None,
             http_addr: "0.0.0.0:80".parse().unwrap(),
             ui_addr: "0.0.0.0:15021".parse().unwrap(),
             llm_accounts_dir: None,
             llm_admin_token: None,
+            access_config: None,
             metrics_enabled: true,
             drain_timeout_seconds: 30,
-            bootstrap: Some(PathBuf::from("/etc/xgate/bootstrap.json")),
+            bootstrap: Some(PathBuf::from("/etc/transit/bootstrap.json")),
             static_config: None,
             otel_endpoint: None,
-            otel_service_name: "xgate".to_string(),
+            otel_service_name: "transit".to_string(),
             otel_sampling_percentage: 100.0,
             otel_tags: None,
             listener_names: Vec::new(),
-            pod_name: "xgate".to_string(),
+            pod_name: "transit".to_string(),
             namespace: "dubbo-system".to_string(),
             pod_ip: "127.0.0.1".to_string(),
             node_name: None,
@@ -863,7 +908,7 @@ mod tests {
         assert_eq!(args.http_addr.port(), 8080);
         assert_eq!(args.cluster_id, "Kubernetes");
         assert_eq!(args.dns_domain, "svc.local");
-        assert_eq!(args.pod_name, "xgate");
+        assert_eq!(args.pod_name, "transit");
         assert_eq!(
             args.listener_names,
             ["public-dubbo.app.svc.cluster.local:80"]
@@ -873,21 +918,10 @@ mod tests {
     #[test]
     fn demo_config_deserializes() {
         let raw = include_str!("../../../tests/ui-fake.json");
-        let cfg: xgate_core::RuntimeConfig = serde_json::from_str(raw).unwrap();
+        let cfg: transit_core::RuntimeConfig = serde_json::from_str(raw).unwrap();
         assert_eq!(cfg.clusters.len(), 3);
         assert_eq!(cfg.providers.len(), 2);
         assert_eq!(cfg.backends.len(), 7);
     }
 
-    #[test]
-    fn xds_runs_unless_explicitly_disabled() {
-        let mut args = base_args();
-        assert!(should_run_xds(&args));
-
-        args.xds_enabled = Some(false);
-        assert!(!should_run_xds(&args));
-
-        args.xds_enabled = Some(true);
-        assert!(should_run_xds(&args));
-    }
 }

@@ -3,7 +3,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
-use xgate_core::{Cluster, ConfigSnapshot, TlsSecret, UpstreamTls};
+use transit_core::{Cluster, ConfigSnapshot, TlsSecret, UpstreamTls};
 use hyper::client::HttpConnector;
 use hyper::Client;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
@@ -46,11 +46,11 @@ impl UpstreamClients {
         let mtls = match env::var("GRPC_XDS_BOOTSTRAP") {
             Ok(path) if !path.is_empty() => match MtlsClientPool::from_bootstrap(&path) {
                 Ok(pool) => {
-                    info!(bootstrap = %path, "loaded xgate upstream mTLS bootstrap");
+                    info!(bootstrap = %path, "loaded transit upstream mTLS bootstrap");
                     MtlsSupport::Available(Arc::new(pool))
                 }
                 Err(err) => {
-                    warn!(bootstrap = %path, %err, "failed loading xgate upstream mTLS bootstrap");
+                    warn!(bootstrap = %path, %err, "failed loading transit upstream mTLS bootstrap");
                     MtlsSupport::Error(Arc::from(err))
                 }
             },

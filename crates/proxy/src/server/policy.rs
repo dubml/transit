@@ -7,7 +7,7 @@ use super::context::AgentRequestContext;
 use super::headers::merge_header_transform;
 use super::{header_value, ProxyServer};
 use axum::http::StatusCode;
-use xgate_core::{
+use transit_core::{
     AgentRoute, Backend, ConfigSnapshot, HeaderTransform, PolicyAction, RateLimitKey, RetryPolicy,
 };
 use std::env;
@@ -80,7 +80,7 @@ pub(super) fn evaluate_policies(
         }
         if let Some(auth) = &policy.auth {
             let secret = match auth {
-                xgate_core::AuthPolicy::ApiKey {
+                transit_core::AuthPolicy::ApiKey {
                     secret_ref: Some(reference),
                     ..
                 } => server.state.credential(reference),
@@ -165,7 +165,7 @@ pub(super) enum PolicyDefault {
 
 impl PolicyDefault {
     pub(super) fn from_env() -> Self {
-        match env::var("XGATE_POLICY_DEFAULT").or_else(|_| env::var("DXGATE_POLICY_DEFAULT")) {
+        match env::var("TRANSIT_POLICY_DEFAULT") {
             Ok(value) if value.eq_ignore_ascii_case("deny") => Self::Deny,
             _ => Self::Allow,
         }

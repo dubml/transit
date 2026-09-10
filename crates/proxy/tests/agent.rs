@@ -2,12 +2,12 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Request, Response, StatusCode, Uri};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
-use xgate_core::{
+use transit_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, Backend, BackendKind, HeaderTransform,
     PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RateLimitPolicy,
     RuntimeConfig, WeightedBackend,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
+use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use serde_json::{json, Value};
@@ -29,7 +29,7 @@ impl Drop for TestServer {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn llm_route_enforces_api_key_and_forwards_to_provider() {
-    std::env::set_var("XGATE_TEST_OPENAI_KEY", "provider-key");
+    std::env::set_var("TRANSIT_TEST_OPENAI_KEY", "provider-key");
     let llm = spawn_llm_backend().await;
     let proxy = spawn_proxy(agent_config(
         vec![llm_backend(llm.addr)],
@@ -85,6 +85,7 @@ async fn llm_route_enforces_api_key_and_forwards_to_provider() {
 async fn custom_llm_path_is_detected_and_rewritten_before_forwarding() {
     let llm = spawn_llm_backend().await;
     let route = AgentRoute {
+        listener_ports: Vec::new(),
         name: "custom-chat".into(),
         protocol: AgentProtocol::Llm,
         matches: vec![AgentRouteMatch {
@@ -132,6 +133,7 @@ async fn mcp_tools_list_federates_multiple_backends() {
             mcp_backend("mcp-b", second.addr),
         ],
         vec![AgentRoute {
+            listener_ports: Vec::new(),
             name: "mcp".into(),
             protocol: AgentProtocol::Mcp,
             matches: vec![AgentRouteMatch {
@@ -193,6 +195,7 @@ async fn mcp_sse_session_binds_followup_requests_to_same_backend() {
             mcp_backend("mcp-b", second.addr),
         ],
         vec![AgentRoute {
+            listener_ports: Vec::new(),
             name: "mcp-stream".into(),
             protocol: AgentProtocol::Mcp,
             matches: vec![AgentRouteMatch {
@@ -279,6 +282,7 @@ async fn a2a_agent_card_is_proxied() {
             policies: vec![],
         }],
         vec![AgentRoute {
+            listener_ports: Vec::new(),
             name: "agent-card".into(),
             protocol: AgentProtocol::A2a,
             matches: vec![AgentRouteMatch {
@@ -476,7 +480,7 @@ fn agent_config(
             name: "openai".into(),
             kind: ProviderKind::OpenAiCompatible,
             base_url: "http://unused".into(),
-            api_key_env: Some("XGATE_TEST_OPENAI_KEY".into()),
+            api_key_env: Some("TRANSIT_TEST_OPENAI_KEY".into()),
             credential_ref: None,
             request_headers: vec![],
         }],
@@ -516,6 +520,7 @@ fn mcp_backend(name: &str, addr: SocketAddr) -> Backend {
 
 fn llm_route() -> AgentRoute {
     AgentRoute {
+        listener_ports: Vec::new(),
         name: "chat".into(),
         protocol: AgentProtocol::Llm,
         matches: vec![AgentRouteMatch {

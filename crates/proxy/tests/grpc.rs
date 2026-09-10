@@ -2,11 +2,11 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, Uri, Version};
 use axum::routing::any;
 use axum::Router;
-use xgate_core::{
+use transit_core::{
     Cluster, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, RuntimeConfig,
     VirtualHost, WeightedCluster,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
+use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use std::net::SocketAddr;

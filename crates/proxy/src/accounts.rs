@@ -9,6 +9,9 @@ use std::sync::RwLock;
 #[path = "oauth_login.rs"]
 mod login;
 pub use login::OAuthLogin;
+#[path = "account_management.rs"]
+mod management;
+pub(crate) use management::AccountRequest;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -18,8 +21,41 @@ pub struct ModelRule {
     pub disabled: bool,
     #[serde(default)]
     pub alias: String,
+    #[serde(default = "keep_original_default")]
+    pub keep_original: bool,
     #[serde(default)]
     pub reasoning_effort: String,
+}
+
+fn keep_original_default() -> bool {
+    true
+}
+
+fn model_pattern_matches(pattern: &str, model: &str) -> bool {
+    let pattern = pattern.to_ascii_lowercase();
+    let model = model.to_ascii_lowercase();
+    let (p, m) = (pattern.as_bytes(), model.as_bytes());
+    let (mut i, mut j, mut star, mut retry) = (0, 0, None, 0);
+    while j < m.len() {
+        if i < p.len() && p[i] != b'*' && p[i] == m[j] {
+            i += 1;
+            j += 1;
+        } else if i < p.len() && p[i] == b'*' {
+            star = Some(i);
+            i += 1;
+            retry = j;
+        } else if let Some(index) = star {
+            retry += 1;
+            j = retry;
+            i = index + 1;
+        } else {
+            return false;
+        }
+    }
+    while i < p.len() && p[i] == b'*' {
+        i += 1;
+    }
+    i == p.len()
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -45,6 +81,8 @@ pub struct AccountSummary {
     pub models: Vec<ModelRule>,
     pub revision: u64,
     pub can_refresh: bool,
+    #[serde(flatten)]
+    pub details: Value,
 }
 
 impl OAuthAccount {
@@ -81,6 +119,7 @@ impl OAuthAccount {
                 .get("refresh_token")
                 .and_then(Value::as_str)
                 .is_some_and(|s| !s.is_empty()),
+            details: management::metadata(self),
         }
     }
 
@@ -89,14 +128,50 @@ impl OAuthAccount {
             .models
             .iter()
             .find(|r| r.model == requested || (!r.alias.is_empty() && r.alias == requested));
-        match rule {
-            Some(r) if r.disabled => None,
-            Some(r) => Some((&r.model, &r.reasoning_effort)),
-            None => Some((requested, "")),
+        let resolved = rule.map(|r| r.model.as_str()).unwrap_or(requested);
+        if self.models.iter().any(|r| {
+            r.disabled
+                && (model_pattern_matches(&r.model, requested)
+                    || model_pattern_matches(&r.model, resolved))
+        }) {
+            return None;
         }
+        if rule.is_some_and(|r| {
+            !r.alias.is_empty() && !r.keep_original && r.model == requested && r.alias != requested
+        }) {
+            return None;
+        }
+        Some((
+            resolved,
+            rule.map(|r| r.reasoning_effort.as_str()).unwrap_or(""),
+        ))
+    }
+
+    pub fn public_model_names<'a>(&'a self, original: &'a str) -> Vec<&'a str> {
+        let mut names = Vec::new();
+        if self.resolve_model(original).is_some() {
+            names.push(original);
+        }
+        for rule in &self.models {
+            if rule.model == original
+                && !rule.alias.is_empty()
+                && rule.alias != original
+                && self.resolve_model(&rule.alias).is_some()
+            {
+                names.push(&rule.alias);
+            }
+        }
+        names
     }
 
     fn validate(&self) -> Result<(), String> {
+        if self
+            .document
+            .get("disabled")
+            .is_some_and(|v| !v.is_boolean())
+        {
+            return Err("OAuth disabled must be a boolean".into());
+        }
         if self.id.is_empty()
             || self.id.len() > 120
             || !self
@@ -120,8 +195,17 @@ impl OAuthAccount {
         }
         let mut names = BTreeSet::new();
         for rule in &self.models {
-            if rule.model.trim().is_empty() || !names.insert(rule.model.as_str()) {
+            if rule.model.trim().is_empty()
+                || rule.model.trim() != rule.model
+                || rule.model.chars().any(char::is_control)
+                || !names.insert(rule.model.to_ascii_lowercase())
+            {
                 return Err("Model names must be nonempty and unique".into());
+            }
+            if rule.model.contains('*')
+                && (!rule.disabled || !rule.alias.is_empty() || !rule.reasoning_effort.is_empty())
+            {
+                return Err("Wildcards are only supported for model exclusion rules".into());
             }
             if !matches!(
                 rule.reasoning_effort.as_str(),
@@ -131,9 +215,17 @@ impl OAuthAccount {
             }
         }
         for rule in &self.models {
+            if rule.alias.trim() != rule.alias
+                || rule.alias.contains('*')
+                || rule.alias.chars().any(char::is_control)
+            {
+                return Err(
+                    "Model aliases must be exact, nonblank names without control characters".into(),
+                );
+            }
             if !rule.alias.is_empty()
-                && rule.alias != rule.model
-                && !names.insert(rule.alias.as_str())
+                && !rule.alias.eq_ignore_ascii_case(&rule.model)
+                && !names.insert(rule.alias.to_ascii_lowercase())
             {
                 return Err("Model aliases must not collide with models or other aliases".into());
             }
@@ -157,6 +249,8 @@ pub struct LlmAccounts {
     mutation: tokio::sync::Mutex<()>,
     logins: std::sync::Mutex<BTreeMap<String, login::PendingLogin>>,
     login_results: std::sync::Mutex<BTreeMap<String, (std::time::Instant, Value)>>,
+    runtime: std::sync::Mutex<BTreeMap<String, management::Runtime>>,
+    reset_lock: tokio::sync::Mutex<()>,
     #[cfg(test)]
     refresh_endpoint: Option<String>,
 }
@@ -231,12 +325,10 @@ impl LlmAccounts {
     }
 
     pub fn list(&self) -> Vec<AccountSummary> {
-        self.data
-            .read()
-            .unwrap()
-            .accounts
+        let data = self.data.read().unwrap();
+        data.accounts
             .values()
-            .map(OAuthAccount::summary)
+            .map(|account| self.account_summary(account, data.directory.as_deref()))
             .collect()
     }
     pub fn get(&self, id: &str) -> Option<OAuthAccount> {
@@ -255,7 +347,7 @@ impl LlmAccounts {
 
     pub fn select(
         &self,
-        backend: &xgate_core::Backend,
+        backend: &transit_core::Backend,
         model: Option<&str>,
     ) -> Option<OAuthAccount> {
         let mut data = self.data.write().unwrap();
@@ -264,6 +356,7 @@ impl LlmAccounts {
             .values()
             .filter(|a| {
                 a.backend == backend.name
+                    && !a.disabled()
                     && model.is_none_or(|m| {
                         a.resolve_model(m)
                             .is_some_and(|(resolved, _)| backend.supports_model(Some(resolved)))
@@ -305,6 +398,11 @@ impl LlmAccounts {
             .get(&account.id)
             .map(|a| a.revision)
             .unwrap_or(0);
+        let identity_changed = data.accounts.get(&account.id).is_some_and(|existing| {
+            existing.provider() != account.provider()
+                || existing.document["account_id"] != account.document["account_id"]
+                || existing.document["email"] != account.document["email"]
+        });
         if account.revision != revision {
             return Err("Account changed; reload before saving".into());
         }
@@ -330,6 +428,9 @@ impl LlmAccounts {
             "Cannot persist OAuth account; check directory permissions and temporary files"
         })?;
         let summary = account.summary();
+        if identity_changed {
+            self.runtime.lock().unwrap().remove(&account.id);
+        }
         data.accounts.insert(account.id.clone(), account);
         Ok(summary)
     }
@@ -457,7 +558,7 @@ mod tests {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            Self(std::env::temp_dir().join(format!("xgate-oauth-{}-{nonce}", std::process::id())))
+            Self(std::env::temp_dir().join(format!("transit-oauth-{}-{nonce}", std::process::id())))
         }
     }
     impl Drop for Directory {
@@ -473,6 +574,7 @@ mod tests {
             models: vec![ModelRule {
                 model: "gpt-test".into(),
                 alias: "friendly".into(),
+                keep_original: true,
                 reasoning_effort: "high".into(),
                 disabled: false,
             }],
@@ -551,6 +653,38 @@ mod tests {
             ..ModelRule::default()
         });
         assert!(account.validate().is_err());
+    }
+
+    #[test]
+    fn wildcard_exclusions_block_aliases_and_renaming_controls_original_name() {
+        let mut account = account();
+        account.models[0].keep_original = false;
+        assert_eq!(account.resolve_model("gpt-test"), None);
+        assert_eq!(
+            account.resolve_model("friendly"),
+            Some(("gpt-test", "high"))
+        );
+        assert_eq!(account.public_model_names("gpt-test"), vec!["friendly"]);
+        account.models[0].keep_original = true;
+        assert_eq!(
+            account.public_model_names("gpt-test"),
+            vec!["gpt-test", "friendly"]
+        );
+        account.models.push(ModelRule {
+            model: "GPT-*".into(),
+            disabled: true,
+            ..ModelRule::default()
+        });
+        assert_eq!(account.resolve_model("friendly"), None);
+        assert_eq!(account.resolve_model("gpt-test"), None);
+        assert!(account.public_model_names("gpt-test").is_empty());
+        assert!(account.resolve_model("claude-test").is_some());
+        assert!(model_pattern_matches("*gPt*-te*t*", "GPT-5-TEST"));
+        assert!(!model_pattern_matches("gpt-*", "not-gpt-5"));
+        assert!(model_pattern_matches("*", "anything"));
+        let legacy: ModelRule =
+            serde_json::from_value(serde_json::json!({"model":"a","alias":"b"})).unwrap();
+        assert!(legacy.keep_original);
     }
 
     #[test]

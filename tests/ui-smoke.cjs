@@ -22,7 +22,7 @@ const server = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.end(fs.readFileSync(path.join(root, 'ui/ui.html')));
   } else if (url.pathname.startsWith('/assets/')) {
-    if (['/assets/llm.js', '/assets/llm.css'].includes(url.pathname)) {
+    if (['/assets/llm.js', '/assets/llm.css', '/assets/configuration.js', '/assets/configuration.css'].includes(url.pathname)) {
       res.setHeader('Content-Type', url.pathname.endsWith('.js') ? 'text/javascript' : 'text/css');
       res.end(fs.readFileSync(path.join(root, 'ui', path.basename(url.pathname))));
       return;
@@ -40,7 +40,7 @@ const server = http.createServer((req, res) => {
         mode: b.account_type === 'subscription' ? 'subscription' : b.account_type === 'self-hosted' ? 'local' : 'api',
         quota: b.quota_state
       }));
-      const accounts = backends.filter(b => b.mode === 'subscription').map(b => ({ id: b.name, backend: b.name, provider: b.family === 'anthropic' ? 'claude' : 'codex', revision: 1, models: [], can_refresh: true }));
+      const accounts = backends.filter(b => b.mode === 'subscription').map(b => ({ id: b.name, backend: b.name, provider: b.family === 'anthropic' ? 'claude' : 'codex', revision: 1, models: [], can_refresh: true, quota: b.quota_state ? { observed_at:new Date().toISOString(), windows:b.quota_state.windows.map(w => ({ name:w.name,window_seconds:w.window === '7d' ? 604800 : w.window === '30d' ? 2592000 : 18000,used_percent:w.used_percent,reset_at:w.reset_at })) } : null }));
       res.end(JSON.stringify({ backends, accounts, management_enabled: managementEnabled }));
     }
     else if (url.pathname === '/debug/cost') {
@@ -90,8 +90,13 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('.llm-account-card:visible').count(), 1);
     assert.equal(await page.locator('.reset-cards-box').count(), 0);
     assert.equal(await page.locator('.llm-account-card:visible .quota-window-item').count(), 1);
-    assert.match(await page.locator('.llm-account-card:visible').innerText(), /0%/);
-    assert.equal(await page.locator('.llm-account-card:visible [data-action]').count(), 5);
+    assert.match(await page.locator('.llm-account-card:visible').innerText(), /100%/);
+    assert.equal(await page.locator('.llm-account-card:visible [role=progressbar]').getAttribute('aria-valuenow'), '100');
+    assert.equal(await page.locator('.llm-account-card:visible [data-action]').count(), 6);
+    config.backends.find(b => b.name.startsWith('weekly-only')).quota_state.windows = [{ name:'',window:'30d',used_percent:99 }];
+    await go('overview'); await go('llm'); await idle();
+    assert.match(await page.locator('.llm-account-card:visible').innerText(), /Monthly limit|月限额/);
+    assert.equal(await page.locator('.llm-account-card:visible [role=progressbar]').getAttribute('aria-valuenow'),'1');
     await page.locator('#search-input').fill('does-not-exist');
     assert.equal(await page.locator('.llm-account-card:visible').count(), 0);
     assert.equal(await page.locator('#page-search-empty').isVisible(), true);
@@ -106,8 +111,8 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('[name=token]').count(), 0);
     assert.equal(await page.locator('[name=management_token]').count(), 0);
     assert.equal(await page.locator('[data-start]').isDisabled(), true);
-    assert.match(await page.locator('.llm-login-setup').innerText(), /(XGATE|DXGATE)_LLM_ACCOUNTS_DIR/);
-    assert.match(await page.locator('.llm-login-setup').innerText(), /(XGATE|DXGATE)_LLM_ADMIN_TOKEN/);
+    assert.match(await page.locator('.llm-login-setup').innerText(), /TRANSIT_LLM_ACCOUNTS_DIR/);
+    assert.match(await page.locator('.llm-login-setup').innerText(), /TRANSIT_LLM_ADMIN_TOKEN/);
     if (process.env.UI_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, 'oauth-not-configured.png'), fullPage: true });
     await page.locator('dialog header [data-close]').click();
     managementEnabled = true;
@@ -199,7 +204,7 @@ const server = http.createServer((req, res) => {
 
     const screenshots = process.env.UI_SCREENSHOT_DIR;
     if (screenshots) {
-      await page.screenshot({ path: path.join(screenshots, 'xgate-ui-llm-desktop.png'), fullPage: true });
+      await page.screenshot({ path: path.join(screenshots, 'transit-ui-llm-desktop.png'), fullPage: true });
     }
     for (const width of [1440, 1024, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
@@ -227,7 +232,7 @@ const server = http.createServer((req, res) => {
     assert.notEqual(darkTheme.cardBackground, 'rgb(255, 255, 255)');
     assert.notEqual(darkTheme.cardColor, darkTheme.cardBackground);
     assert.notEqual(darkTheme.tabColor, darkTheme.tabBackground);
-    if (screenshots) await page.screenshot({ path: path.join(screenshots, 'xgate-ui-llm-mobile.png'), fullPage: true });
+    if (screenshots) await page.screenshot({ path: path.join(screenshots, 'transit-ui-llm-mobile.png'), fullPage: true });
     assert.deepEqual(errors, []);
     console.log('PASS all pages at 1440/1024/768/390px, theme switch and no JavaScript errors');
   } finally {

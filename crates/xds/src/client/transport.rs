@@ -60,6 +60,17 @@ pub(super) async fn configure(
         .map_err(|_| XdsError::Credentials("invalid TLS certificate, key, or trust bundle".into()))
 }
 
+pub(super) async fn configure_service_account(
+    endpoint: Endpoint, root_ca: &Path,
+) -> Result<Endpoint, XdsError> {
+    if endpoint.uri().scheme_str() != Some("https") {
+        return Err(XdsError::Credentials("ServiceAccount credentials require an https ADS endpoint".into()));
+    }
+    let ca = read(root_ca).await?;
+    endpoint.tls_config(ClientTlsConfig::new().ca_certificate(Certificate::from_pem(ca)))
+        .map_err(|_| XdsError::Credentials("invalid xDS trust bundle".into()))
+}
+
 async fn read(path: &Path) -> Result<Vec<u8>, XdsError> {
     tokio::fs::read(path)
         .await

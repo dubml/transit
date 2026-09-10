@@ -114,7 +114,7 @@ pub mod route_action {
     }
 }
 /// AgentConfig is the mesh-native LLM, MCP, and A2A slice compiled by dubbod
-/// from XgateService and HTTPRoute resources.
+/// from TransitService and HTTPRoute resources.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AgentConfig {
@@ -218,6 +218,8 @@ pub struct AgentRoute {
     pub policies: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, optional, tag = "6")]
     pub rewrite: ::core::option::Option<PathRewrite>,
+    #[prost(uint32, repeated, tag = "7")]
+    pub listener_ports: ::prost::alloc::vec::Vec<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

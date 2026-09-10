@@ -1,6 +1,6 @@
 # Security Policy
 
-xgate is a network-facing data-plane proxy that terminates TLS and enforces
+transit is a network-facing data-plane proxy that terminates TLS and enforces
 authentication, so we take security reports seriously.
 
 ## Supported Versions
@@ -14,7 +14,7 @@ is established, users should track `main` for the latest fixes.
 
 Please report privately via GitHub Security Advisories:
 
-1. Go to the [Security tab](https://github.com/kdubbo/xgate/security/advisories/new).
+1. Go to the [Security tab](https://github.com/kdubbo/transit/security/advisories/new).
 2. Provide a description, affected versions, reproduction steps, and impact.
 
 We aim to acknowledge reports within **72 hours** and to provide a remediation
@@ -25,7 +25,7 @@ any public disclosure.
 
 In scope:
 
-- The `xgate` data-plane proxy (routing, TLS termination, auth, rate limiting).
+- The `transit` data-plane proxy (routing, TLS termination, auth, rate limiting).
 - The xDS client and namespaced Kubernetes Secret resolver.
 - The web UI interface.
 

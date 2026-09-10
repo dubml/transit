@@ -1,4 +1,4 @@
-# cargo-deny configuration — supply-chain gating for xgate.
+# cargo-deny configuration — supply-chain gating for transit.
 # Run locally with: cargo deny check
 # Docs: https://embarkstudios.github.io/cargo-deny/
 
@@ -12,7 +12,7 @@ yanked = "deny"
 # These all originate from the pinned rustls 0.21 TLS stack (proxy) and kube's
 # transitive deps. The real fix is a rustls 0.21 -> 0.23 upgrade, which changes
 # the mTLS verifier / ClientConfig API and is tracked as a separate task; these
-# are low-impact in xgate's usage (see notes) and ignored until then.
+# are low-impact in transit's usage (see notes) and ignored until then.
 #
 # Scoping note for whoever picks that task up: rustls 0.23 forces hyper-rustls
 # 0.26+, which is hyper 1.x only, which forces axum 0.6 -> 0.8 and tonic 0.11 ->
@@ -27,7 +27,7 @@ ignore = [
     # verification and require a misissued cert to exploit.
     "RUSTSEC-2026-0098",
     "RUSTSEC-2026-0099",
-    # rustls-webpki CRL-parsing panic: xgate does not use CRLs, so unreachable.
+    # rustls-webpki CRL-parsing panic: transit does not use CRLs, so unreachable.
     "RUSTSEC-2026-0104",
 ]
 

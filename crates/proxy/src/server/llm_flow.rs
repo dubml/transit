@@ -10,7 +10,7 @@ use super::{read_body_limited, ProxyServer};
 use crate::llm::{self, LlmDialect, LlmUsage, UsageSink};
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue as HttpHeaderValue, Response, StatusCode, Uri};
-use xgate_core::{AgentRoute, Backend, Provider};
+use transit_core::{AgentRoute, Backend, Provider};
 use hyper::body::Bytes;
 use serde_json::Value;
 use std::sync::Arc;
@@ -249,7 +249,7 @@ pub(super) fn prepare_oauth_exchange(
         value["model"] = Value::String(effective_model.to_string());
         let translated = crate::codex::request(&value, native).map_err(bad)?;
         let base = match &backend.kind {
-            xgate_core::BackendKind::Llm {
+            transit_core::BackendKind::Llm {
                 endpoint: Some(endpoint),
                 ..
             } => endpoint.as_str(),
@@ -271,13 +271,13 @@ pub(super) fn prepare_oauth_exchange(
     }
     let mut provider = provider.cloned().unwrap_or(Provider {
         name: String::new(),
-        kind: xgate_core::ProviderKind::Anthropic,
+        kind: transit_core::ProviderKind::Anthropic,
         base_url: endpoint.to_string(),
         api_key_env: None,
         credential_ref: None,
         request_headers: Vec::new(),
     });
-    provider.kind = xgate_core::ProviderKind::Anthropic;
+    provider.kind = transit_core::ProviderKind::Anthropic;
     prepare_llm_exchange(
         backend,
         Some(&provider),

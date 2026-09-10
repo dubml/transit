@@ -3,7 +3,7 @@
 use super::ProxyServer;
 use axum::body::Body;
 use axum::http::{HeaderName, Request, StatusCode};
-use xgate_core::{
+use transit_core::{
     AuthorizationAction, AuthorizationCondition, AuthorizationPolicy, AuthorizationRule,
     AuthorizationSource, ConfigSnapshot, JwtProvider, ListenerSecurity,
 };
@@ -379,7 +379,7 @@ fn wildcard_match(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xgate_core::{AuthorizationCondition, AuthorizationSource};
+    use transit_core::{AuthorizationCondition, AuthorizationSource};
     use serde_json::json;
 
     #[test]
@@ -422,7 +422,7 @@ mod tests {
             audiences: vec![],
             jwks_uri: String::new(),
             jwks: String::new(),
-            from_headers: vec![xgate_core::JwtHeader {
+            from_headers: vec![transit_core::JwtHeader {
                 name: "authorization".into(),
                 prefix: "Bearer ".into(),
             }],

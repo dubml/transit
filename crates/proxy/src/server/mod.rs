@@ -9,7 +9,7 @@ use axum::http::{
 };
 use axum::routing::any;
 use axum::Router;
-use xgate_core::{
+use transit_core::{
     AgentProtocol, AgentRoute, AttributionMode, Backend, ConfigSnapshot, CostEvent, DataQuality,
     MatchInput, PricingStatus, RetryPolicy, TokenBreakdown, WeightedBackend, HTTP_LISTENER_PORT,
 };
@@ -97,10 +97,7 @@ impl ProxyServer {
             access_log,
             otel_access_log,
             max_body_bytes: parse_max_body_bytes(
-                env::var("XGATE_MAX_BODY_BYTES")
-                    .or_else(|_| env::var("DXGATE_MAX_BODY_BYTES"))
-                    .ok()
-                    .as_deref(),
+                env::var("TRANSIT_MAX_BODY_BYTES").ok().as_deref(),
             ),
             listener_port: HTTP_LISTENER_PORT,
             jwt_key_cache: JwtKeyCache::default(),
@@ -131,14 +128,11 @@ impl ProxyServer {
     ) -> std::io::Result<()> {
         let mut server = self;
         server.listener_port = addr.port();
+        let tls = server.state.access_settings().active_tls();
         let app = Router::new()
             .fallback(any(proxy_request))
             .with_state(server);
-        axum::Server::bind(&addr)
-            .serve(app.into_make_service())
-            .with_graceful_shutdown(shutdown)
-            .await
-            .map_err(std::io::Error::other)
+        crate::access_settings::serve_router(app, addr, tls, shutdown).await
     }
 }
 
@@ -152,8 +146,7 @@ impl MetricsIdentity {
     fn from_env() -> Self {
         Self {
             namespace: env::var("POD_NAMESPACE").unwrap_or_else(|_| "unknown".to_string()),
-            gateway: env::var("XGATE_GATEWAY_NAME")
-                .or_else(|_| env::var("DXGATE_GATEWAY_NAME"))
+            gateway: env::var("TRANSIT_GATEWAY_NAME")
                 .or_else(|_| env::var("GATEWAY_NAME"))
                 .unwrap_or_else(|_| "unknown".to_string()),
         }
@@ -206,12 +199,15 @@ async fn read_body_limited(
     Ok(Bytes::from(buf))
 }
 
+#[derive(Clone)]
+struct GatewayCredentialHeaders(Vec<http::HeaderName>);
+
 async fn proxy_request(State(server): State<ProxyServer>, req: Request<Body>) -> Response<Body> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     let parent_context = extract_trace_context(req.headers());
     let span = tracing::info_span!(
-        "xgate.request",
+        "transit.request",
         http.method = %method,
         http.target = %path,
         http.status_code = tracing::field::Empty,
@@ -219,7 +215,7 @@ async fn proxy_request(State(server): State<ProxyServer>, req: Request<Body>) ->
         gateway.namespace = tracing::field::Empty,
         gateway.name = tracing::field::Empty,
         http.route = tracing::field::Empty,
-        xgate.cluster = tracing::field::Empty,
+        transit.cluster = tracing::field::Empty,
         upstream.address = tracing::field::Empty
     );
     span.set_parent(parent_context);
@@ -247,6 +243,26 @@ async fn forward(
     server: ProxyServer,
     mut req: Request<Body>,
 ) -> Result<Response<Body>, (StatusCode, String)> {
+    let (mut parts, body) = req.into_parts();
+    let mut upstream_headers = parts.headers.clone();
+    if !server
+        .state
+        .access_settings()
+        .authenticate_api(&mut upstream_headers, &mut parts.uri)
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid or missing gateway API key".into(),
+        ));
+    }
+    let consumed = parts
+        .headers
+        .keys()
+        .filter(|name| !upstream_headers.contains_key(*name))
+        .cloned()
+        .collect();
+    parts.extensions.insert(GatewayCredentialHeaders(consumed));
+    req = Request::from_parts(parts, body);
     // One atomic refcount bump gives the whole request a stable, indexed view of
     // the configuration; nothing is copied per request.
     let snapshot = server.state.snapshot();
@@ -275,7 +291,7 @@ async fn forward(
         };
         for protocol in candidates {
             let context = AgentRequestContext::new(*protocol, &parts, &body_bytes);
-            if let Some(route) = snapshot.agent_route_for(&context.input()).cloned() {
+            if let Some(route) = snapshot.agent_route_for_port(server.listener_port, &context.input()).cloned() {
                 // Agent routes may retry or federate internally, but access logs
                 // represent the single request the client sent to the gateway.
                 let method = context.method.as_str().to_string();
@@ -344,7 +360,7 @@ async fn forward_http(
 
     let route = match snapshot
         .route_for(server.listener_port, &input)
-        // grpc-engine terminates the xDS listener and forwards to xgate's
+        // grpc-engine terminates the xDS listener and forwards to transit's
         // local HTTP port, so the application request can lose the original
         // targetPort. Only fall back when one xDS listener port matches.
         .or_else(|_| snapshot.route_for_unique_port(&input))
@@ -516,6 +532,11 @@ async fn forward_http(
     );
 
     let use_h2 = cluster.http2 || is_grpc_request(req.headers());
+    if let Some(consumed) = req.extensions().get::<GatewayCredentialHeaders>().cloned() {
+        for name in consumed.0 {
+            req.headers_mut().remove(name);
+        }
+    }
     *req.uri_mut() = upstream_uri;
     req.headers_mut().remove(http::header::HOST);
     // The downstream and upstream HTTP versions are independent: pin the upstream
@@ -624,7 +645,7 @@ fn record_http_span(
     );
     span.record("gateway.name", server.metrics_identity.gateway.as_str());
     span.record("http.route", route);
-    span.record("xgate.cluster", cluster);
+    span.record("transit.cluster", cluster);
     span.record("upstream.address", upstream);
     if status_code > 0 {
         span.record("http.status_code", status_code);
@@ -824,8 +845,8 @@ fn apply_agent_path_rewrite(route: &AgentRoute, context: &mut AgentRequestContex
         return;
     };
     let suffix = match path_match {
-        xgate_core::PathMatch::Prefix(prefix) => context.path.strip_prefix(prefix),
-        xgate_core::PathMatch::Exact(exact) if context.path == *exact => Some(""),
+        transit_core::PathMatch::Prefix(prefix) => context.path.strip_prefix(prefix),
+        transit_core::PathMatch::Exact(exact) if context.path == *exact => Some(""),
         _ => None,
     };
     let Some(suffix) = suffix else {
@@ -864,7 +885,7 @@ async fn request_agent_with_failover(
             };
             let started = Instant::now();
             let upstream_span = tracing::info_span!(
-                "xgate.agent.upstream",
+                "transit.agent.upstream",
                 protocol = protocol_name(context.protocol),
                 route = %route.name,
                 backend = %backend.name,
@@ -1186,22 +1207,55 @@ async fn request_agent_backend(
     })?;
 
     let bindings = server.state.llm_accounts().for_backend(&backend.name);
-    let account = if context.protocol == AgentProtocol::Llm && !bindings.is_empty() {
-        Some(
-            server
+    let requires_oauth = matches!(&backend.kind, transit_core::BackendKind::Llm { account_type: Some(kind), .. } if matches!(kind.as_str(), "subscription" | "oauth"));
+    let account =
+        if context.protocol == AgentProtocol::Llm && (requires_oauth || !bindings.is_empty()) {
+            Some(
+                server
+                    .state
+                    .llm_accounts()
+                    .select(backend, context.model.as_deref())
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "No enabled OAuth account supports this model".to_string(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+    if account.is_some() && context.method == Method::GET && context.path == "/v1/models" {
+        let mut models = std::collections::BTreeMap::new();
+        for bound in bindings.iter().filter(|a| !a.disabled()) {
+            let catalog = server
                 .state
                 .llm_accounts()
-                .select(backend, context.model.as_deref())
-                .ok_or_else(|| {
-                    (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        "No OAuth account supports this model".to_string(),
-                    )
-                })?,
-        )
-    } else {
-        None
-    };
+                .account_models(&bound.id)
+                .await
+                .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+            let current = server.state.llm_accounts().get(&bound.id).ok_or_else(|| {
+                (
+                    StatusCode::CONFLICT,
+                    "Account changed; reload models".into(),
+                )
+            })?;
+            if current.disabled() || current.backend != backend.name {
+                continue;
+            }
+            for model in catalog {
+                let original = model["id"].as_str().unwrap_or_default();
+                if !backend.supports_model(Some(original)) {
+                    continue;
+                }
+                for name in current.public_model_names(original) {
+                    models.insert(name.to_string(), serde_json::json!({"id":name,"object":"model","owned_by":current.provider()}));
+                }
+            }
+        }
+        return Ok(Response::builder().header(http::header::CONTENT_TYPE,"application/json")
+            .body(Body::from(serde_json::json!({"object":"list","data":models.into_values().collect::<Vec<_>>()} ).to_string())).unwrap());
+    }
     let exchange = if context.protocol == AgentProtocol::Llm {
         Some(match &account {
             Some(account) => {
@@ -1222,6 +1276,11 @@ async fn request_agent_backend(
     };
 
     let mut headers = parts.headers.clone();
+    if let Some(consumed) = parts.extensions.get::<GatewayCredentialHeaders>() {
+        for name in &consumed.0 {
+            headers.remove(name);
+        }
+    }
     apply_request_headers(&mut headers, &policy_runtime.request_headers);
     if let Some(exchange) = &exchange {
         if exchange.dialect != LlmDialect::OpenAi {
@@ -1310,6 +1369,9 @@ async fn request_agent_backend(
         )
     })?;
 
+    let account_request = account
+        .as_ref()
+        .map(|a| crate::accounts::AccountRequest::new(server.state.clone(), a.id.clone()));
     let fut = server.clients.request_web(request);
     let response = if let Some(timeout) = policy_runtime.timeout {
         time::timeout(timeout, fut).await.map_err(|_| {
@@ -1345,16 +1407,18 @@ async fn request_agent_backend(
             let streaming = is_event_stream(response.headers());
             response.headers_mut().remove(http::header::CONTENT_LENGTH);
             let (parts, body) = response.into_parts();
-            Ok(Response::from_parts(
-                parts,
-                crate::llm_timing::observe(
-                    body,
-                    streaming,
-                    backend.name.clone(),
-                    server.state.llm_timings().clone(),
-                    observation,
-                ),
-            ))
+            let body = crate::llm_timing::observe(
+                body,
+                streaming,
+                backend.name.clone(),
+                server.state.llm_timings().clone(),
+                observation,
+            );
+            let body = match account_request {
+                Some(guard) => guard.body(body, streaming),
+                None => body,
+            };
+            Ok(Response::from_parts(parts, body))
         }
         None => Ok(response),
     }
@@ -1366,10 +1430,11 @@ fn oauth_supports_model(state: &ProxyState, backend: &Backend, model: Option<&st
         return backend.supports_model(model);
     }
     accounts.iter().any(|a| {
-        model.is_none_or(|m| {
-            a.resolve_model(m)
-                .is_some_and(|(resolved, _)| backend.supports_model(Some(resolved)))
-        })
+        !a.disabled()
+            && model.is_none_or(|m| {
+                a.resolve_model(m)
+                    .is_some_and(|(resolved, _)| backend.supports_model(Some(resolved)))
+            })
     })
 }
 
@@ -1411,7 +1476,7 @@ async fn federate_mcp_list(
             };
             let started = Instant::now();
             let upstream_span = tracing::info_span!(
-                "xgate.agent.upstream",
+                "transit.agent.upstream",
                 protocol = protocol_name(context.protocol),
                 route = %route.name,
                 backend = %backend.name,
@@ -1661,7 +1726,7 @@ fn emit_access_log(server: &ProxyServer, event: &AccessLogEvent<'_>) {
         return;
     }
     let line = access_log_line(server.access_log.format, event, &server.access_log.tags);
-    info!(target: "xgate.access", "{}", line);
+    info!(target: "transit.access", "{}", line);
     if let Some(exporter) = &server.otel_access_log {
         exporter.emit(event, &server.access_log.tags);
     }
@@ -1687,9 +1752,7 @@ mod tests {
         mtls_cache_key, peer_identities, DynamicMtlsClientPool, GrpcBootstrap, MtlsClientPool,
     };
     use super::*;
-    use xgate_core::{
-        ConfigDelta, ConfigStore, SourceId, TlsSecret, UpstreamTls, UpstreamTlsMode,
-    };
+    use transit_core::{ConfigDelta, ConfigStore, SourceId, TlsSecret, UpstreamTls, UpstreamTlsMode};
     use hyper::body;
     use rcgen::{
         BasicConstraints, Certificate as RcgenCertificate, CertificateParams, DistinguishedName,
@@ -1796,8 +1859,8 @@ mod tests {
     async fn mtls_client_connects_with_bootstrap_certificate() {
         let ca = test_ca();
         let server_cert = signed_cert("nginx.app.svc.cluster.local");
-        let client_cert = signed_cert("xgate.default.svc.cluster.local");
-        let dir = temp_dir("xgate-mtls");
+        let client_cert = signed_cert("transit.default.svc.cluster.local");
+        let dir = temp_dir("transit-mtls");
         fs::create_dir_all(&dir).unwrap();
 
         let cert_chain = dir.join("cert-chain.pem");
@@ -2174,8 +2237,8 @@ mod tests {
     #[tokio::test]
     async fn dynamic_sds_mtls_rotates_the_client_certificate() {
         let ca = test_ca();
-        let first_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate-one");
-        let second_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate-two");
+        let first_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/transit-one");
+        let second_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/transit-two");
         let upstream = signed_cert("nginx.app.svc.cluster.local");
         let store = ConfigStore::new();
         let mut pool = DynamicMtlsClientPool::default();
@@ -2194,7 +2257,7 @@ mod tests {
         assert_eq!(first_response.status(), StatusCode::OK);
         assert_eq!(
             peer_identities(&first_peer.await.unwrap()).unwrap(),
-            ["spiffe://cluster.local/ns/default/sa/xgate-one"]
+            ["spiffe://cluster.local/ns/default/sa/transit-one"]
         );
 
         store.apply(SourceId::Xds, sds_delta("sds-2", &ca, &second_client));
@@ -2209,18 +2272,18 @@ mod tests {
         assert_eq!(second_response.status(), StatusCode::OK);
         assert_eq!(
             peer_identities(&second_peer.await.unwrap()).unwrap(),
-            ["spiffe://cluster.local/ns/default/sa/xgate-two"]
+            ["spiffe://cluster.local/ns/default/sa/transit-two"]
         );
     }
 
     #[tokio::test]
     async fn mtls_accepts_upstream_matching_configured_spiffe_identity() {
         let ca = test_ca();
-        let dir = temp_dir("xgate-mtls-san-ok");
+        let dir = temp_dir("transit-mtls-san-ok");
         let bootstrap = write_bootstrap(
             &dir,
             &ca,
-            &spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate"),
+            &spiffe_cert("spiffe://cluster.local/ns/default/sa/transit"),
         );
         let addr =
             spawn_tls_server(&ca, &spiffe_cert("spiffe://cluster.local/ns/app/sa/orders")).await;
@@ -2245,11 +2308,11 @@ mod tests {
     #[tokio::test]
     async fn mtls_rejects_upstream_whose_spiffe_identity_is_not_allowed() {
         let ca = test_ca();
-        let dir = temp_dir("xgate-mtls-san-bad");
+        let dir = temp_dir("transit-mtls-san-bad");
         let bootstrap = write_bootstrap(
             &dir,
             &ca,
-            &spiffe_cert("spiffe://cluster.local/ns/default/sa/xgate"),
+            &spiffe_cert("spiffe://cluster.local/ns/default/sa/transit"),
         );
         // The upstream holds a valid cert from the same CA, just not the identity the
         // route pinned. Chain verification alone would have accepted it.

@@ -3,11 +3,11 @@ use axum::http::{Request, Response, StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use xgate_core::{
+use transit_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, PathMatch, RuntimeConfig,
     WeightedBackend,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
+use transit_proxy::{ProxyServer, ProxyState};
 use hyper::{body, Client};
 use serde_json::{json, Value};
 use std::net::{SocketAddr, TcpListener};
@@ -299,6 +299,7 @@ fn config(backends: Vec<(&str, SocketAddr, Option<&str>)>) -> RuntimeConfig {
             .collect(),
         routes: vec![
             AgentRoute {
+                listener_ports: Vec::new(),
                 name: "a2a".into(),
                 protocol: AgentProtocol::A2a,
                 matches: vec![AgentRouteMatch {
@@ -315,6 +316,7 @@ fn config(backends: Vec<(&str, SocketAddr, Option<&str>)>) -> RuntimeConfig {
                 replace_prefix_match: None,
             },
             AgentRoute {
+                listener_ports: Vec::new(),
                 name: "a2a-card".into(),
                 protocol: AgentProtocol::A2a,
                 matches: vec![AgentRouteMatch {

@@ -42,6 +42,44 @@
 .llm-workspace .llm-accounts-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
 .llm-workspace .llm-account-actions { gap: 5px; flex-wrap: wrap; }
 .llm-workspace .llm-account-footer { gap: 12px; flex-wrap: wrap; }
+.llm-accounts-grid:has(.llm-subscription-card) { grid-template-columns: repeat(auto-fill,minmax(min(100%,320px),360px)); gap: 12px; }
+.llm-subscription-card { padding: 14px; gap: 12px; max-width: 360px; align-self: start; }
+.llm-identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.llm-provider-mark { width: 26px; height: 26px; flex-shrink: 0; display: grid; place-items: center; color: var(--ink); }
+.llm-provider-mark svg { display: block; width: 23px; height: 23px; }
+.llm-identity h3 { font: 650 13px/1.5 ui-monospace, monospace; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.llm-quota-panel { border: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.llm-plan-pills { display: flex; column-gap: 12px; row-gap: 5px; flex-wrap: wrap; color: var(--muted); font-size: 11px; }
+.llm-plan-pills b, .llm-plan-pills time { color: var(--ink); font-weight: 600; }
+.llm-plan-pills time > span { color: var(--muted); font-weight: 400; }
+.llm-quota-windows { display: flex; flex-direction: column; gap: 11px; }
+.llm-credit-expirations { color: var(--muted); font-size: 11px; display: flex; flex-direction: column; gap: 6px; }
+.llm-credit-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; }
+.llm-credit-row > div { display: flex; flex: 1; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 3px 8px; min-width: 0; }
+.llm-credit-row time { font-variant-numeric: tabular-nums; }
+.llm-credit-row button { font-size: 10px; padding: 5px 7px; white-space: nowrap; border-radius: 5px; min-height: 28px; }
+.llm-subscription-card .quota-window-label-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 4px 8px; flex-wrap: wrap; font-size: 11px; }
+.llm-subscription-card .quota-window-label-row > span { margin-left: auto; text-align: right; font-variant-numeric: tabular-nums; }
+.llm-subscription-card .quota-window-label-row strong { color: var(--muted); font-weight: 600; }
+.llm-subscription-card .quota-window-label-row time { color: var(--muted); font-size: 10px; }
+.llm-time-soon { color: var(--danger); font-weight: 650; }
+.llm-quota-track { height: 5px; background: var(--soft); border-radius: 4px; overflow: hidden; margin-top: 5px; }
+.llm-quota-track > span { display: block; height: 100%; background: #10b981; border-radius: 4px; }
+.llm-quota-track > span.low { background: #d45648; }
+.llm-quota-error { color: var(--danger); font-size: 11px; margin: 0; overflow-wrap: anywhere; }
+.llm-subscription-card .llm-account-footer { padding: 9px 0 0; border-top: 1px solid var(--line); background: none; gap: 8px; }
+.llm-subscription-card .llm-account-actions { gap: 5px; }
+.llm-subscription-card .llm-icon-button { width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 5px; border-radius: 7px; }
+.llm-subscription-card .llm-icon-button svg { display: block; flex: none; width: 16px; height: 16px; }
+.llm-subscription-card [data-select] { width: 14px; height: 14px; margin: 0; accent-color: var(--focus); }
+.llm-delete { color: var(--danger) !important; border-color: var(--danger-line) !important; }
+.llm-account-toggle { display: flex; gap: 5px; align-items: center; color: var(--muted); font-size: 10px; margin-left: auto; }
+.llm-account-toggle input { appearance: none; width: 30px; height: 18px; background: var(--muted); border-radius: 18px; margin: 0; position: relative; cursor: pointer; }
+.llm-account-toggle input::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.llm-account-toggle input:checked { background: #10b981; }
+.llm-account-toggle input:checked::after { transform: translateX(12px); }
+.llm-account-toggle input:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.llm-bulk-actions { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; font-size: 12px; flex-wrap: wrap; }
 .llm-icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; min-height: 34px; padding: 6px; }
 .llm-workspace progress { width: 100%; height: 6px; accent-color: var(--focus); }
 .llm-workspace button:disabled, .llm-dialog button:disabled { opacity: .45; cursor: wait; }
@@ -58,9 +96,31 @@
 .llm-dialog textarea { font-family: ui-monospace, monospace; font-size: 12px; resize: vertical; }
 .llm-dialog input[type="checkbox"] { width: auto; }
 .llm-form-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.llm-model-rules { display: grid; gap: 12px; }
-.llm-model-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr auto auto; gap: 9px; padding-bottom: 14px; border-bottom: 1px solid var(--line); align-items: end; }
-.llm-model-row .llm-check { display: flex; align-items: center; padding-bottom: 10px; }
+.llm-model-dialog { width: min(940px,calc(100vw - 32px)); }
+.llm-model-scope { display: flex; align-items: center; gap: 10px; margin: 0; font-size: 12px; }
+.llm-model-scope span { color: var(--muted); overflow-wrap: anywhere; }
+.llm-model-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.llm-model-section { border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.llm-model-section > header { padding: 0; border: 0; gap: 10px; }
+.llm-model-section h3 { margin: 0; font-size: 14px; }
+.llm-model-section p { margin: 0; font-size: 11px; line-height: 1.6; }
+.llm-model-section [data-excluded-count] { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.llm-model-section [data-add-alias] { font-size: 11px; white-space: nowrap; padding: 6px 9px; }
+.llm-model-options { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; gap: 2px; }
+.llm-model-option { display: flex !important; align-items: center; gap: 8px; padding: 6px 4px; border-radius: 4px; }
+.llm-model-option:hover { background: var(--soft); }
+.llm-model-option input, .llm-alias-options input { width: 14px !important; height: 14px; margin: 0; accent-color: var(--focus); flex-shrink: 0; }
+.llm-model-option span { overflow-wrap: anywhere; font: 11px/1.5 ui-monospace,monospace; }
+.llm-model-rules { display: grid; gap: 10px; }
+.llm-alias-row { display: grid; grid-template-columns: minmax(0,1fr) 14px minmax(0,1fr); gap: 10px; border: 1px solid var(--line); border-radius: 7px; padding: 12px; align-items: end; }
+.llm-alias-arrow { align-self: end; padding-bottom: 10px; color: var(--muted); }
+.llm-alias-options { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
+.llm-alias-options .llm-check { display: flex; align-items: center; gap: 7px; }
+.llm-alias-options button { display: grid; place-items: center; padding: 5px; }
+.llm-alias-row details { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+.llm-alias-row details select { margin-top: 8px; }
+@media(max-width:720px) { .llm-model-sections { grid-template-columns: 1fr; } }
+
 .llm-form-error { color: var(--danger); font-size: 12px; padding: 0 22px; overflow-wrap: anywhere; }
 .llm-primary { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 @media (max-width: 700px) {

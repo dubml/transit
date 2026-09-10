@@ -1,10 +1,10 @@
 //! Node bootstrap.
 //!
-//! The bootstrap file carries the identity and endpoints xgate needs before it
+//! The bootstrap file carries the identity and endpoints transit needs before it
 //! can talk to a control plane at all. It is not a configuration source: it
 //! never publishes resources into the store.
 
-use xgate_core::{Result, XgateError};
+use transit_core::{Result, TransitError};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -39,9 +39,9 @@ impl BootstrapConfig {
         let path = path.into();
         let raw = fs::read_to_string(&path).await?;
         if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            serde_json::from_str(&raw).map_err(|e| XgateError::InvalidConfig(e.to_string()))
+            serde_json::from_str(&raw).map_err(|e| TransitError::InvalidConfig(e.to_string()))
         } else {
-            serde_yaml::from_str(&raw).map_err(|e| XgateError::InvalidConfig(e.to_string()))
+            serde_yaml::from_str(&raw).map_err(|e| TransitError::InvalidConfig(e.to_string()))
         }
     }
 }
@@ -57,7 +57,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("xgate-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("transit-{name}-{}-{nanos}", std::process::id()))
     }
 
     #[tokio::test]

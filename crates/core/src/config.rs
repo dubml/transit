@@ -1,4 +1,4 @@
-use crate::{ConfigConflict, MatchInput, Result, XgateError};
+use crate::{ConfigConflict, MatchInput, Result, TransitError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
@@ -234,7 +234,7 @@ impl RuntimeConfig {
     pub fn route_for<'a>(&'a self, port: u16, input: &MatchInput<'_>) -> Result<&'a Route> {
         let listener = self
             .listener_by_port(port)
-            .ok_or_else(|| XgateError::RouteNotFound {
+            .ok_or_else(|| TransitError::RouteNotFound {
                 host: input.host.to_string(),
                 path: input.path.to_string(),
             })?;
@@ -245,7 +245,7 @@ impl RuntimeConfig {
             .filter(|vh| vh.matches_host(input.host))
             .flat_map(|vh| vh.routes.iter())
             .find(|route| route.matches(input))
-            .ok_or_else(|| XgateError::RouteNotFound {
+            .ok_or_else(|| TransitError::RouteNotFound {
                 host: input.host.to_string(),
                 path: input.path.to_string(),
             })
@@ -759,6 +759,8 @@ impl Backend {
 pub struct AgentRoute {
     pub name: String,
     pub protocol: AgentProtocol,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub listener_ports: Vec<u16>,
     #[serde(default)]
     pub matches: Vec<AgentRouteMatch>,
     #[serde(default)]
@@ -1283,6 +1285,7 @@ mod tests {
                 policies: vec!["auth".into()],
             }],
             routes: vec![AgentRoute {
+                listener_ports: Vec::new(),
                 name: "chat".into(),
                 protocol: AgentProtocol::Llm,
                 matches: vec![AgentRouteMatch {
@@ -1490,4 +1493,3 @@ mod tests {
         assert_eq!(parsed.reason_code, "authz.allow");
     }
 }
-

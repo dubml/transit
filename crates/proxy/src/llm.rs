@@ -1,6 +1,6 @@
 //! OpenAI-compatible dialect translation for LLM providers.
 //!
-//! Callers speak the OpenAI chat-completions API to xgate; this module
+//! Callers speak the OpenAI chat-completions API to transit; this module
 //! rewrites requests/responses (including SSE streams) for providers with a
 //! native wire format, and extracts token usage for metrics and token limits.
 
@@ -20,8 +20,8 @@ pub enum LlmDialect {
     Gemini,
 }
 
-pub fn dialect_for(kind: xgate_core::ProviderKind) -> LlmDialect {
-    use xgate_core::ProviderKind;
+pub fn dialect_for(kind: transit_core::ProviderKind) -> LlmDialect {
+    use transit_core::ProviderKind;
     match kind {
         ProviderKind::OpenAiCompatible | ProviderKind::OpenAi | ProviderKind::DeepSeek => {
             LlmDialect::OpenAi

@@ -1,12 +1,12 @@
 use axum::http::{Request, StatusCode};
 use axum::routing::any;
 use axum::Router;
-use xgate_core::{
+use transit_core::{
     AuthorizationAction, AuthorizationCondition, AuthorizationPolicy, AuthorizationRule,
     AuthorizationSource, Cluster, Endpoint, JwtHeader, JwtProvider, Listener, ListenerProtocol,
     ListenerSecurity, PathMatch, Route, RouteMatch, RuntimeConfig, VirtualHost, WeightedCluster,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
+use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body::{self, Body};
 use hyper::Client;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
@@ -66,7 +66,7 @@ fn token(subject: &str, group: &str) -> String {
         &json!({
             "iss":"https://issuer.example",
             "sub":subject,
-            "aud":"xgate",
+            "aud":"transit",
             "exp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600,
             "groups":[group]
         }),
@@ -117,7 +117,7 @@ fn config(backend: SocketAddr) -> RuntimeConfig {
             security: ListenerSecurity {
                 jwt_providers: vec![JwtProvider {
                     issuer: "https://issuer.example".into(),
-                    audiences: vec!["xgate".into()],
+                    audiences: vec!["transit".into()],
                     jwks_uri: String::new(),
                     jwks: r#"{"keys":[{"kty":"oct","alg":"HS256","kid":"test","k":"MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE"}]}"#.into(),
                     from_headers: vec![JwtHeader {

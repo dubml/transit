@@ -54,7 +54,7 @@ Source of requirements: user-provided `image-1.png`, September 8, 2026.
    using an actual gateway process, browser and deterministic HTTP upstream.
 10. Verified the current implementation on September 8, 2026:
     - `cargo test --workspace`: 212 passed, 2 ignored, 21 suites.
-    - `cargo build --bin dxgate`: passed.
+    - `cargo build --bin transit`: passed.
     - `node tests/llm-workspace.cjs`: passed upload/edit/download/model rules,
       real forwarding, restart persistence, API usage/cost and local timings.
     - `node tests/ui-smoke.cjs`: passed all eight pages, provider filtering,
@@ -67,7 +67,7 @@ Source of requirements: user-provided `image-1.png`, September 8, 2026.
 11. Cleaned build/test artifacts after verification: `cargo clean` removed
     33,039 files (11.9 GiB); confirmed `target`, `debug`, temporary screenshots
     and the accidental condense training log are absent. Stopped the remaining
-    dxgate process after verifying its working directory was this repository.
+    transit process after verifying its working directory was this repository.
     Source files, `Cargo.lock`, generated source, UI assets and user `AGENTS.md`
     remain. Rebuilding is necessary before running the browser integration again.
 
@@ -90,7 +90,7 @@ Configure an LLM backend with `account_type: "subscription"` (or `"oauth"`),
 the matching provider kind (`open-ai`/`open-ai-compatible` for Codex or
 `anthropic` for Claude), and a route to that backend. Use the provider kind
 spelling already used by your runtime configuration; see `tests/ui-fake.json`.
-Set `XGATE_LLM_ADMIN_TOKEN` (or `DXGATE_LLM_ADMIN_TOKEN`) to your management token, then start the gateway
+Set `TRANSIT_LLM_ADMIN_TOKEN` to your management token, then start the gateway
 with `--llm-accounts-dir=/absolute/private/accounts` and your normal static
 configuration or control-plane flags. Bind the management UI appropriately for
 your environment. The UI prompts for this token before managing credentials.
@@ -176,11 +176,11 @@ widths and in both light and dark themes.
 For the local static-config preview, enable management before starting:
 
 ```sh
-export XGATE_LLM_ACCOUNTS_DIR="$HOME/.config/xgate/accounts"
-export XGATE_LLM_ADMIN_TOKEN="$(openssl rand -hex 32)"
+export TRANSIT_LLM_ACCOUNTS_DIR="$HOME/.config/transit/accounts"
+export TRANSIT_LLM_ADMIN_TOKEN="$(openssl rand -hex 32)"
 # Copy this value into the gateway management-token field; keep it private.
-printf '%s\n' "$XGATE_LLM_ADMIN_TOKEN"
-cargo run --bin xgate -- --http-addr 127.0.0.1:8080 --ui-addr 127.0.0.1:15021 --static-config tests/ui-fake.json --xds-enabled false
+printf '%s\n' "$TRANSIT_LLM_ADMIN_TOKEN"
+cargo run --bin transit -- --http-addr 127.0.0.1:8080 --ui-addr 127.0.0.1:15021 --static-config tests/ui-fake.json --xds-enabled false
 ```
 
 This token protects the gateway's credential-management API. It is separate from

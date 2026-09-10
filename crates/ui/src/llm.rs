@@ -6,8 +6,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use xgate_core::{BackendKind, ProviderKind};
-use xgate_proxy::OAuthAccount;
+use transit_core::{BackendKind, ProviderKind};
+use transit_proxy::OAuthAccount;
 
 type ApiResult = Result<Response, (StatusCode, Json<Value>)>;
 
@@ -25,10 +25,20 @@ pub(super) fn routes() -> Router<UiServer> {
         .route("/admin/llm/oauth/:id/callback", post(finish_login))
         .route(
             "/admin/llm/accounts/:id",
-            get(read_account).put(save_account),
+            get(read_account).put(save_account).delete(delete_account),
         )
         .route("/admin/llm/accounts/:id/download", get(download_account))
         .route("/admin/llm/accounts/:id/refresh", post(refresh_account))
+        .route(
+            "/admin/llm/accounts/:id/status",
+            axum::routing::patch(account_status),
+        )
+        .route("/admin/llm/accounts/:id/quota", post(account_quota))
+        .route("/admin/llm/accounts/:id/models", get(account_models))
+        .route(
+            "/admin/llm/accounts/:id/reset-quota",
+            post(reset_account_quota),
+        )
         .layer(DefaultBodyLimit::max(1024 * 1024))
 }
 
@@ -51,10 +61,21 @@ fn error(status: StatusCode, message: impl Into<String>) -> (StatusCode, Json<Va
 }
 
 fn authorize(ui: &UiServer, headers: &HeaderMap) -> Result<(), (StatusCode, Json<Value>)> {
+    if ui.state.access_settings().configured() {
+        return if ui
+            .state
+            .access_settings()
+            .authorized(super::access::token(headers))
+        {
+            Ok(())
+        } else {
+            Err(error(StatusCode::UNAUTHORIZED, "Management key required"))
+        };
+    }
     if !ui.state.llm_accounts().enabled() {
         return Err(error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Configure XGATE_LLM_ACCOUNTS_DIR and XGATE_LLM_ADMIN_TOKEN to manage OAuth accounts",
+            "Configure TRANSIT_LLM_ACCOUNTS_DIR and TRANSIT_LLM_ADMIN_TOKEN to manage OAuth accounts",
         ));
     }
     let token = headers
@@ -80,6 +101,9 @@ async fn local_session(
     peer: Option<ConnectInfo<std::net::SocketAddr>>,
     headers: HeaderMap,
 ) -> ApiResult {
+    if ui.state.access_settings().configured() {
+        return Ok(super::access::local_session(State(ui), peer, headers).await);
+    }
     let addr = ui.bind_addr.filter(|addr| addr.ip().is_loopback());
     let host = headers
         .get(header::HOST)
@@ -152,7 +176,7 @@ async fn save_account(
 }
 
 fn validate_binding(
-    state: &xgate_proxy::ProxyState,
+    state: &transit_proxy::ProxyState,
     name: &str,
     oauth_provider: &str,
 ) -> Result<(), (StatusCode, Json<Value>)> {
@@ -294,13 +318,13 @@ impl Drop for CallbackListeners {
 
 #[derive(Clone)]
 struct CallbackContext {
-    state: xgate_proxy::ProxyState,
+    state: transit_proxy::ProxyState,
     provider: String,
     redirect: String,
 }
 
 impl CallbackListeners {
-    fn ensure(&self, provider: &str, state: xgate_proxy::ProxyState) -> bool {
+    fn ensure(&self, provider: &str, state: transit_proxy::ProxyState) -> bool {
         let mut listeners = self.0.lock().unwrap();
         if listeners
             .get(provider)
@@ -368,10 +392,10 @@ async fn browser_callback(
     let (status, message) = if result.is_ok() {
         (
             StatusCode::OK,
-            "Sign-in complete. Return to the xgate window. 登录成功，请返回 xgate 页面。",
+            "Sign-in complete. Return to the transit window. 登录成功，请返回 transit 页面。",
         )
     } else {
-        (StatusCode::BAD_REQUEST, "Sign-in could not complete. Return to xgate to check the status or paste the callback URL. 登录未完成，请返回 xgate 检查状态或提交回调 URL。")
+        (StatusCode::BAD_REQUEST, "Sign-in could not complete. Return to transit to check the status or paste the callback URL. 登录未完成，请返回 transit 检查状态或提交回调 URL。")
     };
     (
         status,
@@ -380,7 +404,7 @@ async fn browser_callback(
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::REFERRER_POLICY, "no-referrer"),
         ],
-        format!("<!doctype html><meta charset=utf-8><title>xgate OAuth</title><p>{message}</p>"),
+        format!("<!doctype html><meta charset=utf-8><title>transit OAuth</title><p>{message}</p>"),
     )
         .into_response()
 }
@@ -424,6 +448,117 @@ async fn refresh_account(
     Ok(private_json(summary))
 }
 
+#[derive(Deserialize)]
+struct AccountRevision {
+    revision: u64,
+}
+#[derive(Deserialize)]
+struct AccountStatus {
+    revision: u64,
+    disabled: bool,
+}
+#[derive(Deserialize)]
+struct QuotaReset {
+    redeem_request_id: String,
+    credit_id: String,
+}
+
+fn management_error(message: String) -> (StatusCode, Json<Value>) {
+    let code = if message == "Account not found" {
+        StatusCode::NOT_FOUND
+    } else if message.starts_with("Account changed") || message.starts_with("Reset conflict:") {
+        StatusCode::CONFLICT
+    } else if message.starts_with("Provider") || message.starts_with("Invalid provider") {
+        StatusCode::BAD_GATEWAY
+    } else {
+        StatusCode::BAD_REQUEST
+    };
+    error(code, message)
+}
+
+async fn delete_account(
+    State(ui): State<UiServer>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<AccountRevision>,
+) -> ApiResult {
+    authorize(&ui, &headers)?;
+    ui.state
+        .llm_accounts()
+        .delete(&id, request.revision)
+        .await
+        .map_err(management_error)?;
+    Ok(private_json(json!({"deleted": id})))
+}
+
+async fn account_status(
+    State(ui): State<UiServer>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<AccountStatus>,
+) -> ApiResult {
+    authorize(&ui, &headers)?;
+    let result = ui
+        .state
+        .llm_accounts()
+        .set_disabled(&id, request.revision, request.disabled)
+        .await
+        .map_err(management_error)?;
+    Ok(private_json(result))
+}
+
+async fn account_quota(
+    State(ui): State<UiServer>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> ApiResult {
+    authorize(&ui, &headers)?;
+    let result = ui
+        .state
+        .llm_accounts()
+        .account_quota(&id)
+        .await
+        .map_err(management_error)?;
+    Ok(private_json(result))
+}
+
+async fn reset_account_quota(
+    State(ui): State<UiServer>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(request): Json<QuotaReset>,
+) -> ApiResult {
+    authorize(&ui, &headers)?;
+    let result = ui
+        .state
+        .llm_accounts()
+        .reset_account_quota(&id, &request.redeem_request_id, &request.credit_id)
+        .await
+        .map_err(management_error)?;
+    Ok(private_json(result))
+}
+
+async fn account_models(
+    State(ui): State<UiServer>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> ApiResult {
+    authorize(&ui, &headers)?;
+    let models = ui
+        .state
+        .llm_accounts()
+        .account_models(&id)
+        .await
+        .map_err(management_error)?;
+    let revision = ui
+        .state
+        .llm_accounts()
+        .get(&id)
+        .ok_or_else(|| management_error("Account not found".into()))?
+        .revision;
+    Ok(private_json(json!({"models":models,"revision":revision})))
+}
+
 async fn dashboard(State(ui): State<UiServer>) -> Response {
     let config = ui.state.snapshot().to_redacted_runtime_config();
     let metrics = ui.state.metrics();
@@ -444,7 +579,7 @@ async fn dashboard(State(ui): State<UiServer>) -> Response {
             _ => "chatgpt",
         };
         let usage: Vec<_> = metrics.llm_usage.iter().filter(|u| u.backend == backend.name).collect();
-        let sum = |f: fn(&xgate_proxy::LlmUsageMetric) -> u64| usage.iter().map(|u| f(u)).sum::<u64>();
+        let sum = |f: fn(&transit_proxy::LlmUsageMetric) -> u64| usage.iter().map(|u| f(u)).sum::<u64>();
         let observed_requests = sum(|u| u.requests);
         let priced_requests = sum(|u| u.priced_requests);
         let input = sum(|u| u.prompt_tokens);
@@ -465,7 +600,7 @@ async fn dashboard(State(ui): State<UiServer>) -> Response {
         }))
     }).collect();
     private_json(
-        json!({"accounts":accounts,"backends":backends,"management_enabled":ui.state.llm_accounts().enabled(),"management_mode":if ui.state.llm_accounts().local_session_token().is_some() {"local"} else {"token"},"pricing_source":"published rate card; estimate, not provider invoice"}),
+        json!({"accounts":accounts,"backends":backends,"management_enabled":ui.state.llm_accounts().enabled(),"management_mode":if if ui.state.access_settings().configured() {ui.state.access_settings().local_token().is_some()} else {ui.state.llm_accounts().local_session_token().is_some()} {"local"} else {"token"},"pricing_source":"published rate card; estimate, not provider invoice"}),
     )
 }
 
@@ -483,8 +618,8 @@ mod tests {
             .unwrap()
             .as_nanos();
         let directory =
-            Directory(std::env::temp_dir().join(format!("xgate-local-session-{nonce}")));
-        let state = xgate_proxy::ProxyState::new();
+            Directory(std::env::temp_dir().join(format!("transit-local-session-{nonce}")));
+        let state = transit_proxy::ProxyState::new();
         state
             .apply_config(
                 serde_json::from_str(include_str!("../../../tests/ui-fake.json")).unwrap(),
@@ -649,14 +784,125 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn account_controls_require_authentication_and_reject_stale_revisions() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory =
+            Directory(std::env::temp_dir().join(format!("transit-account-controls-{nonce}")));
+        let state = transit_proxy::ProxyState::new();
+        state
+            .llm_accounts()
+            .configure(&directory.0, "test-management-token-long-enough".into())
+            .unwrap();
+        state
+            .llm_accounts()
+            .save(OAuthAccount {
+                id: "controls".into(),
+                backend: String::new(),
+                document: json!({"type":"codex","access_token":"do-not-expose"}),
+                models: vec![],
+                revision: 0,
+            })
+            .await
+            .unwrap();
+        let app = routes().with_state(UiServer::new(
+            state.clone(),
+            "127.0.0.1:8080".parse().unwrap(),
+            true,
+        ));
+        for (method, path, body) in [
+            (
+                "PATCH",
+                "/admin/llm/accounts/controls/status",
+                json!({"revision":1,"disabled":true}),
+            ),
+            (
+                "DELETE",
+                "/admin/llm/accounts/controls",
+                json!({"revision":1}),
+            ),
+            ("POST", "/admin/llm/accounts/controls/quota", json!({})),
+            ("GET", "/admin/llm/accounts/controls/models", json!({})),
+            (
+                "POST",
+                "/admin/llm/accounts/controls/reset-quota",
+                json!({"redeem_request_id":"00000000-0000-4000-8000-000000000000","credit_id":"credit-1"}),
+            ),
+        ] {
+            assert_eq!(
+                call(&app, method, path, false, body).await.status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            call(
+                &app,
+                "PATCH",
+                "/admin/llm/accounts/controls/status",
+                true,
+                json!({"revision":0,"disabled":true})
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            call(
+                &app,
+                "PATCH",
+                "/admin/llm/accounts/controls/status",
+                true,
+                json!({"revision":1,"disabled":true})
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert!(state.llm_accounts().get("controls").unwrap().disabled());
+        assert_eq!(
+            call(
+                &app,
+                "DELETE",
+                "/admin/llm/accounts/controls",
+                true,
+                json!({"revision":1})
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            call(
+                &app,
+                "DELETE",
+                "/admin/llm/accounts/controls",
+                true,
+                json!({"revision":2})
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            call(&app, "GET", "/admin/llm/accounts/controls", true, json!({}))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert!(!directory.0.join("controls.json").exists());
+    }
+
+    #[tokio::test]
     async fn empty_config_accepts_oauth_logins_and_unbound_accounts_for_both_providers() {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         let directory =
-            Directory(std::env::temp_dir().join(format!("xgate-unbound-oauth-{nonce}")));
-        let state = xgate_proxy::ProxyState::new();
+            Directory(std::env::temp_dir().join(format!("transit-unbound-oauth-{nonce}")));
+        let state = transit_proxy::ProxyState::new();
         state
             .llm_accounts()
             .configure(&directory.0, "test-management-token-long-enough".into())
@@ -708,7 +954,7 @@ mod tests {
         assert!(!String::from_utf8(raw.to_vec())
             .unwrap()
             .contains("private-access"));
-        let restarted = xgate_proxy::LlmAccounts::default();
+        let restarted = transit_proxy::LlmAccounts::default();
         restarted
             .configure(&directory.0, "test-management-token-long-enough".into())
             .unwrap();
@@ -736,9 +982,9 @@ mod tests {
             .unwrap()
             .as_nanos();
         let directory = Directory(
-            std::env::temp_dir().join(format!("xgate-admin-api-{}-{nonce}", std::process::id())),
+            std::env::temp_dir().join(format!("transit-admin-api-{}-{nonce}", std::process::id())),
         );
-        let state = xgate_proxy::ProxyState::new();
+        let state = transit_proxy::ProxyState::new();
         let config = serde_json::from_str(include_str!("../../../tests/ui-fake.json")).unwrap();
         state.apply_config(config).unwrap();
         state

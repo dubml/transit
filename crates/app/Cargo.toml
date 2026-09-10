@@ -1,25 +1,21 @@
 [package]
-name = "xgate-app"
+name = "transit-app"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-default-run = "xgate"
+default-run = "transit"
 
 [[bin]]
-name = "xgate"
-path = "src/main.rs"
-
-[[bin]]
-name = "dxgate"
+name = "transit"
 path = "src/main.rs"
 
 [dependencies]
-xgate-ui = { path = "../ui" }
-xgate-core = { path = "../core" }
-xgate-proxy = { path = "../proxy" }
-xgate-xds = { path = "../xds" }
+transit-ui = { path = "../ui" }
+transit-core = { path = "../core" }
+transit-proxy = { path = "../proxy" }
+transit-xds = { path = "../xds" }
 clap.workspace = true
 opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true

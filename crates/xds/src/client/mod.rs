@@ -1,6 +1,6 @@
 //! The ADS client.
 //!
-//! xgate prefers the incremental protocol (`DeltaAggregatedResources`): the
+//! transit prefers the incremental protocol (`DeltaAggregatedResources`): the
 //! control plane sends only the resources that changed plus the names it
 //! retired, and a reconnecting client replays `initial_resource_versions` so the
 //! server can skip everything it already has. Not every control plane implements
@@ -9,7 +9,7 @@
 //! lifetime.
 //!
 //! Both flavours feed the same [`AdsState`], which projects the raw xDS
-//! resources onto xgate's configuration model and writes the result into the
+//! resources onto transit's configuration model and writes the result into the
 //! shared [`ConfigStore`] as the [`SourceId::Xds`] slice. The client never
 //! touches resources owned by another source.
 
@@ -21,7 +21,7 @@ use crate::proto::service::discovery::v1::aggregated_discovery_service_client::A
 use crate::proto::service::discovery::v1::{
     DeltaDiscoveryRequest, DeltaDiscoveryResponse, DiscoveryRequest,
 };
-use xgate_core::{ConfigStore, RouterIdentity, SourceId};
+use transit_core::{ConfigStore, RouterIdentity, SourceId};
 use prost_types::{value::Kind, Struct, Value};
 use state::{AdsState, LISTENER_TYPE, SECRET_TYPE};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -100,11 +100,42 @@ enum StreamMode {
 
 pub struct XdsClient {
     cfg: XdsClientConfig,
+    gateway: Option<String>,
+    service_account: Option<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 impl XdsClient {
     pub fn new(cfg: XdsClientConfig) -> Self {
-        Self { cfg }
+        Self { cfg, gateway: None, service_account: None }
+    }
+
+    pub fn with_gateway_identity(mut self, gateway: String) -> Self {
+        self.gateway = Some(gateway);
+        self
+    }
+
+    pub fn with_service_account_credentials(
+        mut self, root_ca: std::path::PathBuf, token: std::path::PathBuf,
+    ) -> Self {
+        self.service_account = Some((root_ca, token));
+        self
+    }
+
+    async fn stream_request<T>(&self, body: T) -> Result<tonic::Request<T>, XdsError> {
+        let mut request = tonic::Request::new(body);
+        if let Some((_, token_file)) = &self.service_account {
+            // Projected ServiceAccount tokens rotate; read again for every stream.
+            let token = tokio::fs::read_to_string(token_file).await
+                .map_err(|_| XdsError::Credentials("cannot read xDS ServiceAccount token".into()))?;
+            let token = token.trim();
+            if token.is_empty() || token.len() > 32768 {
+                return Err(XdsError::Credentials("invalid xDS ServiceAccount token length".into()));
+            }
+            let value = format!("Bearer {token}").parse()
+                .map_err(|_| XdsError::Credentials("invalid xDS ServiceAccount token".into()))?;
+            request.metadata_mut().insert("authorization", value);
+        }
+        Ok(request)
     }
 
     pub async fn connect_channel(&self) -> Result<Channel, XdsError> {
@@ -116,11 +147,14 @@ impl XdsClient {
         })?;
 
         // Reload mounted material on every reconnect, including after rotation.
-        let endpoint = transport::configure(
-            endpoint,
-            std::env::var_os("GRPC_XDS_BOOTSTRAP").map(std::path::PathBuf::from),
-        )
-        .await?;
+        let endpoint = if let Some((root_ca, _)) = &self.service_account {
+            transport::configure_service_account(endpoint, root_ca).await?
+        } else {
+            transport::configure(
+                endpoint,
+                std::env::var_os("GRPC_XDS_BOOTSTRAP").map(std::path::PathBuf::from),
+            ).await?
+        };
 
         endpoint
             .connect()
@@ -201,7 +235,7 @@ impl XdsClient {
         }
 
         let response = ads
-            .delta_aggregated_resources(ReceiverStream::new(request_rx))
+            .delta_aggregated_resources(self.stream_request(ReceiverStream::new(request_rx)).await?)
             .await
             .map_err(delta_stream_error)?;
         let mut stream = response.into_inner();
@@ -210,7 +244,7 @@ impl XdsClient {
             node_id = %self.cfg.identity.node_id(),
             endpoint = %self.cfg.endpoint,
             listeners = ?self.cfg.listener_names,
-            "connected xgate router to dubbod delta ADS endpoint"
+            "connected transit router to dubbod delta ADS endpoint"
         );
 
         while let Some(resp) = stream.message().await.map_err(delta_stream_error)? {
@@ -301,7 +335,7 @@ impl XdsClient {
         }
 
         let response = ads
-            .stream_aggregated_resources(ReceiverStream::new(request_rx))
+            .stream_aggregated_resources(self.stream_request(ReceiverStream::new(request_rx)).await?)
             .await
             .map_err(|status| XdsError::StreamOpen(Box::new(status)))?;
         let mut stream = response.into_inner();
@@ -310,7 +344,7 @@ impl XdsClient {
             node_id = %self.cfg.identity.node_id(),
             endpoint = %self.cfg.endpoint,
             listeners = ?self.cfg.listener_names,
-            "connected xgate router to dubbod ADS endpoint"
+            "connected transit router to dubbod ADS endpoint"
         );
 
         while let Some(resp) = stream
@@ -362,6 +396,9 @@ impl XdsClient {
         fields.insert("GENERATOR".to_string(), string_value(metadata.generator));
         fields.insert("CLUSTER_ID".to_string(), string_value(metadata.cluster_id));
         fields.insert("NAMESPACE".to_string(), string_value(metadata.namespace));
+        if let Some(gateway) = &self.gateway {
+            fields.insert("TRANSIT_GATEWAY".to_string(), string_value(gateway.clone()));
+        }
         if let Some(node_name) = metadata.node_name {
             fields.insert("KUBE_NODE_NAME".to_string(), string_value(node_name));
         }

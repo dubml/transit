@@ -3,7 +3,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use xgate_proxy::{
+use transit_proxy::{
     A2aMethodMetric, HttpRouteConcurrencyMetric, HttpRouteMetric, LlmUsageMetric, McpToolMetric,
     ProxyMetrics, ProxyState, Readiness, RouteMetric,
 };
@@ -13,7 +13,9 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+mod access;
 mod llm;
+mod panel;
 
 const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
@@ -26,26 +28,42 @@ pub struct BuildInfo {
 #[derive(Clone)]
 pub struct UiServer {
     state: ProxyState,
+    runtime: transit_core::RuntimeModeInfo,
     build: BuildInfo,
     proxy_port: u16,
     metrics_enabled: bool,
     bind_addr: Option<SocketAddr>,
     oauth_callbacks: std::sync::Arc<llm::CallbackListeners>,
+    management_attempts: std::sync::Arc<access::Attempts>,
+    panel_assets: std::sync::Arc<panel::PanelAssets>,
 }
 
 impl UiServer {
     pub fn new(state: ProxyState, proxy_addr: SocketAddr, metrics_enabled: bool) -> Self {
         Self {
             state,
+            runtime: Default::default(),
             build: BuildInfo {
-                name: "xgate",
+                name: "transit",
                 version: env!("CARGO_PKG_VERSION"),
             },
             proxy_port: proxy_addr.port(),
             metrics_enabled,
             bind_addr: None,
             oauth_callbacks: Default::default(),
+            management_attempts: Default::default(),
+            panel_assets: Default::default(),
         }
+    }
+
+    pub fn with_version(mut self, version: &'static str) -> Self {
+        self.build.version = version;
+        self
+    }
+
+    pub fn with_runtime_mode(mut self, runtime: transit_core::RuntimeModeInfo) -> Self {
+        self.runtime = runtime;
+        self
     }
 
     pub async fn serve(self, addr: SocketAddr) -> std::io::Result<()> {
@@ -61,14 +79,15 @@ impl UiServer {
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> std::io::Result<()> {
         self.bind_addr = Some(addr);
+        let tls = self.state.access_settings().active_tls();
+        let updater = self.panel_assets.clone().start(self.state.clone());
         let app = Router::new()
             .merge(llm::routes())
+            .merge(access::routes())
             .route("/", get(ui_page))
             .route("/ui", get(ui_page))
-            .route("/assets/xgate-logo.svg", get(logo_svg))
-            .route("/assets/xgate-mark.svg", get(mark_svg))
-            .route("/assets/dxgate-logo.svg", get(logo_svg))
-            .route("/assets/dxgate-mark.svg", get(mark_svg))
+            .route("/assets/transit-logo.svg", get(logo_svg))
+            .route("/assets/transit-mark.svg", get(mark_svg))
             .route("/healthz", get(healthz))
             .route("/readyz", get(readyz))
             .route("/metrics", get(metrics))
@@ -84,24 +103,31 @@ impl UiServer {
             .route("/debug/security/identities", get(debug_security_identities))
             .route("/debug/observability", get(debug_observability))
             .route("/debug/services", get(debug_services))
+            .layer(axum::middleware::from_fn_with_state(
+                self.clone(),
+                access::guard,
+            ))
             .with_state(self);
 
-        axum::Server::bind(&addr)
-            .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(shutdown)
-            .await
-            .map_err(std::io::Error::other)
+        let result = transit_proxy::access_settings::serve_router(app, addr, tls, shutdown).await;
+        updater.abort();
+        result
     }
 }
 
 async fn ui_page(State(ui): State<UiServer>) -> Html<String> {
-    Html(ui_html(ui.proxy_port))
+    Html(
+        ui.panel_assets
+            .html(&ui.state)
+            .await
+            .unwrap_or_else(|| ui_html(ui.proxy_port)),
+    )
 }
 
 async fn logo_svg() -> Response {
     (
         [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
-        include_str!("../../../logo/xgate-logo.svg"),
+        include_str!("../../../logo/transit-logo.svg"),
     )
         .into_response()
 }
@@ -109,7 +135,7 @@ async fn logo_svg() -> Response {
 async fn mark_svg() -> Response {
     (
         [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
-        include_str!("../../../logo/xgate-mark.svg"),
+        include_str!("../../../logo/transit-mark.svg"),
     )
         .into_response()
 }
@@ -143,217 +169,220 @@ async fn metrics(State(ui): State<UiServer>) -> Response {
 
 fn prometheus_metrics(readiness: Readiness, proxy: ProxyMetrics) -> String {
     let mut out = format!(
-        "# HELP xgate_ready Whether xgate has accepted runtime config\n# TYPE xgate_ready gauge\nxgate_ready {}\n# HELP xgate_config_conflicts Current rejected config conflicts\n# TYPE xgate_config_conflicts gauge\nxgate_config_conflicts {}\n",
+        "# HELP transit_ready Whether transit has accepted runtime config\n# TYPE transit_ready gauge\ntransit_ready {}\n# HELP transit_config_conflicts Current rejected config conflicts\n# TYPE transit_config_conflicts gauge\ntransit_config_conflicts {}\n",
         if readiness.ready { 1 } else { 0 },
         readiness.conflicts.len()
     );
-    out.push_str("# HELP xgate_requests_total Total requests observed by xgate\n# TYPE xgate_requests_total counter\n");
-    out.push_str(&format!("xgate_requests_total {}\n", proxy.total_requests));
-    out.push_str("# HELP xgate_agent_requests_total Agent protocol requests observed by xgate\n# TYPE xgate_agent_requests_total counter\n");
+    out.push_str("# HELP transit_requests_total Total requests observed by transit\n# TYPE transit_requests_total counter\n");
     out.push_str(&format!(
-        "xgate_agent_requests_total {}\n",
+        "transit_requests_total {}\n",
+        proxy.total_requests
+    ));
+    out.push_str("# HELP transit_agent_requests_total Agent protocol requests observed by transit\n# TYPE transit_agent_requests_total counter\n");
+    out.push_str(&format!(
+        "transit_agent_requests_total {}\n",
         proxy.agent_requests
     ));
-    out.push_str("# HELP xgate_policy_denied_total Requests denied by xgate policy\n# TYPE xgate_policy_denied_total counter\n");
+    out.push_str("# HELP transit_policy_denied_total Requests denied by transit policy\n# TYPE transit_policy_denied_total counter\n");
     out.push_str(&format!(
-        "xgate_policy_denied_total {}\n",
+        "transit_policy_denied_total {}\n",
         proxy.policy_denied
     ));
-    out.push_str("# HELP xgate_upstream_failures_total Upstream failures observed by xgate\n# TYPE xgate_upstream_failures_total counter\n");
+    out.push_str("# HELP transit_upstream_failures_total Upstream failures observed by transit\n# TYPE transit_upstream_failures_total counter\n");
     out.push_str(&format!(
-        "xgate_upstream_failures_total {}\n",
+        "transit_upstream_failures_total {}\n",
         proxy.upstream_failures
     ));
-    out.push_str("# HELP xgate_requests_in_flight Requests being handled right now\n# TYPE xgate_requests_in_flight gauge\n");
+    out.push_str("# HELP transit_requests_in_flight Requests being handled right now\n# TYPE transit_requests_in_flight gauge\n");
     out.push_str(&format!(
-        "xgate_requests_in_flight {}\n",
+        "transit_requests_in_flight {}\n",
         proxy.concurrency.in_flight
     ));
     // Counted separately from in-flight requests: these are waiting on a
     // scale-up, not on an upstream, so folding them together would read as the
     // gateway having gone slow.
-    out.push_str("# HELP xgate_activation_requests_held Requests waiting for a scaled-to-zero target to come up\n# TYPE xgate_activation_requests_held gauge\n");
+    out.push_str("# HELP transit_activation_requests_held Requests waiting for a scaled-to-zero target to come up\n# TYPE transit_activation_requests_held gauge\n");
     out.push_str(&format!(
-        "xgate_activation_requests_held {}\n",
+        "transit_activation_requests_held {}\n",
         proxy.held_activation_requests
     ));
     // Scale on rate() of this rather than on the gauge above: the gauge is a
     // single instant and misses every burst that lands between two scrapes.
-    out.push_str("# HELP xgate_request_seconds_total Accumulated request time; rate() gives average concurrency\n# TYPE xgate_request_seconds_total counter\n");
+    out.push_str("# HELP transit_request_seconds_total Accumulated request time; rate() gives average concurrency\n# TYPE transit_request_seconds_total counter\n");
     out.push_str(&format!(
-        "xgate_request_seconds_total {}\n",
+        "transit_request_seconds_total {}\n",
         proxy.concurrency.seconds_total
     ));
-    out.push_str("# HELP xgate_http_route_requests_in_flight Requests in flight by route and cluster\n# TYPE xgate_http_route_requests_in_flight gauge\n");
+    out.push_str("# HELP transit_http_route_requests_in_flight Requests in flight by route and cluster\n# TYPE transit_http_route_requests_in_flight gauge\n");
     for route in &proxy.http_route_concurrency {
         let labels = http_route_concurrency_labels(route);
         out.push_str(&format!(
-            "xgate_http_route_requests_in_flight{{{labels}}} {}\n",
+            "transit_http_route_requests_in_flight{{{labels}}} {}\n",
             route.concurrency.in_flight
         ));
     }
-    out.push_str("# HELP xgate_http_route_request_seconds_total Accumulated request time by route and cluster\n# TYPE xgate_http_route_request_seconds_total counter\n");
+    out.push_str("# HELP transit_http_route_request_seconds_total Accumulated request time by route and cluster\n# TYPE transit_http_route_request_seconds_total counter\n");
     for route in &proxy.http_route_concurrency {
         let labels = http_route_concurrency_labels(route);
         out.push_str(&format!(
-            "xgate_http_route_request_seconds_total{{{labels}}} {}\n",
+            "transit_http_route_request_seconds_total{{{labels}}} {}\n",
             route.concurrency.seconds_total
         ));
     }
-    out.push_str("# HELP xgate_http_route_requests_total HTTP gateway requests observed by route and cluster\n# TYPE xgate_http_route_requests_total counter\n");
+    out.push_str("# HELP transit_http_route_requests_total HTTP gateway requests observed by route and cluster\n# TYPE transit_http_route_requests_total counter\n");
     for route in &proxy.http_routes {
         let labels = http_route_labels(route);
         out.push_str(&format!(
-            "xgate_http_route_requests_total{{{labels}}} {}\n",
+            "transit_http_route_requests_total{{{labels}}} {}\n",
             route.requests
         ));
     }
-    out.push_str("# HELP xgate_http_route_failures_total HTTP gateway upstream failures observed by route and cluster\n# TYPE xgate_http_route_failures_total counter\n");
+    out.push_str("# HELP transit_http_route_failures_total HTTP gateway upstream failures observed by route and cluster\n# TYPE transit_http_route_failures_total counter\n");
     for route in &proxy.http_routes {
         let labels = http_route_labels(route);
         out.push_str(&format!(
-            "xgate_http_route_failures_total{{{labels}}} {}\n",
+            "transit_http_route_failures_total{{{labels}}} {}\n",
             route.failures
         ));
     }
-    out.push_str("# HELP xgate_http_route_latency_ms HTTP gateway upstream latency in milliseconds\n# TYPE xgate_http_route_latency_ms histogram\n");
+    out.push_str("# HELP transit_http_route_latency_ms HTTP gateway upstream latency in milliseconds\n# TYPE transit_http_route_latency_ms histogram\n");
     for route in &proxy.http_routes {
         let labels = http_route_labels(route);
         out.push_str(&format!(
-            "xgate_http_route_latency_ms_sum{{{labels}}} {}\n",
+            "transit_http_route_latency_ms_sum{{{labels}}} {}\n",
             route.latency_ms_sum
         ));
         for bucket in &route.latency_ms_buckets {
             out.push_str(&format!(
-                "xgate_http_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
+                "transit_http_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
                 bucket.le, bucket.count
             ));
         }
         out.push_str(&format!(
-            "xgate_http_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
+            "transit_http_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
             route.requests
         ));
         out.push_str(&format!(
-            "xgate_http_route_latency_ms_count{{{labels}}} {}\n",
-            route.requests
-        ));
-    }
-    out.push_str("# HELP xgate_agent_route_requests_total Agent protocol requests observed by route and backend\n# TYPE xgate_agent_route_requests_total counter\n");
-    for route in &proxy.routes {
-        let labels = agent_route_labels(route);
-        out.push_str(&format!(
-            "xgate_agent_route_requests_total{{{labels}}} {}\n",
+            "transit_http_route_latency_ms_count{{{labels}}} {}\n",
             route.requests
         ));
     }
-    out.push_str("# HELP xgate_agent_route_failures_total Agent protocol upstream failures observed by route and backend\n# TYPE xgate_agent_route_failures_total counter\n");
+    out.push_str("# HELP transit_agent_route_requests_total Agent protocol requests observed by route and backend\n# TYPE transit_agent_route_requests_total counter\n");
     for route in &proxy.routes {
         let labels = agent_route_labels(route);
         out.push_str(&format!(
-            "xgate_agent_route_failures_total{{{labels}}} {}\n",
+            "transit_agent_route_requests_total{{{labels}}} {}\n",
+            route.requests
+        ));
+    }
+    out.push_str("# HELP transit_agent_route_failures_total Agent protocol upstream failures observed by route and backend\n# TYPE transit_agent_route_failures_total counter\n");
+    for route in &proxy.routes {
+        let labels = agent_route_labels(route);
+        out.push_str(&format!(
+            "transit_agent_route_failures_total{{{labels}}} {}\n",
             route.failures
         ));
     }
-    out.push_str("# HELP xgate_agent_route_latency_ms Agent protocol upstream latency in milliseconds\n# TYPE xgate_agent_route_latency_ms histogram\n");
+    out.push_str("# HELP transit_agent_route_latency_ms Agent protocol upstream latency in milliseconds\n# TYPE transit_agent_route_latency_ms histogram\n");
     for route in &proxy.routes {
         let labels = agent_route_labels(route);
         out.push_str(&format!(
-            "xgate_agent_route_latency_ms_sum{{{labels}}} {}\n",
+            "transit_agent_route_latency_ms_sum{{{labels}}} {}\n",
             route.latency_ms_sum
         ));
         for bucket in &route.latency_ms_buckets {
             out.push_str(&format!(
-                "xgate_agent_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
+                "transit_agent_route_latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
                 bucket.le, bucket.count
             ));
         }
         out.push_str(&format!(
-            "xgate_agent_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
+            "transit_agent_route_latency_ms_bucket{{{labels},le=\"+Inf\"}} {}\n",
             route.requests
         ));
         out.push_str(&format!(
-            "xgate_agent_route_latency_ms_count{{{labels}}} {}\n",
+            "transit_agent_route_latency_ms_count{{{labels}}} {}\n",
             route.requests
         ));
     }
-    out.push_str("# HELP xgate_llm_requests_total LLM requests with recorded token usage\n# TYPE xgate_llm_requests_total counter\n");
+    out.push_str("# HELP transit_llm_requests_total LLM requests with recorded token usage\n# TYPE transit_llm_requests_total counter\n");
     for usage in &proxy.llm_usage {
         let labels = llm_usage_labels(usage);
         out.push_str(&format!(
-            "xgate_llm_requests_total{{{labels}}} {}\n",
+            "transit_llm_requests_total{{{labels}}} {}\n",
             usage.requests
         ));
     }
-    out.push_str("# HELP xgate_llm_tokens_total LLM tokens observed by route, backend, and model\n# TYPE xgate_llm_tokens_total counter\n");
+    out.push_str("# HELP transit_llm_tokens_total LLM tokens observed by route, backend, and model\n# TYPE transit_llm_tokens_total counter\n");
     for usage in &proxy.llm_usage {
         let labels = llm_usage_labels(usage);
         out.push_str(&format!(
-            "xgate_llm_tokens_total{{{labels},type=\"prompt\"}} {}\n",
+            "transit_llm_tokens_total{{{labels},type=\"prompt\"}} {}\n",
             usage.prompt_tokens
         ));
         out.push_str(&format!(
-            "xgate_llm_tokens_total{{{labels},type=\"completion\"}} {}\n",
+            "transit_llm_tokens_total{{{labels},type=\"completion\"}} {}\n",
             usage.completion_tokens
         ));
         out.push_str(&format!(
-            "xgate_llm_tokens_total{{{labels},type=\"cached_prompt\"}} {}\n",
+            "transit_llm_tokens_total{{{labels},type=\"cached_prompt\"}} {}\n",
             usage.cached_prompt_tokens
         ));
     }
-    out.push_str("# HELP xgate_llm_api_usd_nanos_total API list-price USD for observed tokens, in nanodollars (1e-9 USD). Offline published rate card; unknown models omitted.\n# TYPE xgate_llm_api_usd_nanos_total counter\n");
-    out.push_str("# HELP xgate_llm_chatgpt_credit_micros_total Codex/ChatGPT subscription credits for observed tokens, in microcredits (1e-6 credit). Always emitted; incomplete quotes still include known credit line items.\n# TYPE xgate_llm_chatgpt_credit_micros_total counter\n");
+    out.push_str("# HELP transit_llm_api_usd_nanos_total API list-price USD for observed tokens, in nanodollars (1e-9 USD). Offline published rate card; unknown models omitted.\n# TYPE transit_llm_api_usd_nanos_total counter\n");
+    out.push_str("# HELP transit_llm_chatgpt_credit_micros_total Codex/ChatGPT subscription credits for observed tokens, in microcredits (1e-6 credit). Always emitted; incomplete quotes still include known credit line items.\n# TYPE transit_llm_chatgpt_credit_micros_total counter\n");
     for usage in &proxy.llm_usage {
         let labels = llm_usage_labels(usage);
-        if let Ok(quote) = xgate_core::quote_tokens(
+        if let Ok(quote) = transit_core::quote_tokens(
             &usage.model,
-            xgate_core::TokenCounts {
+            transit_core::TokenCounts {
                 prompt_tokens: usage.prompt_tokens,
                 cached_prompt_tokens: usage.cached_prompt_tokens,
                 cache_write_tokens: 0,
                 completion_tokens: usage.completion_tokens,
             },
-            xgate_core::ServiceTier::Standard,
-            xgate_core::ContextBand::Short,
+            transit_core::ServiceTier::Standard,
+            transit_core::ContextBand::Short,
         ) {
             out.push_str(&format!(
-                "xgate_llm_api_usd_nanos_total{{{labels}}} {}\n",
+                "transit_llm_api_usd_nanos_total{{{labels}}} {}\n",
                 quote.api_usd_nanos
             ));
             out.push_str(&format!(
-                "xgate_llm_chatgpt_credit_micros_total{{{labels}}} {}\n",
+                "transit_llm_chatgpt_credit_micros_total{{{labels}}} {}\n",
                 quote.chatgpt_credit_micros
             ));
         }
     }
-    out.push_str("# HELP xgate_mcp_tool_calls_total MCP tools/call requests by route, backend, and tool\n# TYPE xgate_mcp_tool_calls_total counter\n");
+    out.push_str("# HELP transit_mcp_tool_calls_total MCP tools/call requests by route, backend, and tool\n# TYPE transit_mcp_tool_calls_total counter\n");
     for tool in &proxy.mcp_tools {
         let labels = mcp_tool_labels(tool);
         out.push_str(&format!(
-            "xgate_mcp_tool_calls_total{{{labels}}} {}\n",
+            "transit_mcp_tool_calls_total{{{labels}}} {}\n",
             tool.calls
         ));
     }
-    out.push_str("# HELP xgate_mcp_tool_failures_total MCP tools/call requests that did not return a success status\n# TYPE xgate_mcp_tool_failures_total counter\n");
+    out.push_str("# HELP transit_mcp_tool_failures_total MCP tools/call requests that did not return a success status\n# TYPE transit_mcp_tool_failures_total counter\n");
     for tool in &proxy.mcp_tools {
         let labels = mcp_tool_labels(tool);
         out.push_str(&format!(
-            "xgate_mcp_tool_failures_total{{{labels}}} {}\n",
+            "transit_mcp_tool_failures_total{{{labels}}} {}\n",
             tool.failures
         ));
     }
-    out.push_str("# HELP xgate_a2a_method_calls_total A2A JSON-RPC requests by route, backend, and method\n# TYPE xgate_a2a_method_calls_total counter\n");
+    out.push_str("# HELP transit_a2a_method_calls_total A2A JSON-RPC requests by route, backend, and method\n# TYPE transit_a2a_method_calls_total counter\n");
     for method in &proxy.a2a_methods {
         let labels = a2a_method_labels(method);
         out.push_str(&format!(
-            "xgate_a2a_method_calls_total{{{labels}}} {}\n",
+            "transit_a2a_method_calls_total{{{labels}}} {}\n",
             method.calls
         ));
     }
-    out.push_str("# HELP xgate_a2a_method_failures_total A2A JSON-RPC requests that did not return a success status\n# TYPE xgate_a2a_method_failures_total counter\n");
+    out.push_str("# HELP transit_a2a_method_failures_total A2A JSON-RPC requests that did not return a success status\n# TYPE transit_a2a_method_failures_total counter\n");
     for method in &proxy.a2a_methods {
         let labels = a2a_method_labels(method);
         out.push_str(&format!(
-            "xgate_a2a_method_failures_total{{{labels}}} {}\n",
+            "transit_a2a_method_failures_total{{{labels}}} {}\n",
             method.failures
         ));
     }
@@ -428,7 +457,7 @@ fn prometheus_label_value(value: &str) -> String {
         .replace('"', "\\\"")
 }
 
-async fn debug_config(State(ui): State<UiServer>) -> Json<xgate_core::RuntimeConfig> {
+async fn debug_config(State(ui): State<UiServer>) -> Json<transit_core::RuntimeConfig> {
     Json(ui.state.snapshot().to_redacted_runtime_config())
 }
 
@@ -456,9 +485,9 @@ pub struct CostReport {
     pub api_usd: String,
     pub chatgpt_credits: String,
     pub chatgpt_credits_complete: bool,
-    pub rate_card: Vec<xgate_core::RateCardEntry>,
+    pub rate_card: Vec<transit_core::RateCardEntry>,
     pub usage: Vec<CostUsageRow>,
-    pub local: Vec<xgate_core::LocalUsageRow>,
+    pub local: Vec<transit_core::LocalUsageRow>,
     pub local_input: u64,
     pub local_cache_read: u64,
     pub local_cache_write: u64,
@@ -467,22 +496,22 @@ pub struct CostReport {
     pub local_api_usd: String,
     pub local_credits: String,
     pub local_credits_complete: bool,
-    pub local_fx: Option<xgate_core::FxQuote>,
+    pub local_fx: Option<transit_core::FxQuote>,
     pub fx_as_of: &'static str,
     pub fx_source: &'static str,
     pub fx_country: String,
-    pub fx_rates: Vec<xgate_core::FxRate>,
+    pub fx_rates: Vec<transit_core::FxRate>,
     pub family: String,
     pub model: String,
     pub models: Vec<String>,
     pub billing: String,
-    pub ticks: Vec<xgate_core::LocalTick>,
+    pub ticks: Vec<transit_core::LocalTick>,
 
-    pub spend_ledger: xgate_core::SpendLedgerSummary,
-    pub token_ledger: xgate_core::TokenLedgerSummary,
-    pub efficiency_ledger: xgate_core::EfficiencyLedgerSummary,
-    pub optimization_ledger: xgate_core::OptimizationLedgerSummary,
-    pub events: Vec<xgate_core::CostEvent>,
+    pub spend_ledger: transit_core::SpendLedgerSummary,
+    pub token_ledger: transit_core::TokenLedgerSummary,
+    pub efficiency_ledger: transit_core::EfficiencyLedgerSummary,
+    pub optimization_ledger: transit_core::OptimizationLedgerSummary,
+    pub events: Vec<transit_core::CostEvent>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -497,8 +526,8 @@ fn model_matches(row_model: &str, selected: &str) -> bool {
     if selected.is_empty() || selected.eq_ignore_ascii_case("all") {
         return true;
     }
-    let row = xgate_core::normalize_model(row_model);
-    let want = xgate_core::normalize_model(selected);
+    let row = transit_core::normalize_model(row_model);
+    let want = transit_core::normalize_model(selected);
     row == want || row.replace('.', "-") == want.replace('.', "-")
 }
 
@@ -519,7 +548,7 @@ fn parse_family(value: &str) -> String {
 }
 
 fn model_family(model: &str) -> Option<&'static str> {
-    let model = xgate_core::normalize_model(model);
+    let model = transit_core::normalize_model(model);
     if model.starts_with("claude") {
         Some("claude")
     } else if model.starts_with("gpt-") {
@@ -552,16 +581,16 @@ fn cost_report(
         .into_iter()
         .filter(|row| in_family(&row.model, &family) && model_matches(&row.model, selected_model))
         .map(|row| {
-            match xgate_core::quote_tokens(
+            match transit_core::quote_tokens(
                 &row.model,
-                xgate_core::TokenCounts {
+                transit_core::TokenCounts {
                     prompt_tokens: row.prompt_tokens,
                     cached_prompt_tokens: row.cached_prompt_tokens,
                     cache_write_tokens: 0,
                     completion_tokens: row.completion_tokens,
                 },
-                xgate_core::ServiceTier::Standard,
-                xgate_core::ContextBand::Short,
+                transit_core::ServiceTier::Standard,
+                transit_core::ContextBand::Short,
             ) {
                 Ok(quote) => {
                     usd_nanos += quote.api_usd_nanos;
@@ -629,16 +658,16 @@ fn cost_report(
     let mut local_credit_micros: u128 = 0;
     let mut local_credits_complete = true;
     for row in &local {
-        match xgate_core::quote_tokens(
+        match transit_core::quote_tokens(
             &row.model,
-            xgate_core::TokenCounts {
+            transit_core::TokenCounts {
                 prompt_tokens: row.prompt_tokens,
                 cached_prompt_tokens: row.cached_prompt_tokens,
                 cache_write_tokens: row.cache_write_tokens,
                 completion_tokens: row.completion_tokens,
             },
-            xgate_core::ServiceTier::Standard,
-            xgate_core::ContextBand::Short,
+            transit_core::ServiceTier::Standard,
+            transit_core::ContextBand::Short,
         ) {
             Ok(quote) => {
                 if quote.chatgpt_credits_complete {
@@ -658,13 +687,13 @@ fn cost_report(
     } else {
         country.to_string()
     };
-    // FX applies to gateway API USD only — money that actually went through xgate.
+    // FX applies to gateway API USD only — money that actually went through transit.
     let local_fx = if billing == "api" {
-        xgate_core::convert_usd_nanos(usd_nanos, &fx_country).ok()
+        transit_core::convert_usd_nanos(usd_nanos, &fx_country).ok()
     } else {
         None
     };
-    let rate_card: Vec<_> = xgate_core::published_rate_card()
+    let rate_card: Vec<_> = transit_core::published_rate_card()
         .into_iter()
         .filter(|row| {
             in_family(row.model, &family)
@@ -681,11 +710,11 @@ fn cost_report(
         })
         .collect();
     let ticks: Vec<_> = if selected_model.is_empty() || selected_model.eq_ignore_ascii_case("all") {
-        let mut by_day = std::collections::BTreeMap::<String, xgate_core::LocalTick>::new();
+        let mut by_day = std::collections::BTreeMap::<String, transit_core::LocalTick>::new();
         for tick in family_ticks {
             let entry = by_day
                 .entry(tick.day.clone())
-                .or_insert_with(|| xgate_core::LocalTick {
+                .or_insert_with(|| transit_core::LocalTick {
                     day: tick.day.clone(),
                     model: "all".into(),
                     t_ms: tick.t_ms,
@@ -706,12 +735,12 @@ fn cost_report(
         family_ticks
     };
     CostReport {
-        rate_card_as_of: xgate_core::RATE_CARD_AS_OF,
-        api_usd_source: xgate_core::API_USD_SOURCE,
-        chatgpt_credits_source: xgate_core::CHATGPT_CREDITS_SOURCE,
-        chatgpt_fast_source: xgate_core::CHATGPT_FAST_SOURCE,
-        api_usd: xgate_core::format_usd_nanos(usd_nanos),
-        chatgpt_credits: xgate_core::format_credit_micros(credit_micros),
+        rate_card_as_of: transit_core::RATE_CARD_AS_OF,
+        api_usd_source: transit_core::API_USD_SOURCE,
+        chatgpt_credits_source: transit_core::CHATGPT_CREDITS_SOURCE,
+        chatgpt_fast_source: transit_core::CHATGPT_FAST_SOURCE,
+        api_usd: transit_core::format_usd_nanos(usd_nanos),
+        chatgpt_credits: transit_core::format_credit_micros(credit_micros),
         chatgpt_credits_complete: complete,
         rate_card,
         usage,
@@ -721,14 +750,14 @@ fn cost_report(
         local_cache_write,
         local_output,
         local_total,
-        local_api_usd: xgate_core::format_usd_nanos(0),
-        local_credits: xgate_core::format_credit_micros(local_credit_micros),
+        local_api_usd: transit_core::format_usd_nanos(0),
+        local_credits: transit_core::format_credit_micros(local_credit_micros),
         local_credits_complete,
         local_fx,
-        fx_as_of: xgate_core::FX_AS_OF,
-        fx_source: xgate_core::FX_SOURCE,
+        fx_as_of: transit_core::FX_AS_OF,
+        fx_source: transit_core::FX_SOURCE,
         fx_country,
-        fx_rates: xgate_core::published_fx_rates(),
+        fx_rates: transit_core::published_fx_rates(),
         family,
         model: if selected_model.is_empty() {
             "all".to_string()
@@ -748,14 +777,14 @@ fn cost_report(
 
 struct LocalCostCache {
     at: Instant,
-    report: xgate_core::LocalUsageReport,
+    report: transit_core::LocalUsageReport,
 }
 
 static LOCAL_COST: Mutex<Option<LocalCostCache>> = Mutex::new(None);
 
-fn local_usage_cached() -> xgate_core::LocalUsageReport {
+fn local_usage_cached() -> transit_core::LocalUsageReport {
     if cfg!(test) {
-        return xgate_core::LocalUsageReport::default();
+        return transit_core::LocalUsageReport::default();
     }
     const TTL: Duration = Duration::from_secs(60);
     {
@@ -766,7 +795,7 @@ fn local_usage_cached() -> xgate_core::LocalUsageReport {
             }
         }
     }
-    let report = xgate_core::scan_local_usage(&xgate_core::LocalScanPaths::from_env());
+    let report = transit_core::scan_local_usage(&transit_core::LocalScanPaths::from_env());
     let mut guard = LOCAL_COST.lock().unwrap();
     *guard = Some(LocalCostCache {
         at: Instant::now(),
@@ -897,8 +926,7 @@ async fn debug_security_posture(State(ui): State<UiServer>) -> Json<SecurityPost
     let total_decisions = decisions.len();
     let allowed_decisions = decisions.iter().filter(|d| d.decision == "allowed").count();
     let denied_decisions = decisions.iter().filter(|d| d.decision == "denied").count();
-    let policy_default = std::env::var("XGATE_POLICY_DEFAULT")
-        .or_else(|_| std::env::var("DXGATE_POLICY_DEFAULT"))
+    let policy_default = std::env::var("TRANSIT_POLICY_DEFAULT")
         .unwrap_or_else(|_| "allow".to_string())
         .to_lowercase();
     let identities = security_identities_from_snapshot(&snapshot);
@@ -915,7 +943,7 @@ async fn debug_security_posture(State(ui): State<UiServer>) -> Json<SecurityPost
 
 async fn debug_security_events(
     State(ui): State<UiServer>,
-) -> Json<Vec<xgate_core::SecurityDecision>> {
+) -> Json<Vec<transit_core::SecurityDecision>> {
     Json(ui.state.security_decisions())
 }
 
@@ -1032,19 +1060,14 @@ async fn debug_observability(State(ui): State<UiServer>) -> Json<ObservabilityDa
         0.0
     };
 
-    let otlp_endpoint = std::env::var("XGATE_OTEL_ENDPOINT")
-        .or_else(|_| std::env::var("DXGATE_OTEL_ENDPOINT"))
-        .ok();
-    let otlp_sampling = std::env::var("XGATE_OTEL_SAMPLING_PERCENTAGE")
-        .or_else(|_| std::env::var("DXGATE_OTEL_SAMPLING_PERCENTAGE"))
+    let otlp_endpoint = std::env::var("TRANSIT_OTEL_ENDPOINT").ok();
+    let otlp_sampling = std::env::var("TRANSIT_OTEL_SAMPLING_PERCENTAGE")
         .map(|s| format!("{s}%"))
         .unwrap_or_else(|_| "100%".to_string());
-    let access_log_format = std::env::var("XGATE_ACCESS_LOG_FORMAT")
-        .or_else(|_| std::env::var("DXGATE_ACCESS_LOG_FORMAT"))
-        .unwrap_or_else(|_| "text".to_string());
-    let access_log_mode = std::env::var("XGATE_ACCESS_LOG_MODE")
-        .or_else(|_| std::env::var("DXGATE_ACCESS_LOG_MODE"))
-        .unwrap_or_else(|_| "server".to_string());
+    let access_log_format =
+        std::env::var("TRANSIT_ACCESS_LOG_FORMAT").unwrap_or_else(|_| "text".to_string());
+    let access_log_mode =
+        std::env::var("TRANSIT_ACCESS_LOG_MODE").unwrap_or_else(|_| "server".to_string());
 
     let traces: Vec<ObsTraceItem> = decisions
         .into_iter()
@@ -1142,7 +1165,7 @@ async fn debug_observability(State(ui): State<UiServer>) -> Json<ObservabilityDa
     })
 }
 
-fn security_identities_from_snapshot(snapshot: &xgate_core::ConfigSnapshot) -> Vec<IdentityItem> {
+fn security_identities_from_snapshot(snapshot: &transit_core::ConfigSnapshot) -> Vec<IdentityItem> {
     let mut items = Vec::new();
     let cfg = snapshot.to_runtime_config();
 
@@ -1171,7 +1194,7 @@ fn security_identities_from_snapshot(snapshot: &xgate_core::ConfigSnapshot) -> V
     for policy in &cfg.policies {
         if let Some(auth) = &policy.auth {
             match auth {
-                xgate_core::AuthPolicy::ApiKey {
+                transit_core::AuthPolicy::ApiKey {
                     header,
                     values,
                     value_env,
@@ -1207,7 +1230,7 @@ fn security_identities_from_snapshot(snapshot: &xgate_core::ConfigSnapshot) -> V
                         detail: format!("Header: {header}"),
                     });
                 }
-                xgate_core::AuthPolicy::Jwt {
+                transit_core::AuthPolicy::Jwt {
                     header,
                     issuer,
                     audiences,
@@ -1289,7 +1312,7 @@ fn security_identities_from_snapshot(snapshot: &xgate_core::ConfigSnapshot) -> V
 
     // 5. Agent Principals
     for backend in &cfg.backends {
-        if let xgate_core::BackendKind::A2a { endpoint, agent } = &backend.kind {
+        if let transit_core::BackendKind::A2a { endpoint, agent } = &backend.kind {
             let agent_name = agent.clone().unwrap_or_else(|| backend.name.clone());
             items.push(IdentityItem {
                 id: format!("agent-{}", backend.name),
@@ -1409,8 +1432,8 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
 
                 let (path_str, match_type) = if let Some(m) = route.matches.first() {
                     match &m.path {
-                        xgate_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
-                        xgate_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
+                        transit_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
+                        transit_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
                     }
                 } else {
                     ("/".to_string(), "prefix".to_string())
@@ -1607,14 +1630,14 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
 
     // 2. Process AgentRoute with protocol: Http or BackendKind::Http
     for route in &cfg.routes {
-        if route.protocol == xgate_core::AgentProtocol::Http {
+        if route.protocol == transit_core::AgentProtocol::Http {
             let id = format!("agent:http:{}", route.name);
             domains_set.insert("agent-mesh.local".to_string());
 
             let (path_str, match_type) = if let Some(m) = route.matches.first() {
                 match &m.path {
-                    xgate_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
-                    xgate_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
+                    transit_core::PathMatch::Prefix(p) => (p.clone(), "prefix".to_string()),
+                    transit_core::PathMatch::Exact(p) => (p.clone(), "exact".to_string()),
                 }
             } else {
                 ("/".to_string(), "prefix".to_string())
@@ -1746,9 +1769,7 @@ async fn debug_services(State(ui): State<UiServer>) -> Json<ServicesData> {
 }
 
 fn ui_html(proxy_port: u16) -> String {
-    UI_HTML
-        .replace("__XGATE_PROXY_PORT__", &proxy_port.to_string())
-        .replace("__DXGATE_PROXY_PORT__", &proxy_port.to_string())
+    UI_HTML.replace("__TRANSIT_PROXY_PORT__", &proxy_port.to_string())
 }
 
 const UI_HTML: &str = include_str!("../../../ui/ui.html");
@@ -1763,7 +1784,7 @@ mod tests {
     use axum::extract::{Query, State};
     use axum::http::StatusCode;
     use axum::Json;
-    use xgate_proxy::{
+    use transit_proxy::{
         A2aMethodMetric, ConcurrencyMetric, HttpRouteConcurrencyMetric, HttpRouteMetric,
         LatencyBucket, LlmUsageMetric, McpToolMetric, ProxyMetrics, ProxyState, Readiness,
     };
@@ -1874,7 +1895,7 @@ mod tests {
         assert_eq!(ev.trace_id, "trace_abc123");
         assert_eq!(ev.span_id, "span_001");
         assert_eq!(ev.latency_ms, 350);
-        assert_eq!(ev.data_quality, xgate_core::DataQuality::Complete);
+        assert_eq!(ev.data_quality, transit_core::DataQuality::Complete);
     }
 
     #[tokio::test]
@@ -1888,7 +1909,7 @@ mod tests {
         let html = ui_html(18080);
 
         assert!(html.contains("Overview"));
-        assert!(html.contains("rel=\"icon\" href=\"/assets/xgate-mark.svg\""));
+        assert!(html.contains("rel=\"icon\" href=\"/assets/transit-mark.svg\""));
         assert!(!html.contains("href=\"data:,\""));
         assert!(html.contains("id=\"tab-overview\""));
         assert!(html.contains("class=\"overview-kpi-grid\""));
@@ -1994,9 +2015,9 @@ mod tests {
         assert!(!html.contains("id=\"metric-failures\""));
         assert!(!html.contains("id=\"traffic-table\""));
         assert!(!html.contains("Route traffic"));
-        assert!(!html.contains("xgate_requests_total"));
+        assert!(!html.contains("transit_requests_total"));
         assert!(!html.contains("class=\"mark\""));
-        assert!(!html.contains("<strong>xgate</strong>"));
+        assert!(!html.contains("<strong>transit</strong>"));
         assert!(!html.contains("<span>ui</span>"));
         assert!(!html.contains("id=\"statusline\""));
         assert!(!html.contains("id=\"source-line\""));
@@ -2040,23 +2061,23 @@ mod tests {
 
         let text = prometheus_metrics(ready(), proxy);
 
-        assert!(text.contains("# TYPE xgate_requests_in_flight gauge"));
-        assert!(text.contains("xgate_requests_in_flight 7"));
+        assert!(text.contains("# TYPE transit_requests_in_flight gauge"));
+        assert!(text.contains("transit_requests_in_flight 7"));
         // A counter, so rate() over it is average concurrency regardless of
         // when the scrape lands.
-        assert!(text.contains("# TYPE xgate_request_seconds_total counter"));
-        assert!(text.contains("xgate_request_seconds_total 12.5"));
+        assert!(text.contains("# TYPE transit_request_seconds_total counter"));
+        assert!(text.contains("transit_request_seconds_total 12.5"));
         assert!(text.contains(
-            "xgate_http_route_requests_in_flight{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 3"
+            "transit_http_route_requests_in_flight{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 3"
         ));
         assert!(text.contains(
-            "xgate_http_route_request_seconds_total{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 4.25"
+            "transit_http_route_request_seconds_total{namespace=\"app\",gateway=\"public\",route=\"orders\",cluster=\"orders-v1\"} 4.25"
         ));
         // Per-route concurrency cannot carry method or status: neither is known
         // while the request is still in flight.
         let in_flight_line = text
             .lines()
-            .find(|line| line.starts_with("xgate_http_route_requests_in_flight{"))
+            .find(|line| line.starts_with("transit_http_route_requests_in_flight{"))
             .expect("in-flight series");
         assert!(!in_flight_line.contains("method="));
         assert!(!in_flight_line.contains("status_code="));
@@ -2128,20 +2149,20 @@ mod tests {
         assert!(text.contains("route=\"default\\\\route\""));
         assert!(text.contains("method=\"GET\""));
         assert!(text.contains("status_code=\"502\""));
-        assert!(text.contains("xgate_http_route_latency_ms_sum{"));
-        assert!(text.contains("xgate_http_route_latency_ms_count{"));
+        assert!(text.contains("transit_http_route_latency_ms_sum{"));
+        assert!(text.contains("transit_http_route_latency_ms_count{"));
         assert!(text.contains("le=\"+Inf\""));
         assert!(text.contains(
-            "xgate_mcp_tool_calls_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 3"
+            "transit_mcp_tool_calls_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 3"
         ));
         assert!(text.contains(
-            "xgate_mcp_tool_failures_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 1"
+            "transit_mcp_tool_failures_total{route=\"mcp\",backend=\"mcp-a\",tool=\"search\"} 1"
         ));
         assert!(text.contains(
-            "xgate_a2a_method_calls_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 4"
+            "transit_a2a_method_calls_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 4"
         ));
         assert!(text.contains(
-            "xgate_a2a_method_failures_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 2"
+            "transit_a2a_method_failures_total{route=\"a2a\",backend=\"planner\",method=\"message/send\"} 2"
         ));
     }
 
@@ -2164,7 +2185,7 @@ mod tests {
         assert!(obs.telemetry.metrics_enabled);
         assert!(obs.traces.is_empty());
 
-        let decision = xgate_core::SecurityDecision {
+        let decision = transit_core::SecurityDecision {
             event_id: "sec-live-01".into(),
             trace_id: "trace-live-01".into(),
             timestamp: "2026-09-08T12:00:00Z".into(),

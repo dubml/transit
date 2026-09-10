@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum XgateError {
+pub enum TransitError {
     #[error("invalid runtime config: {0}")]
     InvalidConfig(String),
 
@@ -18,5 +18,5 @@ pub enum XgateError {
     Io(#[from] std::io::Error),
 }
 
-pub type DxgateError = XgateError;
-pub type Result<T> = std::result::Result<T, XgateError>;
+
+pub type Result<T> = std::result::Result<T, TransitError>;

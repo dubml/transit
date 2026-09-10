@@ -1,15 +1,15 @@
-//! End-to-end tests that drive a real xgate proxy (and ui server) over
+//! End-to-end tests that drive a real transit proxy (and ui server) over
 //! loopback TCP against mock upstreams: route matching, policy enforcement,
 //! body limits, and streaming pass-through.
 
-use xgate_core::{
+use transit_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, Backend, BackendKind, Cluster,
     ConfigStore, Endpoint, HeaderTransform, Listener, ListenerProtocol, PathMatch, Policy,
     PolicyAction, Provider, ProviderKind, RateLimitKey, RateLimitPolicy, ResourceKey, ResourceKind,
     Route, RuntimeConfig, SourceId, SourceState, VirtualHost, WeightedBackend, WeightedCluster,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
-use xgate_ui::UiServer;
+use transit_proxy::{ProxyServer, ProxyState};
+use transit_ui::UiServer;
 use hyper::body::HttpBody;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Method, Request, Response, Server, StatusCode};
@@ -165,6 +165,7 @@ fn agent_config(upstream: SocketAddr) -> RuntimeConfig {
         policies: vec![],
     }];
     cfg.routes = vec![AgentRoute {
+        listener_ports: Vec::new(),
         name: "api".into(),
         protocol: AgentProtocol::Http,
         matches: vec![AgentRouteMatch {
@@ -234,6 +235,7 @@ fn llm_config(upstream: SocketAddr) -> RuntimeConfig {
         policies: vec![],
     }];
     cfg.routes = vec![AgentRoute {
+        listener_ports: Vec::new(),
         name: "chat".into(),
         protocol: AgentProtocol::Llm,
         matches: vec![AgentRouteMatch {
@@ -277,6 +279,7 @@ fn mcp_config(upstream: SocketAddr) -> RuntimeConfig {
         },
     ];
     cfg.routes = vec![AgentRoute {
+        listener_ports: Vec::new(),
         name: "mcp".into(),
         protocol: AgentProtocol::Mcp,
         matches: vec![AgentRouteMatch {
@@ -337,8 +340,8 @@ async fn http_route_proxies_to_upstream_and_reports_ui_state() {
     assert_eq!(metrics.status(), StatusCode::OK);
     let text = hyper::body::to_bytes(metrics.into_body()).await.unwrap();
     let text = String::from_utf8(text.to_vec()).unwrap();
-    assert!(text.contains("xgate_ready 1"));
-    assert!(text.contains("xgate_http_route_requests_total{"));
+    assert!(text.contains("transit_ready 1"));
+    assert!(text.contains("transit_http_route_requests_total{"));
     assert!(text.contains("route=\"default\""));
 }
 
@@ -381,7 +384,7 @@ async fn oversized_request_body_is_rejected_before_buffering() {
     let (proxy_addr, _state) = spawn_proxy(agent_config(upstream)).await;
     let client = Client::new();
 
-    // 11 MiB exceeds the 10 MiB default XGATE_MAX_BODY_BYTES cap. The proxy
+    // 11 MiB exceeds the 10 MiB default TRANSIT_MAX_BODY_BYTES cap. The proxy
     // rejects from the content-length alone and may close the connection
     // while the client is still writing the body; retry the raced attempts
     // until the 413 is observed.

@@ -42,7 +42,7 @@ use std::sync::{Arc, Mutex, RwLock};
 pub enum SourceId {
     /// The delta ADS stream from `dubbod`: all mesh routing configuration.
     Xds,
-    /// Offline/test configuration fixtures; not enabled by the production app.
+    /// Configuration owned by a standalone instance, including offline fixtures.
     Static,
 }
 
@@ -593,6 +593,7 @@ mod tests {
 
     fn agent_route(name: &str, backend: &str) -> AgentRoute {
         AgentRoute {
+            listener_ports: Vec::new(),
             name: name.into(),
             protocol: AgentProtocol::Llm,
             matches: vec![],

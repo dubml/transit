@@ -388,7 +388,7 @@ mod tests {
         let server = tokio::spawn(hyper::Server::from_tcp(listener).unwrap().serve(service));
         for (index, name) in ["codex", "claude"].into_iter().enumerate() {
             let directory = Directory(
-                std::env::temp_dir().join(format!("xgate-oauth-login-{}", random().unwrap())),
+                std::env::temp_dir().join(format!("transit-oauth-login-{}", random().unwrap())),
             );
             let store = LlmAccounts {
                 refresh_endpoint: Some(format!("http://{addr}/token")),
@@ -489,7 +489,7 @@ mod tests {
             assert!(callback_code(callback, &config, "s").is_err());
         }
         let directory = Directory(
-            std::env::temp_dir().join(format!("xgate-oauth-login-{}", random().unwrap())),
+            std::env::temp_dir().join(format!("transit-oauth-login-{}", random().unwrap())),
         );
         let store = LlmAccounts::default();
         assert!(store.start_login("codex", "backend").is_err());

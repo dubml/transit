@@ -11,14 +11,14 @@
 //! * `policy_refs` is the reverse index from a policy to everything attached to
 //!   it, used by referential validation and by the admin API.
 //!
-//! Route order within a port stays as declared. xgate is an xDS data plane and
+//! Route order within a port stays as declared. transit is an xDS data plane and
 //! xDS route matching is first-match-wins over the order the control plane sent,
 //! so the index narrows candidates by port and host but must not reorder them.
 
 use super::{ResourceKey, ResourceKind, SourceId};
 use crate::{
     AgentMatchInput, AgentProtocol, AgentRoute, Backend, BackendKind, Cluster, ConfigConflict,
-    Listener, MatchInput, Policy, Provider, Result, Route, RuntimeConfig, TlsSecret, XgateError,
+    Listener, MatchInput, Policy, Provider, Result, Route, RuntimeConfig, TlsSecret, TransitError,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
@@ -337,7 +337,7 @@ impl ConfigSnapshot {
     /// Resolves a Gateway API route: port index, then virtual hosts whose
     /// domains match, then the first route whose matchers accept the request.
     pub fn route_for(&self, port: u16, input: &MatchInput<'_>) -> Result<RouteMatch<'_>> {
-        let not_found = || XgateError::RouteNotFound {
+        let not_found = || TransitError::RouteNotFound {
             host: input.host.to_string(),
             path: input.path.to_string(),
         };
@@ -349,7 +349,7 @@ impl ConfigSnapshot {
     /// listener port. The match must belong to exactly one xDS listener port;
     /// ambiguity is rejected instead of routing a request across listeners.
     pub fn route_for_unique_port(&self, input: &MatchInput<'_>) -> Result<RouteMatch<'_>> {
-        let not_found = || XgateError::RouteNotFound {
+        let not_found = || TransitError::RouteNotFound {
             host: input.host.to_string(),
             path: input.path.to_string(),
         };
@@ -370,6 +370,12 @@ impl ConfigSnapshot {
             .get(&input.protocol)?
             .iter()
             .find(|route| route.matches(input))
+    }
+
+    pub fn agent_route_for_port(&self, port: u16, input: &AgentMatchInput<'_>) -> Option<&Arc<AgentRoute>> {
+        self.agent_routes_by_protocol.get(&input.protocol)?.iter().find(|route| {
+            (route.listener_ports.is_empty() || route.listener_ports.contains(&port)) && route.matches(input)
+        })
     }
 
     /// Rebuilds the flat configuration document, for `/debug/config` and tests.

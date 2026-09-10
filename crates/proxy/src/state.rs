@@ -1,12 +1,12 @@
 use crate::activation::Activator;
-use xgate_core::{
+use transit_core::{
     format_credit_micros, format_usd_nanos, A2aEfficiencyRow, ApplyOutcome, AttributionMode,
     CacheTierBreakdown, Cluster, ConfigConflict, ConfigDelta, ConfigSnapshot, ConfigStore,
     CostEvent, DataQuality, EfficiencyLedgerSummary, Endpoint, McpEfficiencyRow,
     OptimizationLedgerSummary, OptimizationOpportunity, OutlierDetectionConfig, PricingStatus,
     RateLimitPolicy, Result, RuntimeConfig, SecretKeyReference, SecurityDecision, SourceId,
     SourceState, SpendAccountRow, SpendLedgerSummary, SpendModelRow, TokenBreakdown, TokenCounts,
-    TokenLedgerSummary, TokenLimitPolicy, WeightedBackend, WeightedCluster, XgateError,
+    TokenLedgerSummary, TokenLimitPolicy, WeightedBackend, WeightedCluster, TransitError,
 };
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -123,6 +123,7 @@ pub struct ProxyState {
 
 struct Inner {
     llm_accounts: crate::LlmAccounts,
+    access_settings: crate::access_settings::AccessSettings,
     llm_timings: Arc<crate::LlmTimings>,
     /// Shared with every configuration source. Sources write deltas into it
     /// directly; the proxy only ever reads published snapshots.
@@ -514,6 +515,7 @@ impl ProxyState {
         Self {
             inner: Arc::new(Inner {
                 llm_accounts: crate::LlmAccounts::default(),
+                access_settings: crate::access_settings::AccessSettings::default(),
                 llm_timings: Arc::new(crate::LlmTimings::default()),
                 store,
                 pruned_revision: AtomicU64::new(0),
@@ -541,6 +543,10 @@ impl ProxyState {
 
     pub fn llm_accounts(&self) -> &crate::LlmAccounts {
         &self.inner.llm_accounts
+    }
+
+    pub fn access_settings(&self) -> &crate::access_settings::AccessSettings {
+        &self.inner.access_settings
     }
 
     pub fn llm_timings(&self) -> &Arc<crate::LlmTimings> {
@@ -580,11 +586,19 @@ impl ProxyState {
     /// bootstrapping. Production updates use the same xDS owner and apply deltas
     /// directly to the store.
     pub fn apply_config(&self, cfg: RuntimeConfig) -> std::result::Result<(), Vec<ConfigConflict>> {
+        self.apply_config_from(SourceId::Xds, cfg)
+    }
+
+    pub fn apply_config_from(
+        &self,
+        source: SourceId,
+        cfg: RuntimeConfig,
+    ) -> std::result::Result<(), Vec<ConfigConflict>> {
         let delta = {
             let mut sources = self.inner.document_sources.lock().unwrap();
-            sources.entry(SourceId::Xds).or_default().reconcile(cfg)
+            sources.entry(source).or_default().reconcile(cfg)
         };
-        let outcome = self.apply_delta(SourceId::Xds, delta);
+        let outcome = self.apply_delta(source, delta);
         let mut problems = outcome.rejected;
         problems.extend(outcome.conflicts);
         if problems.is_empty() {
@@ -723,7 +737,7 @@ impl ProxyState {
     pub async fn pick_endpoint<'a>(&self, cluster: &'a Cluster) -> Result<&'a Endpoint> {
         let healthy: Vec<&Endpoint> = cluster.endpoints.iter().filter(|ep| ep.healthy).collect();
         if healthy.is_empty() {
-            return Err(XgateError::NoHealthyEndpoints(cluster.name.clone()));
+            return Err(TransitError::NoHealthyEndpoints(cluster.name.clone()));
         }
         let candidates = self.admissible_endpoints(cluster, &healthy);
         let idx = next_cursor(
@@ -1066,16 +1080,16 @@ impl ProxyState {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
 
-        let quote_res = xgate_core::quote_tokens(
+        let quote_res = transit_core::quote_tokens(
             model,
-            xgate_core::TokenCounts {
+            transit_core::TokenCounts {
                 prompt_tokens,
                 cached_prompt_tokens: token_breakdown.cache_read,
                 cache_write_tokens,
                 completion_tokens,
             },
-            xgate_core::ServiceTier::Standard,
-            xgate_core::ContextBand::Short,
+            transit_core::ServiceTier::Standard,
+            transit_core::ContextBand::Short,
         );
 
         let mut metrics = self.inner.metrics.lock().unwrap();
@@ -1263,7 +1277,7 @@ impl ProxyState {
 
         if metrics.cost_events.is_empty() {
             for metric in metrics.llm_usage.values() {
-                match xgate_core::quote_tokens(
+                match transit_core::quote_tokens(
                     &metric.model,
                     TokenCounts {
                         prompt_tokens: metric.prompt_tokens,
@@ -1271,8 +1285,8 @@ impl ProxyState {
                         cache_write_tokens: 0,
                         completion_tokens: metric.completion_tokens,
                     },
-                    xgate_core::ServiceTier::Standard,
-                    xgate_core::ContextBand::Short,
+                    transit_core::ServiceTier::Standard,
+                    transit_core::ContextBand::Short,
                 ) {
                     Ok(q) => {
                         priced_requests += metric.requests;
@@ -1318,7 +1332,7 @@ impl ProxyState {
             }
         } else {
             for row in model_map.values_mut() {
-                if let Ok(q) = xgate_core::quote_tokens(
+                if let Ok(q) = transit_core::quote_tokens(
                     &row.model,
                     TokenCounts {
                         prompt_tokens: row.uncached_input_tokens + row.cached_input_tokens,
@@ -1326,8 +1340,8 @@ impl ProxyState {
                         cache_write_tokens: 0,
                         completion_tokens: row.output_tokens,
                     },
-                    xgate_core::ServiceTier::Standard,
-                    xgate_core::ContextBand::Short,
+                    transit_core::ServiceTier::Standard,
+                    transit_core::ContextBand::Short,
                 ) {
                     row.api_usd = q.api_usd();
                     row.chatgpt_credits = q.chatgpt_credits();
@@ -1775,9 +1789,7 @@ impl ProxyState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xgate_core::{
-        Cluster, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, VirtualHost,
-    };
+    use transit_core::{Cluster, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, VirtualHost};
 
     fn test_cluster(
         name: &str,
@@ -2017,7 +2029,7 @@ mod tests {
             endpoints: vec![],
             http2: false,
             tls: None,
-            circuit_breaker: Some(xgate_core::CircuitBreakerConfig {
+            circuit_breaker: Some(transit_core::CircuitBreakerConfig {
                 max_connections: None,
                 http1_max_pending_requests: None,
                 http2_max_requests: Some(1),

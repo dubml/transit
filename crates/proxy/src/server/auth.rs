@@ -2,7 +2,7 @@
 //! validation. Pure over the policy config and the request header pairs.
 
 use super::header_value;
-use xgate_core::AuthPolicy;
+use transit_core::AuthPolicy;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use serde_json::Value;

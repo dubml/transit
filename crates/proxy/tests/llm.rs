@@ -2,12 +2,12 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode, Uri};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use xgate_core::{
+use transit_core::{
     quote_tokens, AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, ContextBand,
     PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RuntimeConfig,
     ServiceTier, TokenCounts, TokenLimitPolicy, WeightedBackend,
 };
-use xgate_proxy::{ProxyServer, ProxyState};
+use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use serde_json::{json, Value};
@@ -42,7 +42,7 @@ impl OAuthDirectory {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        Self(std::env::temp_dir().join(format!("xgate-oauth-wire-{}-{nonce}", std::process::id())))
+        Self(std::env::temp_dir().join(format!("transit-oauth-wire-{}-{nonce}", std::process::id())))
     }
 }
 impl Drop for OAuthDirectory {
@@ -80,9 +80,9 @@ async fn codex_oauth_rules_and_responses_protocol_work_over_http() {
         .llm_accounts()
         .configure(&directory.0, "test-admin-token-long-enough".into())
         .unwrap();
-    proxy.state.llm_accounts().save(xgate_proxy::OAuthAccount {
+    proxy.state.llm_accounts().save(transit_proxy::OAuthAccount {
         id: "codex".into(), backend: "oauth".into(), document: json!({"type":"codex","access_token":"oauth-token","account_id":"account-test"}),
-        models: vec![xgate_proxy::ModelRule { model: "gpt-test".into(), alias: "friendly".into(), reasoning_effort: "high".into(), disabled: false }], revision: 0
+        models: vec![transit_proxy::ModelRule { model: "gpt-test".into(), alias: "friendly".into(), keep_original: true, reasoning_effort: "high".into(), disabled: false }], revision: 0
     }).await.unwrap();
 
     let (status, value) = post_json(
@@ -152,13 +152,14 @@ async fn anthropic_oauth_applies_reasoning_and_counts_cached_input() {
     proxy
         .state
         .llm_accounts()
-        .save(xgate_proxy::OAuthAccount {
+        .save(transit_proxy::OAuthAccount {
             id: "claude".into(),
             backend: "claude".into(),
             document: json!({"type":"claude","access_token":"claude-token"}),
-            models: vec![xgate_proxy::ModelRule {
+            models: vec![transit_proxy::ModelRule {
                 model: "claude-sonnet-4-6".into(),
                 alias: "friendly".into(),
+                keep_original: true,
                 reasoning_effort: "high".into(),
                 disabled: false,
             }],
@@ -187,7 +188,7 @@ impl Drop for TestProxy {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn anthropic_backend_translates_chat_completions() {
-    std::env::set_var("XGATE_TEST_ANTHROPIC_KEY", "anthro-key");
+    std::env::set_var("TRANSIT_TEST_ANTHROPIC_KEY", "anthro-key");
     let upstream = spawn_anthropic_backend().await;
     let proxy = spawn_proxy(llm_config(
         provider("anthropic", ProviderKind::Anthropic, upstream.addr, ""),
@@ -229,10 +230,10 @@ async fn anthropic_backend_translates_chat_completions() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn anthropic_backend_streams_openai_chunks() {
-    std::env::set_var("XGATE_TEST_ANTHROPIC_STREAM_KEY", "anthro-key");
+    std::env::set_var("TRANSIT_TEST_ANTHROPIC_STREAM_KEY", "anthro-key");
     let upstream = spawn_anthropic_backend().await;
     let mut provider = provider("anthropic", ProviderKind::Anthropic, upstream.addr, "");
-    provider.api_key_env = Some("XGATE_TEST_ANTHROPIC_STREAM_KEY".into());
+    provider.api_key_env = Some("TRANSIT_TEST_ANTHROPIC_STREAM_KEY".into());
     let proxy = spawn_proxy(llm_config(
         provider,
         vec![llm_backend("claude", "anthropic", vec![], BTreeMap::new())],
@@ -270,7 +271,7 @@ async fn anthropic_backend_streams_openai_chunks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn gemini_backend_translates_chat_completions() {
-    std::env::set_var("XGATE_TEST_GEMINI_KEY", "gemini-key");
+    std::env::set_var("TRANSIT_TEST_GEMINI_KEY", "gemini-key");
     let upstream = spawn_gemini_backend().await;
     let proxy = spawn_proxy(llm_config(
         provider("gemini", ProviderKind::Gemini, upstream.addr, "/v1beta"),
@@ -304,10 +305,10 @@ async fn gemini_backend_translates_chat_completions() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn gemini_backend_streams_openai_chunks() {
-    std::env::set_var("XGATE_TEST_GEMINI_STREAM_KEY", "gemini-key");
+    std::env::set_var("TRANSIT_TEST_GEMINI_STREAM_KEY", "gemini-key");
     let upstream = spawn_gemini_backend().await;
     let mut provider = provider("gemini", ProviderKind::Gemini, upstream.addr, "/v1beta");
-    provider.api_key_env = Some("XGATE_TEST_GEMINI_STREAM_KEY".into());
+    provider.api_key_env = Some("TRANSIT_TEST_GEMINI_STREAM_KEY".into());
     let proxy = spawn_proxy(llm_config(
         provider,
         vec![llm_backend("gemini", "gemini", vec![], BTreeMap::new())],
@@ -339,10 +340,10 @@ async fn gemini_backend_streams_openai_chunks() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn deepseek_kind_authenticates_with_bearer_and_records_usage() {
-    std::env::set_var("XGATE_TEST_DEEPSEEK_KEY", "sk-deepseek");
+    std::env::set_var("TRANSIT_TEST_DEEPSEEK_KEY", "sk-deepseek");
     let upstream = spawn_openai_backend().await;
     let mut provider = provider("deepseek", ProviderKind::DeepSeek, upstream.addr, "/v1");
-    provider.api_key_env = Some("XGATE_TEST_DEEPSEEK_KEY".into());
+    provider.api_key_env = Some("TRANSIT_TEST_DEEPSEEK_KEY".into());
     let proxy = spawn_proxy(llm_config(
         provider,
         vec![llm_backend("deepseek", "deepseek", vec![], BTreeMap::new())],
@@ -425,10 +426,10 @@ async fn gpt56_sol_usage_quotes_subscription_credits_and_api_usd() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn model_rewrite_renames_model_before_forwarding() {
-    std::env::set_var("XGATE_TEST_OPENAI_REWRITE_KEY", "sk-openai");
+    std::env::set_var("TRANSIT_TEST_OPENAI_REWRITE_KEY", "sk-openai");
     let upstream = spawn_openai_backend().await;
     let mut provider = provider("openai", ProviderKind::OpenAi, upstream.addr, "/v1");
-    provider.api_key_env = Some("XGATE_TEST_OPENAI_REWRITE_KEY".into());
+    provider.api_key_env = Some("TRANSIT_TEST_OPENAI_REWRITE_KEY".into());
     let rewrites = BTreeMap::from([("gpt-4".to_string(), "my-deployment".to_string())]);
     let proxy = spawn_proxy(llm_config(
         provider,
@@ -719,10 +720,10 @@ fn error_response(status: StatusCode, message: &str) -> axum::http::Response<Bod
 
 fn provider(name: &str, kind: ProviderKind, addr: SocketAddr, base_path: &str) -> Provider {
     let env_name = match kind {
-        ProviderKind::Anthropic => "XGATE_TEST_ANTHROPIC_KEY",
-        ProviderKind::Gemini => "XGATE_TEST_GEMINI_KEY",
-        ProviderKind::DeepSeek => "XGATE_TEST_DEEPSEEK_KEY",
-        _ => "XGATE_TEST_OPENAI_UNSET_KEY",
+        ProviderKind::Anthropic => "TRANSIT_TEST_ANTHROPIC_KEY",
+        ProviderKind::Gemini => "TRANSIT_TEST_GEMINI_KEY",
+        ProviderKind::DeepSeek => "TRANSIT_TEST_DEEPSEEK_KEY",
+        _ => "TRANSIT_TEST_OPENAI_UNSET_KEY",
     };
     Provider {
         name: name.into(),
@@ -773,6 +774,7 @@ fn llm_config(provider: Provider, backends: Vec<Backend>, policies: Vec<Policy>)
         providers: vec![provider],
         backends,
         routes: vec![AgentRoute {
+            listener_ports: Vec::new(),
             name: "llm".into(),
             protocol: AgentProtocol::Llm,
             matches: vec![AgentRouteMatch {
