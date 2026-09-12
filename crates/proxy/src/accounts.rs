@@ -519,10 +519,10 @@ impl LlmAccounts {
 }
 
 fn merge_refresh(account: &mut OAuthAccount, value: Value) -> Result<(), String> {
-    if !value
+    if value
         .get("access_token")
         .and_then(Value::as_str)
-        .is_some_and(|s| !s.is_empty())
+        .is_none_or(|s| s.is_empty())
     {
         return Err("OAuth refresh response has no access_token".into());
     }

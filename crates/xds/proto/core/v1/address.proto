@@ -4,7 +4,7 @@ package core.v1;
 
 import "google/protobuf/wrappers.proto";
 
-option go_package = "github.com/kdubbo/xds-api/core/v1;corev1";
+option go_package = "github.com/dubml/xds-api/core/v1;corev1";
 
 message CidrRange {
   string address_prefix = 1;

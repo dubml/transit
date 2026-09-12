@@ -19,9 +19,9 @@
 //! every call site, which is how transit previously shipped an xDS client that
 //! never re-subscribed after a reconnect.
 
-use transit_core::store::Collection;
 use proptest::prelude::*;
 use std::collections::BTreeMap;
+use transit_core::store::Collection;
 
 /// One event against a collection, mirroring what a source can emit.
 #[derive(Debug, Clone)]

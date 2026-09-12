@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: transit-control-plane
+  namespace: transit-system
+spec:
+  selector:
+    app.kubernetes.io/name: transit-controller
+  ports:
+    - name: xds
+      port: 18000
+      targetPort: xds
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transit-controller
+  namespace: transit-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: transit-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: transit-controller
+    spec:
+      serviceAccountName: transit-controller
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: controller
+          image: ghcr.io/dubml/transit-controller:dev
+          args:
+            - --xds-address=:18000
+            - --health-address=:18001
+            - --tls-cert=/etc/transit/xds/tls.crt
+            - --tls-key=/etc/transit/xds/tls.key
+            - --xds-root-ca=/etc/transit/xds/ca.crt
+            - --xds-public-address=https://transit-control-plane.transit-system.svc:18000
+            - --proxy-image=ghcr.io/dubml/transit:dev
+            - --proxy-replicas=1
+            - --service-type=LoadBalancer
+          ports:
+            - name: xds
+              containerPort: 18000
+            - name: health
+              containerPort: 18001
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 2
+            failureThreshold: 60
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: xds-tls
+              mountPath: /etc/transit/xds
+              readOnly: true
+      volumes:
+        - name: xds-tls
+          secret:
+            secretName: transit-xds-tls

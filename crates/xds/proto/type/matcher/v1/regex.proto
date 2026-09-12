@@ -4,7 +4,7 @@ package type.matcher.v1;
 
 import "google/protobuf/wrappers.proto";
 
-option go_package = "github.com/kdubbo/xds-api/type/matcher/v1;matcherv1";
+option go_package = "github.com/dubml/xds-api/type/matcher/v1;matcherv1";
 
 message RegexMatcher {
   string regex = 2;

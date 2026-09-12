@@ -1,15 +1,17 @@
-module github.com/kdubbo/transit/controller
+module github.com/dubml/transit/controller
 
 go 1.26.0
 
 require (
-	github.com/kdubbo/xds-api v0.0.0
+	github.com/dubml/xds-api v0.0.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260427160629-7cedc36a6bc4
 	google.golang.org/grpc v1.82.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	istio.io/istio v0.0.0-20260704181517-116e8ec30db4
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
 	k8s.io/client-go v0.36.2
+	sigs.k8s.io/controller-runtime v0.24.1
 	sigs.k8s.io/gateway-api v1.6.0
 )
 
@@ -29,6 +31,7 @@ require (
 	github.com/envoyproxy/go-control-plane/contrib v1.36.1-0.20260627225610-70ff85c381ff // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.37.1-0.20260627225610-70ff85c381ff // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
+	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -108,7 +111,6 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260427160629-7cedc36a6bc4 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260427160629-7cedc36a6bc4 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
@@ -128,4 +130,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/kdubbo/xds-api => ../crates/xds/proto
+replace github.com/dubml/xds-api => ../crates/xds/proto

@@ -5,7 +5,7 @@ package route.v1;
 import "route/v1/route_components.proto";
 import "route/v1/agent_config.proto";
 
-option go_package = "github.com/kdubbo/xds-api/route/v1;routev1";
+option go_package = "github.com/dubml/xds-api/route/v1;routev1";
 
 message RouteConfiguration {
   string name = 1;

@@ -2,11 +2,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, Uri, Version};
 use axum::routing::any;
 use axum::Router;
-use transit_core::{
-    Cluster, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, RuntimeConfig,
-    VirtualHost, WeightedCluster,
-};
-use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use std::net::SocketAddr;
@@ -17,6 +12,11 @@ use tokio::time::sleep;
 use tonic_health::pb::health_check_response::ServingStatus;
 use tonic_health::pb::health_client::HealthClient;
 use tonic_health::pb::HealthCheckRequest;
+use transit_core::{
+    Cluster, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, RuntimeConfig,
+    VirtualHost, WeightedCluster,
+};
+use transit_proxy::{ProxyServer, ProxyState};
 
 struct TestServer {
     addr: SocketAddr,

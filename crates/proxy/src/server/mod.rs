@@ -9,10 +9,6 @@ use axum::http::{
 };
 use axum::routing::any;
 use axum::Router;
-use transit_core::{
-    AgentProtocol, AgentRoute, AttributionMode, Backend, ConfigSnapshot, CostEvent, DataQuality,
-    MatchInput, PricingStatus, RetryPolicy, TokenBreakdown, WeightedBackend, HTTP_LISTENER_PORT,
-};
 use hyper::body::Bytes;
 use opentelemetry::trace::TraceContextExt;
 use serde_json::Value;
@@ -25,12 +21,17 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::time;
 use tracing::{debug, info, warn, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use transit_core::{
+    AgentProtocol, AgentRoute, AttributionMode, Backend, ConfigSnapshot, CostEvent, DataQuality,
+    MatchInput, PricingStatus, RetryPolicy, TokenBreakdown, WeightedBackend, HTTP_LISTENER_PORT,
+};
 
 mod access_log;
 mod auth;
 mod context;
 mod detect;
 mod headers;
+mod listeners;
 mod llm_flow;
 mod otel_log;
 mod policy;
@@ -50,7 +51,7 @@ use llm_flow::{finalize_llm_response, prepare_llm_exchange, prepare_oauth_exchan
 use otel_log::OtelAccessLogExporter;
 use policy::{evaluate_policies, PolicyDefault, PolicyRuntime};
 use routing::{
-    backend_matches_protocol, backend_provider, compose_upstream_uri, endpoint_authority,
+    backend_matches_protocol, backend_provider, compose_backend_uri, endpoint_authority,
     header_pairs, host_header, protocol_name, upstream_request_mode, UpstreamRequestMode,
 };
 use security::{enforce_listener_security, JwtKeyCache};
@@ -291,7 +292,10 @@ async fn forward(
         };
         for protocol in candidates {
             let context = AgentRequestContext::new(*protocol, &parts, &body_bytes);
-            if let Some(route) = snapshot.agent_route_for_port(server.listener_port, &context.input()).cloned() {
+            if let Some(route) = snapshot
+                .agent_route_for_port(server.listener_port, &context.input())
+                .cloned()
+            {
                 // Agent routes may retry or federate internally, but access logs
                 // represent the single request the client sent to the gateway.
                 let method = context.method.as_str().to_string();
@@ -1270,7 +1274,7 @@ async fn request_agent_backend(
     let (uri, out_body) = match &exchange {
         Some(exchange) => (exchange.uri.clone(), exchange.body.clone()),
         None => (
-            compose_upstream_uri(endpoint, &context.path_and_query)?,
+            compose_backend_uri(context.protocol, endpoint, &context.path_and_query)?,
             body.clone(),
         ),
     };
@@ -1395,8 +1399,7 @@ async fn request_agent_backend(
                 backend,
                 &exchange.model,
                 policy_runtime,
-                Some(trace_id),
-                Some(span_id),
+                (trace_id, span_id),
                 latency_ms,
             );
             let sink = observation.sink(sink);
@@ -1752,7 +1755,6 @@ mod tests {
         mtls_cache_key, peer_identities, DynamicMtlsClientPool, GrpcBootstrap, MtlsClientPool,
     };
     use super::*;
-    use transit_core::{ConfigDelta, ConfigStore, SourceId, TlsSecret, UpstreamTls, UpstreamTlsMode};
     use hyper::body;
     use rcgen::{
         BasicConstraints, Certificate as RcgenCertificate, CertificateParams, DistinguishedName,
@@ -1766,6 +1768,9 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio_rustls::TlsAcceptor;
+    use transit_core::{
+        ConfigDelta, ConfigStore, SourceId, TlsSecret, UpstreamTls, UpstreamTlsMode,
+    };
 
     #[test]
     fn max_body_bytes_parses_env_values() {

@@ -10,10 +10,10 @@ use super::{read_body_limited, ProxyServer};
 use crate::llm::{self, LlmDialect, LlmUsage, UsageSink};
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue as HttpHeaderValue, Response, StatusCode, Uri};
-use transit_core::{AgentRoute, Backend, Provider};
 use hyper::body::Bytes;
 use serde_json::Value;
 use std::sync::Arc;
+use transit_core::{AgentRoute, Backend, Provider};
 
 pub(super) struct LlmExchange {
     pub(super) native_responses: bool,
@@ -293,8 +293,7 @@ pub(super) fn usage_sink(
     backend: &Backend,
     model: &str,
     policy_runtime: &PolicyRuntime,
-    trace_id: Option<String>,
-    span_id: Option<String>,
+    (trace_id, span_id): (String, String),
     latency_ms: u64,
 ) -> UsageSink {
     let state = server.state.clone();
@@ -312,8 +311,8 @@ pub(super) fn usage_sink(
             usage.cache_write_tokens,
             usage.completion_tokens,
             usage.reasoning_tokens,
-            trace_id.clone(),
-            span_id.clone(),
+            Some(trace_id.clone()),
+            Some(span_id.clone()),
             latency_ms,
             200,
         );

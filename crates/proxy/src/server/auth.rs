@@ -2,11 +2,11 @@
 //! validation. Pure over the policy config and the request header pairs.
 
 use super::header_value;
-use transit_core::AuthPolicy;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use serde_json::Value;
 use std::env;
+use transit_core::AuthPolicy;
 
 pub(super) fn validate_auth(
     auth: &AuthPolicy,

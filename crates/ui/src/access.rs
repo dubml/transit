@@ -261,10 +261,13 @@ struct SaveRequest {
 
 async fn save(State(ui): State<UiServer>, Json(request): Json<SaveRequest>) -> Response {
     if ui.runtime.mode == transit_core::RuntimeMode::Kubernetes {
-        return response(StatusCode::CONFLICT, json!({
-            "error":"Access settings are managed by the Kubernetes deployment; update its ConfigMap or Secret and roll out the change.",
-            "managed_by":"kubernetes"
-        }));
+        return response(
+            StatusCode::CONFLICT,
+            json!({
+                "error":"Access settings are managed by the Kubernetes deployment; update its ConfigMap or Secret and roll out the change.",
+                "managed_by":"kubernetes"
+            }),
+        );
     }
     let host = match request.config.host.trim() {
         "" => Some(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)),
@@ -342,7 +345,7 @@ mod tests {
             )
             .unwrap();
         let mut ui = UiServer::new(state.clone(), "127.0.0.1:8080".parse().unwrap(), true);
-        ui.bind_addr = Some("0.0.0.0:15021".parse().unwrap());
+        ui.bind_addr = Some("0.0.0.0:26021".parse().unwrap());
         let app = routes()
             .route("/debug/config", get(|| async { "private" }))
             .route("/", get(|| async { "panel" }))
@@ -351,7 +354,7 @@ mod tests {
         let request = |path: &str, peer: &str, token: &str, origin: &str| {
             Request::builder()
                 .uri(path)
-                .header(header::HOST, "localhost:15021")
+                .header(header::HOST, "localhost:26021")
                 .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header("x-forwarded-for", "127.0.0.1")
                 .header(header::ORIGIN, origin)
@@ -364,21 +367,21 @@ mod tests {
                 "/admin/access",
                 "127.0.0.1:1",
                 "",
-                "http://localhost:15021",
+                "http://localhost:26021",
                 StatusCode::UNAUTHORIZED,
             ),
             (
                 "/debug/config",
                 "127.0.0.1:1",
                 "",
-                "http://localhost:15021",
+                "http://localhost:26021",
                 StatusCode::UNAUTHORIZED,
             ),
             (
                 "/admin/access",
                 "192.0.2.1:1",
                 "",
-                "http://localhost:15021",
+                "http://localhost:26021",
                 StatusCode::FORBIDDEN,
             ),
         ] {
@@ -395,7 +398,7 @@ mod tests {
             "/admin/session",
             "127.0.0.1:1",
             "",
-            "http://localhost:15021",
+            "http://localhost:26021",
         );
         *local.method_mut() = axum::http::Method::POST;
         assert_eq!(
@@ -409,7 +412,7 @@ mod tests {
                     "/admin/access",
                     "127.0.0.1:1",
                     &token,
-                    "http://localhost:15021"
+                    "http://localhost:26021"
                 ))
                 .await
                 .unwrap()
@@ -433,12 +436,12 @@ mod tests {
             "/admin/session",
             "127.0.0.1:1",
             "",
-            "http://attacker.example:15021",
+            "http://attacker.example:26021",
         );
         *spoofed.method_mut() = axum::http::Method::POST;
         spoofed
             .headers_mut()
-            .insert(header::HOST, "attacker.example:15021".parse().unwrap());
+            .insert(header::HOST, "attacker.example:26021".parse().unwrap());
         assert_eq!(
             app.clone().oneshot(spoofed).await.unwrap().status(),
             StatusCode::FORBIDDEN
@@ -456,7 +459,7 @@ mod tests {
                     "/admin/access",
                     "192.0.2.1:1",
                     key,
-                    "http://localhost:15021"
+                    "http://localhost:26021"
                 ))
                 .await
                 .unwrap()
@@ -469,7 +472,7 @@ mod tests {
                     "/admin/access",
                     "127.0.0.1:1",
                     &token,
-                    "http://localhost:15021"
+                    "http://localhost:26021"
                 ))
                 .await
                 .unwrap()
@@ -483,7 +486,7 @@ mod tests {
                         "/admin/access",
                         "192.0.2.2:1",
                         "wrong",
-                        "http://localhost:15021"
+                        "http://localhost:26021"
                     ))
                     .await
                     .unwrap()
@@ -497,7 +500,7 @@ mod tests {
                     "/admin/access",
                     "192.0.2.2:1",
                     key,
-                    "http://localhost:15021"
+                    "http://localhost:26021"
                 ))
                 .await
                 .unwrap()
@@ -509,7 +512,7 @@ mod tests {
         state.access_settings().save(1, config, None).unwrap();
         assert_eq!(
             app.clone()
-                .oneshot(request("/", "127.0.0.1:1", key, "http://localhost:15021"))
+                .oneshot(request("/", "127.0.0.1:1", key, "http://localhost:26021"))
                 .await
                 .unwrap()
                 .status(),
@@ -520,7 +523,7 @@ mod tests {
                 "/admin/access",
                 "127.0.0.1:1",
                 key,
-                "http://localhost:15021"
+                "http://localhost:26021"
             ))
             .await
             .unwrap()

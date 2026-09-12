@@ -10,4 +10,5 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifi
 COPY --from=builder /workspace/target/release/transit /usr/local/bin/transit
 
 USER 65532:65532
+EXPOSE 26080 26443 26021
 ENTRYPOINT ["/usr/local/bin/transit"]

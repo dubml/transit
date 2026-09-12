@@ -1727,7 +1727,7 @@ const file_route_v1_agent_config_proto_rawDesc = "" +
 	"\x05ROUTE\x10\x01\x12\v\n" +
 	"\aBACKEND\x10\x02\x12\n" +
 	"\n" +
-	"\x06HEADER\x10\x03B,Z*github.com/kdubbo/xds-api/route/v1;routev1b\x06proto3"
+	"\x06HEADER\x10\x03B+Z)github.com/dubml/xds-api/route/v1;routev1b\x06proto3"
 
 var (
 	file_route_v1_agent_config_proto_rawDescOnce sync.Once

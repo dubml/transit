@@ -89,7 +89,7 @@ const file_route_v1_route_proto_rawDesc = "" +
 	"\x12RouteConfiguration\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12:\n" +
 	"\rvirtual_hosts\x18\x02 \x03(\v2\x15.route.v1.VirtualHostR\fvirtualHosts\x128\n" +
-	"\fagent_config\x18\x03 \x01(\v2\x15.route.v1.AgentConfigR\vagentConfigB,Z*github.com/kdubbo/xds-api/route/v1;routev1b\x06proto3"
+	"\fagent_config\x18\x03 \x01(\v2\x15.route.v1.AgentConfigR\vagentConfigB+Z)github.com/dubml/xds-api/route/v1;routev1b\x06proto3"
 
 var (
 	file_route_v1_route_proto_rawDescOnce sync.Once

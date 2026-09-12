@@ -3,7 +3,6 @@
 
 use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
-use transit_core::{Cluster, ConfigSnapshot, TlsSecret, UpstreamTls};
 use hyper::client::HttpConnector;
 use hyper::Client;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
@@ -21,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once};
 use std::time::SystemTime;
 use tracing::{info, warn};
+use transit_core::{Cluster, ConfigSnapshot, TlsSecret, UpstreamTls};
 use x509_parser::extensions::GeneralName;
 use x509_parser::prelude::{FromDer, X509Certificate};
 

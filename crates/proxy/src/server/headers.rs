@@ -3,8 +3,8 @@
 //! state; they operate only on a `HeaderMap` and config values.
 
 use axum::http::{HeaderMap, HeaderName, HeaderValue as HttpHeaderValue};
-use transit_core::{HeaderTransform, Provider, ProviderKind};
 use std::env;
+use transit_core::{HeaderTransform, Provider, ProviderKind};
 
 pub(super) fn remove_connection_headers(headers: &mut HeaderMap) {
     let named: Vec<String> = headers

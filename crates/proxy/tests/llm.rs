@@ -2,12 +2,6 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Request, StatusCode, Uri};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use transit_core::{
-    quote_tokens, AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, ContextBand,
-    PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RuntimeConfig,
-    ServiceTier, TokenCounts, TokenLimitPolicy, WeightedBackend,
-};
-use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use serde_json::{json, Value};
@@ -17,6 +11,12 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
+use transit_core::{
+    quote_tokens, AgentProtocol, AgentRoute, AgentRouteMatch, Backend, BackendKind, ContextBand,
+    PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RuntimeConfig,
+    ServiceTier, TokenCounts, TokenLimitPolicy, WeightedBackend,
+};
+use transit_proxy::{ProxyServer, ProxyState};
 
 struct TestServer {
     addr: SocketAddr,
@@ -42,7 +42,9 @@ impl OAuthDirectory {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        Self(std::env::temp_dir().join(format!("transit-oauth-wire-{}-{nonce}", std::process::id())))
+        Self(
+            std::env::temp_dir().join(format!("transit-oauth-wire-{}-{nonce}", std::process::id())),
+        )
     }
 }
 impl Drop for OAuthDirectory {

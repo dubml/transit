@@ -627,42 +627,42 @@ mod tests {
             .unwrap();
         state.llm_accounts().configure_local(&directory.0).unwrap();
         let mut ui = UiServer::new(state.clone(), "127.0.0.1:8080".parse().unwrap(), true);
-        ui.bind_addr = Some("127.0.0.1:15021".parse().unwrap());
+        ui.bind_addr = Some("127.0.0.1:26021".parse().unwrap());
         let app = routes().with_state(ui.clone());
         for (peer, host, origin, expected) in [
             (
                 "127.0.0.1:12345",
-                "127.0.0.1:15021",
-                "http://127.0.0.1:15021",
+                "127.0.0.1:26021",
+                "http://127.0.0.1:26021",
                 StatusCode::OK,
             ),
             (
                 "127.0.0.1:12345",
-                "localhost:15021",
-                "http://localhost:15021",
+                "localhost:26021",
+                "http://localhost:26021",
                 StatusCode::OK,
             ),
             (
                 "192.0.2.1:12345",
-                "127.0.0.1:15021",
-                "http://127.0.0.1:15021",
+                "127.0.0.1:26021",
+                "http://127.0.0.1:26021",
                 StatusCode::FORBIDDEN,
             ),
             (
                 "127.0.0.1:12345",
-                "attacker.test:15021",
-                "http://attacker.test:15021",
+                "attacker.test:26021",
+                "http://attacker.test:26021",
                 StatusCode::FORBIDDEN,
             ),
             (
                 "127.0.0.1:12345",
-                "127.0.0.1:15021",
+                "127.0.0.1:26021",
                 "https://attacker.test",
                 StatusCode::FORBIDDEN,
             ),
             (
                 "127.0.0.1:12345",
-                "127.0.0.1:15021",
+                "127.0.0.1:26021",
                 "",
                 StatusCode::FORBIDDEN,
             ),
@@ -735,12 +735,12 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("denied"));
-        ui.bind_addr = Some("0.0.0.0:15021".parse().unwrap());
+        ui.bind_addr = Some("0.0.0.0:26021".parse().unwrap());
         let mut request = axum::http::Request::builder()
             .method("POST")
             .uri("/admin/llm/session")
-            .header(header::HOST, "localhost:15021")
-            .header(header::ORIGIN, "http://localhost:15021")
+            .header(header::HOST, "localhost:26021")
+            .header(header::ORIGIN, "http://localhost:26021")
             .body(hyper::Body::empty())
             .unwrap();
         request.extensions_mut().insert(ConnectInfo(

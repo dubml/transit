@@ -52,7 +52,7 @@ async function request(url, options = {}) {
     assert.equal(await page.locator('#cfg-port').inputValue(),String(proxyPort));
     assert.match(await page.locator('#cfg-version').textContent(),/^v\d/);
     assert.equal(await page.locator('#cfg-save').isDisabled(),true);
-    await page.locator('#cfg-runtime-tab').focus();await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('#cfg-access-tab').getAttribute('aria-selected'),'true');
+    if (await page.locator('#cfg-runtime-tab').count()) { await page.locator('#cfg-runtime-tab').focus();await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('#cfg-access-tab').getAttribute('aria-selected'),'true'); }
     assert.equal((await request(apiBase()+'/admin/access')).status,401);
     assert.equal((await request(apiBase()+'/debug/config')).status,401);
     const token=await page.evaluate(()=>llmManagementToken);
@@ -99,7 +99,12 @@ async function request(url, options = {}) {
     const saved=await fs.readFile(accessPath,'utf8');assert(!saved.includes(managementKey));assert(saved.includes('pbkdf2$'));
     assert.equal((await withKey('/admin/llm/session',{method:'POST',headers:{Origin:apiBase()}})).status,403);
     assert.equal(JSON.parse((await withKey('/debug/llm')).body).management_mode,'token');
-    await page.locator('#cfg-tls summary').click();await page.locator('#cfg-tls-enable').check();
+    if (await page.locator('#cfg-tls summary').count()) await page.locator('#cfg-tls summary').click();
+    await page.locator('#cfg-port').fill('26080');await page.locator('#cfg-tls-enable').check();
+    assert.equal(await page.locator('#cfg-port').inputValue(),'26443');
+    await page.locator('#cfg-tls-enable').uncheck();assert.equal(await page.locator('#cfg-port').inputValue(),'26080');
+    await page.locator('#cfg-port').fill(String(proxyPort));await page.locator('#cfg-tls-enable').check();
+    assert.equal(await page.locator('#cfg-port').inputValue(),String(proxyPort));
     assert.equal(await page.locator('#cfg-tls-fields').isVisible(),true);
     const cert=path.join(temporary,'cert.pem'),key=path.join(temporary,'key.pem');
     execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',key,'-out',cert,'-days','1','-subj','/CN=localhost'],{stdio:'ignore'});

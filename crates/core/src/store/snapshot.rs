@@ -372,10 +372,18 @@ impl ConfigSnapshot {
             .find(|route| route.matches(input))
     }
 
-    pub fn agent_route_for_port(&self, port: u16, input: &AgentMatchInput<'_>) -> Option<&Arc<AgentRoute>> {
-        self.agent_routes_by_protocol.get(&input.protocol)?.iter().find(|route| {
-            (route.listener_ports.is_empty() || route.listener_ports.contains(&port)) && route.matches(input)
-        })
+    pub fn agent_route_for_port(
+        &self,
+        port: u16,
+        input: &AgentMatchInput<'_>,
+    ) -> Option<&Arc<AgentRoute>> {
+        self.agent_routes_by_protocol
+            .get(&input.protocol)?
+            .iter()
+            .find(|route| {
+                (route.listener_ports.is_empty() || route.listener_ports.contains(&port))
+                    && route.matches(input)
+            })
     }
 
     /// Rebuilds the flat configuration document, for `/debug/config` and tests.
@@ -544,7 +552,10 @@ fn validate_references(
     backend_names.sort();
     for name in backend_names {
         let backend = &backends[name];
-        if let BackendKind::Llm { provider, endpoint, .. } = &backend.kind {
+        if let BackendKind::Llm {
+            provider, endpoint, ..
+        } = &backend.kind
+        {
             if endpoint.is_none() && !providers.contains_key(provider) {
                 conflicts.push(ConfigConflict::new(
                     "missing-provider",

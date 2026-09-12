@@ -3,15 +3,15 @@ use axum::http::{header, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use transit_proxy::{
-    A2aMethodMetric, HttpRouteConcurrencyMetric, HttpRouteMetric, LlmUsageMetric, McpToolMetric,
-    ProxyMetrics, ProxyState, Readiness, RouteMetric,
-};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use transit_proxy::{
+    A2aMethodMetric, HttpRouteConcurrencyMetric, HttpRouteMetric, LlmUsageMetric, McpToolMetric,
+    ProxyMetrics, ProxyState, Readiness, RouteMetric,
+};
 
 mod access;
 mod llm;
@@ -2006,7 +2006,7 @@ mod tests {
         assert!(html.contains("Core"));
         assert!(html.contains("AI"));
         assert!(html.contains("Operations"));
-        assert!(html.contains("id=\"search-input\""));
+        assert!(html.contains("id=\"svc-search-input\""));
         assert!(html.contains("id=\"theme-toggle\""));
         assert!(html.contains("id=\"lang-toggle\""));
         assert!(html.contains("/debug/config"));

@@ -7,7 +7,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/wrappers.proto";
 
-option go_package = "github.com/kdubbo/xds-api/core/v1;corev1";
+option go_package = "github.com/dubml/xds-api/core/v1;corev1";
 
 enum HealthStatus {
   UNKNOWN = 0;

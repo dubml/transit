@@ -3,10 +3,6 @@
 use super::ProxyServer;
 use axum::body::Body;
 use axum::http::{HeaderName, Request, StatusCode};
-use transit_core::{
-    AuthorizationAction, AuthorizationCondition, AuthorizationPolicy, AuthorizationRule,
-    AuthorizationSource, ConfigSnapshot, JwtProvider, ListenerSecurity,
-};
 use hyper::body::to_bytes;
 use jsonwebtoken::jwk::JwkSet;
 use jsonwebtoken::{decode, decode_header, DecodingKey, Validation};
@@ -16,6 +12,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use transit_core::{
+    AuthorizationAction, AuthorizationCondition, AuthorizationPolicy, AuthorizationRule,
+    AuthorizationSource, ConfigSnapshot, JwtProvider, ListenerSecurity,
+};
 
 const JWKS_CACHE_TTL: Duration = Duration::from_secs(300);
 
@@ -379,8 +379,8 @@ fn wildcard_match(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use transit_core::{AuthorizationCondition, AuthorizationSource};
     use serde_json::json;
+    use transit_core::{AuthorizationCondition, AuthorizationSource};
 
     #[test]
     fn jwt_claim_rule_matches_authenticated_request() {

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package extensions.filters.http.rbac.v1;
 
-option go_package = "github.com/kdubbo/xds-api/extensions/filters/v1/http/rbac;rbacv1";
+option go_package = "github.com/dubml/xds-api/extensions/filters/v1/http/rbac;rbacv1";
 
 message RBAC {
   enum Action {

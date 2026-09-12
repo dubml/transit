@@ -61,13 +61,17 @@ pub(super) async fn configure(
 }
 
 pub(super) async fn configure_service_account(
-    endpoint: Endpoint, root_ca: &Path,
+    endpoint: Endpoint,
+    root_ca: &Path,
 ) -> Result<Endpoint, XdsError> {
     if endpoint.uri().scheme_str() != Some("https") {
-        return Err(XdsError::Credentials("ServiceAccount credentials require an https ADS endpoint".into()));
+        return Err(XdsError::Credentials(
+            "ServiceAccount credentials require an https ADS endpoint".into(),
+        ));
     }
     let ca = read(root_ca).await?;
-    endpoint.tls_config(ClientTlsConfig::new().ca_certificate(Certificate::from_pem(ca)))
+    endpoint
+        .tls_config(ClientTlsConfig::new().ca_certificate(Certificate::from_pem(ca)))
         .map_err(|_| XdsError::Credentials("invalid xDS trust bundle".into()))
 }
 

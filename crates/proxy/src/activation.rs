@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn parses_service_without_cluster_suffix() {
-		let target = Target::from_cluster_name("outbound|8080||orders.default.svc").unwrap();
+        let target = Target::from_cluster_name("outbound|8080||orders.default.svc").unwrap();
         assert_eq!(target.namespace, "default");
         assert_eq!(target.name, "orders");
     }

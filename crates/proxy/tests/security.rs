@@ -1,12 +1,6 @@
 use axum::http::{Request, StatusCode};
 use axum::routing::any;
 use axum::Router;
-use transit_core::{
-    AuthorizationAction, AuthorizationCondition, AuthorizationPolicy, AuthorizationRule,
-    AuthorizationSource, Cluster, Endpoint, JwtHeader, JwtProvider, Listener, ListenerProtocol,
-    ListenerSecurity, PathMatch, Route, RouteMatch, RuntimeConfig, VirtualHost, WeightedCluster,
-};
-use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body::{self, Body};
 use hyper::Client;
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
@@ -14,6 +8,12 @@ use serde_json::json;
 use std::net::{SocketAddr, TcpListener};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
+use transit_core::{
+    AuthorizationAction, AuthorizationCondition, AuthorizationPolicy, AuthorizationRule,
+    AuthorizationSource, Cluster, Endpoint, JwtHeader, JwtProvider, Listener, ListenerProtocol,
+    ListenerSecurity, PathMatch, Route, RouteMatch, RuntimeConfig, VirtualHost, WeightedCluster,
+};
+use transit_proxy::{ProxyServer, ProxyState};
 
 const JWT_SECRET: &[u8] = b"01234567890123456789012345678901";
 

@@ -5,7 +5,7 @@ package extensions.transport_sockets.tls.v1;
 import "core/v1/base.proto";
 import "google/protobuf/wrappers.proto";
 
-option go_package = "github.com/kdubbo/xds-api/extensions/transport_sockets/tls/v1;tlsv1";
+option go_package = "github.com/dubml/xds-api/extensions/transport_sockets/tls/v1;tlsv1";
 
 message CertificateValidationContext {
   repeated string match_subject_alt_names = 1;

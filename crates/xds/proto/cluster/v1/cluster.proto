@@ -11,7 +11,7 @@ import "core/v1/base.proto";
 import "core/v1/config_source.proto";
 import "endpoint/v1/endpoint.proto";
 
-option go_package = "github.com/kdubbo/xds-api/cluster/v1;clusterv1";
+option go_package = "github.com/dubml/xds-api/cluster/v1;clusterv1";
 
 message Cluster {
 

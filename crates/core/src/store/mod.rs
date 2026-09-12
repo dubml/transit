@@ -1,15 +1,15 @@
 //! Owner-tracked configuration store.
 //!
-//! Production configuration comes from `dubbod` over xDS. The owner tracking
-//! also lets tests and offline tooling apply a static fixture without silently
-//! overwriting control-plane resources. A whole-value [`RuntimeConfig`] snapshot cannot express that:
+//! Configuration comes from a standalone file or the selected xDS control plane.
+//! Owner tracking prevents one source from silently overwriting another source's
+//! resources. A whole-value [`RuntimeConfig`] snapshot cannot express that:
 //! whoever publishes last wins and silently erases everything the other sources
 //! contributed. The store instead keys every resource by `(kind, name)`, records
 //! the [`SourceId`] that owns it, and applies per-source deltas. An upsert only
 //! replaces a resource the same source already owns, and a removal only removes
 //! resources that source owns.
 //!
-//! Sources that can only produce a full list — such as an offline test fixture
+//! Sources that produce a full list — such as a standalone configuration file
 //! — drive the same delta path through
 //! [`SourceState::reconcile`], which diffs the new list against the keys the
 //! source published last time and turns each disappearance into an explicit
@@ -40,7 +40,7 @@ use std::sync::{Arc, Mutex, RwLock};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SourceId {
-    /// The delta ADS stream from `dubbod`: all mesh routing configuration.
+    /// Resources received from Transit or a delegated external xDS control plane.
     Xds,
     /// Configuration owned by a standalone instance, including offline fixtures.
     Static,

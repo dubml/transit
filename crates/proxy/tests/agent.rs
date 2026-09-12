@@ -2,12 +2,6 @@ use axum::body::Body;
 use axum::http::{HeaderMap, Request, Response, StatusCode, Uri};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
-use transit_core::{
-    AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, Backend, BackendKind, HeaderTransform,
-    PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RateLimitPolicy,
-    RuntimeConfig, WeightedBackend,
-};
-use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use serde_json::{json, Value};
@@ -15,6 +9,12 @@ use std::net::{SocketAddr, TcpListener};
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
+use transit_core::{
+    AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, Backend, BackendKind, HeaderTransform,
+    PathMatch, Policy, PolicyAction, Provider, ProviderKind, RateLimitKey, RateLimitPolicy,
+    RuntimeConfig, WeightedBackend,
+};
+use transit_proxy::{ProxyServer, ProxyState};
 
 struct TestServer {
     addr: SocketAddr,

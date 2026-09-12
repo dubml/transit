@@ -24,15 +24,15 @@
 use axum::http::Uri;
 use axum::routing::any;
 use axum::Router;
+use hyper::{body, Client};
+use std::net::{SocketAddr, TcpListener};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use transit_core::{
     Cluster, ConfigStore, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch,
     RuntimeConfig, VirtualHost, WeightedCluster,
 };
 use transit_proxy::{Activator, ProxyServer, ProxyState};
-use hyper::{body, Client};
-use std::net::{SocketAddr, TcpListener};
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 /// The cluster name carries the Service identity, so it has to look like a real
 /// one: `direction|port|subset|authority`.

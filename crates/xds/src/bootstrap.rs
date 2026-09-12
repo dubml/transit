@@ -4,11 +4,11 @@
 //! can talk to a control plane at all. It is not a configuration source: it
 //! never publishes resources into the store.
 
-use transit_core::{Result, TransitError};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::fs;
+use transit_core::{Result, TransitError};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BootstrapConfig {
@@ -66,7 +66,7 @@ mod tests {
         fs::write(
             &path,
             r#"{
-  "xds_address": "http://dubbod.dubbo-system.svc:15012",
+  "xds_address": "http://dubbod.dubbo-system.svc:26012",
   "listener_names": ["public-dubbo.app.svc.cluster.local:80"],
   "cluster_id": "Kubernetes",
   "dns_domain": "cluster.local"
@@ -80,7 +80,7 @@ mod tests {
 
         assert_eq!(
             cfg.xds_address.as_deref(),
-            Some("http://dubbod.dubbo-system.svc:15012")
+            Some("http://dubbod.dubbo-system.svc:26012")
         );
         assert_eq!(
             cfg.listener_names,
@@ -95,7 +95,7 @@ mod tests {
         let path = temp_file("bootstrap.yaml");
         fs::write(
             &path,
-            "xds_address: http://dubbod.dubbo-system.svc:15012\nhttp_addr: 0.0.0.0:8080\n",
+            "xds_address: http://dubbod.dubbo-system.svc:26012\nhttp_addr: 0.0.0.0:8080\n",
         )
         .await
         .unwrap();
@@ -105,7 +105,7 @@ mod tests {
 
         assert_eq!(
             cfg.xds_address.as_deref(),
-            Some("http://dubbod.dubbo-system.svc:15012")
+            Some("http://dubbod.dubbo-system.svc:26012")
         );
         assert_eq!(cfg.http_addr.unwrap().port(), 8080);
     }

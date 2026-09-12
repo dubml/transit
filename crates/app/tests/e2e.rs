@@ -2,14 +2,6 @@
 //! loopback TCP against mock upstreams: route matching, policy enforcement,
 //! body limits, and streaming pass-through.
 
-use transit_core::{
-    AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, Backend, BackendKind, Cluster,
-    ConfigStore, Endpoint, HeaderTransform, Listener, ListenerProtocol, PathMatch, Policy,
-    PolicyAction, Provider, ProviderKind, RateLimitKey, RateLimitPolicy, ResourceKey, ResourceKind,
-    Route, RuntimeConfig, SourceId, SourceState, VirtualHost, WeightedBackend, WeightedCluster,
-};
-use transit_proxy::{ProxyServer, ProxyState};
-use transit_ui::UiServer;
 use hyper::body::HttpBody;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Client, Method, Request, Response, Server, StatusCode};
@@ -19,6 +11,14 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout, Duration};
+use transit_core::{
+    AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, Backend, BackendKind, Cluster,
+    ConfigStore, Endpoint, HeaderTransform, Listener, ListenerProtocol, PathMatch, Policy,
+    PolicyAction, Provider, ProviderKind, RateLimitKey, RateLimitPolicy, ResourceKey, ResourceKind,
+    Route, RuntimeConfig, SourceId, SourceState, VirtualHost, WeightedBackend, WeightedCluster,
+};
+use transit_proxy::{ProxyServer, ProxyState};
+use transit_ui::UiServer;
 
 const SSE_RELEASE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -259,12 +259,13 @@ fn llm_config(upstream: SocketAddr) -> RuntimeConfig {
 }
 
 fn mcp_config(upstream: SocketAddr) -> RuntimeConfig {
+    // MCP endpoints are complete transport URLs; the incoming path is not appended.
     let mut cfg = base_config(upstream);
     cfg.backends = vec![
         Backend {
             name: "tools-search".into(),
             kind: BackendKind::Mcp {
-                endpoint: format!("http://127.0.0.1:{}/search", upstream.port()),
+                endpoint: format!("http://127.0.0.1:{}/search/mcp", upstream.port()),
                 tools: vec!["search".into()],
             },
             policies: vec![],
@@ -272,7 +273,7 @@ fn mcp_config(upstream: SocketAddr) -> RuntimeConfig {
         Backend {
             name: "tools-calendar".into(),
             kind: BackendKind::Mcp {
-                endpoint: format!("http://127.0.0.1:{}/calendar", upstream.port()),
+                endpoint: format!("http://127.0.0.1:{}/calendar/mcp", upstream.port()),
                 tools: vec!["calendar".into()],
             },
             policies: vec![],

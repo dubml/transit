@@ -1,12 +1,13 @@
-.cfg-workspace { max-width: 940px; margin: 0 auto; padding-bottom: 16px; color: var(--ink); }
-.cfg-status { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:13px 17px; border:1px solid var(--line); border-radius:10px; background:var(--panel); margin-bottom:22px; }
-.cfg-product,.cfg-connection { display:flex; align-items:center; gap:10px; min-width:0; }
-.cfg-product-name { font-size:15px; font-weight:650; letter-spacing:-.3px; text-transform:capitalize; }
-.cfg-version { color:var(--muted); font:11px ui-monospace,SFMono-Regular,Menlo,monospace; }
-.cfg-connection { font-size:11px; flex-wrap:wrap; gap:7px; }
-.cfg-address { color:var(--muted); margin-left:5px; }
-.cfg-dot { width:6px; height:6px; border-radius:50%; background:var(--muted); flex-shrink:0; }
-.cfg-dot.connected { background:#10b981; box-shadow:0 0 0 3px rgba(16,185,129,.09); }
+.cfg-workspace { width: 100%; padding-bottom: 16px; color: var(--ink); }
+.cfg-status { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px; padding:16px 20px; border:1px solid var(--line); border-radius:10px; background:var(--panel); margin-bottom:22px; }
+.cfg-status-spacer { min-width:0; }
+.cfg-product { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-width:0; text-align:center; }
+.cfg-logo { display:block; width:110px; max-width:100%; height:auto; }
+.cfg-product-name { display:none; }
+.cfg-version { color:var(--muted); font-size:11px; font-family:inherit; line-height:1; }
+.cfg-connection { display:flex; align-items:center; justify-content:flex-end; font-size:11px; flex-wrap:wrap; gap:7px; min-width:0; }
+.cfg-address { color:var(--muted); }
+.cfg-dot, #cfg-connection-text { display:none; }
 .cfg-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:16px; }
 .cfg-heading h2 { font-size:20px; letter-spacing:-.5px; margin:0 0 5px; }
 .cfg-heading p,.cfg-card-title p { margin:0; color:var(--muted); font-size:11px; line-height:1.6; }
@@ -68,8 +69,9 @@
 .cfg-json-head p { color:var(--muted); font-size:11px; line-height:1.6; }
 #config-json-viewer { border:1px solid var(--line); border-radius:9px; background:var(--panel); padding:16px; font:11px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace; max-height:65vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 @media(max-width:700px) {
-  .cfg-status { align-items:flex-start; gap:8px; padding:12px; flex-wrap:wrap; margin-bottom:17px; }
-  .cfg-connection { font-size:10px; }
+  .cfg-status { grid-template-columns:1fr; justify-items:center; text-align:center; gap:10px; padding:12px; margin-bottom:17px; }
+  .cfg-status-spacer { display:none; }
+  .cfg-connection { justify-content:center; font-size:10px; }
   .cfg-address { margin-left:0; }
   .cfg-heading { align-items:flex-start; flex-wrap:wrap; gap:10px; }
   .cfg-heading h2 { font-size:18px; }

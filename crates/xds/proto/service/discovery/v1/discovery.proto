@@ -7,7 +7,7 @@ import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/rpc/status.proto";
 
-option go_package = "github.com/kdubbo/xds-api/service/discovery/v1;discoveryv1";
+option go_package = "github.com/dubml/xds-api/service/discovery/v1;discoveryv1";
 
 message DiscoveryRequest {
   string version_info = 1;

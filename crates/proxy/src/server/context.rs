@@ -7,9 +7,9 @@ use super::routing::{header_pairs, host_header};
 use super::MCP_SESSION_ID_HEADER;
 use crate::a2a;
 use axum::http::{HeaderMap, HeaderName, HeaderValue as HttpHeaderValue, Method};
-use transit_core::{AgentMatchInput, AgentProtocol};
 use hyper::body::Bytes;
 use serde_json::Value;
+use transit_core::{AgentMatchInput, AgentProtocol};
 
 #[derive(Debug, Clone)]
 pub(super) struct AgentRequestContext {

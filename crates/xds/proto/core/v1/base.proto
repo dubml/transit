@@ -7,7 +7,7 @@ import "google/protobuf/struct.proto";
 import "google/protobuf/wrappers.proto";
 import "google/protobuf/duration.proto";
 
-option go_package = "github.com/kdubbo/xds-api/core/v1;corev1";
+option go_package = "github.com/dubml/xds-api/core/v1;corev1";
 
 message Metadata {
   map<string, google.protobuf.Struct> filter_metadata = 1;

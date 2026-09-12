@@ -3,17 +3,17 @@
 use axum::http::Uri;
 use axum::routing::any;
 use axum::Router;
-use transit_core::{
-    Cluster, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, RuntimeConfig,
-    VirtualHost, WeightedCluster,
-};
-use transit_proxy::{ProxyServer, ProxyState};
 use hyper::body;
 use hyper::Client;
 use std::net::{SocketAddr, TcpListener};
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
+use transit_core::{
+    Cluster, Endpoint, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, RuntimeConfig,
+    VirtualHost, WeightedCluster,
+};
+use transit_proxy::{ProxyServer, ProxyState};
 
 pub struct TestTopology {
     pub proxy_addr: SocketAddr,

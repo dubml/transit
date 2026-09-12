@@ -21,6 +21,11 @@ use crate::proto::extensions::transport_sockets::tls::v1 as xds_tls;
 use crate::proto::listener::v1 as xds_listener;
 use crate::proto::route::v1 as xds_route;
 use crate::proto::service::discovery::v1::DiscoveryResponse;
+use prost::Message;
+use rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore};
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Cursor;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use transit_core::{
     AgentProtocol, AgentRoute, AgentRouteMatch, AuthPolicy, AuthorizationAction,
     AuthorizationCondition, AuthorizationPolicy, AuthorizationRule, AuthorizationSource, Backend,
@@ -31,11 +36,6 @@ use transit_core::{
     RouteMatch, SecretKeyReference, SourceState, TlsSecret, TokenLimitPolicy, UpstreamTls,
     UpstreamTlsMode, VirtualHost, WeightedBackend, WeightedCluster,
 };
-use prost::Message;
-use rustls::{Certificate, ClientConfig, PrivateKey, RootCertStore};
-use std::collections::{BTreeMap, BTreeSet};
-use std::io::Cursor;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 pub(super) const CLUSTER_TYPE: &str = "type.googleapis.com/cluster.v1.Cluster";
 pub(super) const ENDPOINT_TYPE: &str = "type.googleapis.com/endpoint.v1.ClusterLoadAssignment";
@@ -45,8 +45,8 @@ pub(super) const SECRET_TYPE: &str =
     "type.googleapis.com/extensions.transport_sockets.tls.v1.Secret";
 
 /// These names are part of the mesh TLS contract emitted by dubbod's common
-/// TLS context. A gateway only receives the two resources it is authorized to
-/// read; it does not wildcard-subscribe to every Secret in the mesh.
+/// TLS context. Additional certificates are subscribed by exact references
+/// from LDS/CDS; the client never wildcard-subscribes to Secrets.
 const SDS_SECRET_NAMES: [&str; 2] = ["default", "ROOTCA"];
 
 /// A change to what the client is subscribed to for one resource type.
@@ -111,13 +111,8 @@ impl AdsState {
             .collect();
         let desired = names.iter().cloned().collect();
         self.subscriptions.insert(LISTENER_TYPE.to_string(), names);
-        self.subscriptions.insert(
-            SECRET_TYPE.to_string(),
-            SDS_SECRET_NAMES
-                .into_iter()
-                .map(ToString::to_string)
-                .collect(),
-        );
+        self.subscriptions
+            .insert(SECRET_TYPE.to_string(), self.secret_names());
         desired
     }
 
@@ -242,6 +237,7 @@ impl AdsState {
             (ROUTE_TYPE, self.route_names()),
             (CLUSTER_TYPE, self.cluster_names()),
             (ENDPOINT_TYPE, self.eds_names()),
+            (SECRET_TYPE, self.secret_names()),
         ]
         .into_iter()
         .filter_map(|(type_url, desired)| self.set_subscription(type_url, desired))
@@ -270,6 +266,10 @@ impl AdsState {
             for name in &change.unsubscribe {
                 versions.remove(name);
             }
+        }
+        if type_url == SECRET_TYPE {
+            self.secrets
+                .retain(|name, _| !change.unsubscribe.contains(name));
         }
         Some(change)
     }
@@ -329,11 +329,18 @@ impl AdsState {
             }
         }
 
+        let secret_names = self.secret_names();
         let delta = ConfigDelta::default()
             .with_version(if version.is_empty() { "ads" } else { version })
             .with_listeners(listeners)
             .with_clusters(clusters)
-            .with_secrets(self.secrets.values().cloned().collect())
+            .with_secrets(
+                self.secrets
+                    .values()
+                    .filter(|secret| secret_names.contains(&secret.name))
+                    .cloned()
+                    .collect(),
+            )
             .with_providers(providers.into_values().collect())
             .with_backends(backends.into_values().collect())
             .with_agent_routes(agent_routes.into_values().collect())
@@ -421,6 +428,27 @@ impl AdsState {
             .values()
             .map(|cluster| cluster.eds_service_name.clone())
             .collect()
+    }
+
+    fn secret_names(&self) -> BTreeSet<String> {
+        let mut names: BTreeSet<String> = SDS_SECRET_NAMES
+            .into_iter()
+            .map(ToString::to_string)
+            .collect();
+        names.extend(
+            self.listeners
+                .values()
+                .filter_map(|value| value.listener.tls_secret.clone()),
+        );
+        for tls in self
+            .clusters
+            .values()
+            .filter_map(|value| value.tls.as_ref())
+        {
+            names.extend(tls.certificate_secret.iter().cloned());
+            names.extend(tls.validation_secret.iter().cloned());
+        }
+        names
     }
 }
 
@@ -809,7 +837,11 @@ fn convert_agent_route(route: &xds_route::AgentRoute) -> Option<AgentRoute> {
         xds_route::AgentProtocol::Unspecified => return None,
     };
     Some(AgentRoute {
-        listener_ports: route.listener_ports.iter().filter_map(|port| u16::try_from(*port).ok()).collect(),
+        listener_ports: route
+            .listener_ports
+            .iter()
+            .filter_map(|port| u16::try_from(*port).ok())
+            .collect(),
         name: route.name.clone(),
         protocol,
         matches: route
@@ -1071,11 +1103,8 @@ fn certificate_secret_name(common: &xds_tls::CommonTlsContext) -> Option<String>
 }
 
 fn validation_secret_name(common: &xds_tls::CommonTlsContext) -> Option<String> {
-    let combined = match common.validation_context_type.as_ref()? {
-        xds_tls::common_tls_context::ValidationContextType::CombinedValidationContext(combined) => {
-            combined
-        }
-    };
+    let xds_tls::common_tls_context::ValidationContextType::CombinedValidationContext(combined) =
+        common.validation_context_type.as_ref()?;
     combined
         .validation_context_certificate_provider_instance
         .as_ref()
@@ -1119,6 +1148,31 @@ fn first_non_empty(value: String, fallback: Option<String>) -> Option<String> {
 
 fn listener_snapshot(listener: xds_listener::Listener) -> Result<ListenerSnapshot, XdsError> {
     let port = listener_port(&listener).unwrap_or(80);
+    let invalid = |reason: &str| XdsError::InvalidListener {
+        name: listener.name.clone(),
+        reason: reason.into(),
+    };
+    if port == 0 || !listener.additional_addresses.is_empty() {
+        return Err(invalid("a nonzero port and one bind address are required"));
+    }
+    // Proxyless API listeners carry virtual service IPs from dubbod. Those
+    // addresses are routing identities rather than local socket addresses.
+    let bind = match socket_address(listener.address.as_ref()) {
+        Some(_) if listener.api_listener.is_some() => {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port)
+        }
+        Some((address, port)) => SocketAddr::new(
+            address
+                .parse()
+                .map_err(|_| invalid("bind address must be an IP address"))?,
+            port,
+        ),
+        None if listener.address.is_none() => {
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port)
+        }
+        None => return Err(invalid("listener socket address is invalid")),
+    };
+    let tls_secret = downstream_secret(&listener)?;
     let mut route_names = Vec::new();
     let mut inline_virtual_hosts = Vec::new();
     let mut security = ListenerSecurity::default();
@@ -1141,19 +1195,74 @@ fn listener_snapshot(listener: xds_listener::Listener) -> Result<ListenerSnapsho
     Ok(ListenerSnapshot {
         listener: Listener {
             name: listener.name,
-            bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port),
-            protocol: if port == 443 {
+            bind,
+            protocol: if tls_secret.is_some() {
                 ListenerProtocol::Https
             } else {
                 ListenerProtocol::Http
             },
             virtual_hosts: Vec::new(),
-            tls_secret: None,
+            tls_secret,
             security,
         },
         route_names: sorted_unique(route_names),
         inline_virtual_hosts,
     })
+}
+
+fn downstream_secret(listener: &xds_listener::Listener) -> Result<Option<String>, XdsError> {
+    let invalid = |reason: &str| XdsError::InvalidListener {
+        name: listener.name.clone(),
+        reason: reason.into(),
+    };
+    let mut transport = None;
+    for chain in &listener.filter_chains {
+        let certificate = match &chain.transport_socket {
+            None => None,
+            Some(socket) if socket.name.ends_with("raw_buffer") && socket.config_type.is_none() => {
+                None
+            }
+            Some(socket) => {
+                let Some(xds_core::transport_socket::ConfigType::TypedConfig(value)) =
+                    &socket.config_type
+                else {
+                    return Err(invalid("transport socket requires a typed configuration"));
+                };
+                if !value
+                    .type_url
+                    .ends_with("extensions.transport_sockets.tls.v1.DownstreamTlsContext")
+                {
+                    return Err(invalid("unsupported downstream transport socket"));
+                }
+                let context: xds_tls::DownstreamTlsContext =
+                    decode_resource(&value.type_url, value)?;
+                let common = context
+                    .common_tls_context
+                    .ok_or_else(|| invalid("TLS context is missing"))?;
+                if context.require_client_certificate == Some(true)
+                    || common.validation_context_type.is_some()
+                {
+                    return Err(invalid(
+                        "downstream client certificate authentication is not supported",
+                    ));
+                }
+                Some(
+                    certificate_secret_name(&common).ok_or_else(|| {
+                        invalid("TLS context requires a named serving certificate")
+                    })?,
+                )
+            }
+        };
+        if let Some(previous) = &transport {
+            if previous != &certificate {
+                return Err(invalid(
+                    "filter chains on one socket must use the same transport and certificate",
+                ));
+            }
+        }
+        transport = Some(certificate);
+    }
+    Ok(transport.flatten())
 }
 
 fn security_from_hcm(hcm: &xds_hcm::HttpConnectionManager) -> Result<ListenerSecurity, XdsError> {
@@ -2159,6 +2268,119 @@ mod tests {
             state.subscription(SECRET_TYPE),
             ["ROOTCA".to_string(), "default".to_string()]
         );
+    }
+
+    fn serving_listener(name: &str, secret: &str) -> xds_listener::Listener {
+        xds_listener::Listener {
+            name: name.into(), address: Some(socket("127.0.0.1", 8443)),
+            filter_chains: vec![xds_listener::FilterChain {
+                transport_socket: Some(xds_core::TransportSocket {
+                    name: "transit.transport_sockets.tls".into(),
+                    config_type: Some(xds_core::transport_socket::ConfigType::TypedConfig(any(
+                        "type.googleapis.com/extensions.transport_sockets.tls.v1.DownstreamTlsContext",
+                        xds_tls::DownstreamTlsContext {
+                            common_tls_context: Some(xds_tls::CommonTlsContext {
+                                tls_certificate_certificate_provider_instance: Some(xds_tls::common_tls_context::CertificateProviderInstance {
+                                    instance_name: "transit".into(), certificate_name: secret.into(),
+                                }), ..Default::default()
+                            }), require_client_certificate: None,
+                        },
+                    ))),
+                }), ..Default::default()
+            }], ..Default::default()
+        }
+    }
+
+    #[test]
+    fn serving_tls_subscriptions_follow_listener_references_and_reconnect() {
+        let mut state = AdsState::default();
+        state.begin_stream(vec![]);
+        let listener = serving_listener("https", "team/serving");
+        state
+            .apply_delta(
+                LISTENER_TYPE,
+                &[("https".into(), "v1".into(), any(LISTENER_TYPE, listener))],
+                &[],
+            )
+            .unwrap();
+        let changes = state.refresh_subscriptions();
+        let change = changes
+            .iter()
+            .find(|change| change.type_url == SECRET_TYPE)
+            .unwrap();
+        assert_eq!(change.subscribe, ["team/serving"]);
+        let (cert, _) = valid_sds_secrets();
+        let mut cert = xds_tls::Secret::decode(cert.value.as_slice()).unwrap();
+        cert.name = "team/serving".into();
+        state
+            .apply_delta(
+                SECRET_TYPE,
+                &[(cert.name.clone(), "v1".into(), any(SECRET_TYPE, cert))],
+                &[],
+            )
+            .unwrap();
+        let delta = state.config_delta("v1");
+        assert_eq!(delta.listeners[0].bind, "127.0.0.1:8443".parse().unwrap());
+        assert_eq!(delta.listeners[0].protocol, ListenerProtocol::Https);
+        assert_eq!(
+            delta.listeners[0].tls_secret.as_deref(),
+            Some("team/serving")
+        );
+        assert_eq!(delta.secrets.len(), 1);
+        state.begin_stream(vec![]);
+        assert!(state
+            .subscription(SECRET_TYPE)
+            .contains(&"team/serving".into()));
+        state
+            .apply_delta(LISTENER_TYPE, &[], &["https".into()])
+            .unwrap();
+        let changes = state.refresh_subscriptions();
+        assert_eq!(
+            changes
+                .iter()
+                .find(|c| c.type_url == SECRET_TYPE)
+                .unwrap()
+                .unsubscribe,
+            ["team/serving"]
+        );
+        assert!(state
+            .config_delta("v2")
+            .removes
+            .contains(&ResourceKey::new(ResourceKind::Secret, "team/serving")));
+        assert!(state.initial_resource_versions(SECRET_TYPE).is_empty());
+    }
+
+    #[test]
+    fn listener_transport_is_explicit_and_unsupported_tls_is_rejected() {
+        let plain = xds_listener::Listener {
+            name: "plain443".into(),
+            address: Some(socket("127.0.0.1", 443)),
+            ..Default::default()
+        };
+        assert_eq!(
+            listener_snapshot(plain).unwrap().listener.protocol,
+            ListenerProtocol::Http
+        );
+        let mut mixed = serving_listener("mixed", "serving");
+        mixed.filter_chains.push(Default::default());
+        assert!(matches!(
+            listener_snapshot(mixed),
+            Err(XdsError::InvalidListener { .. })
+        ));
+        let mut invalid = serving_listener("missing-certificate", "");
+        assert!(matches!(
+            listener_snapshot(invalid.clone()),
+            Err(XdsError::InvalidListener { .. })
+        ));
+        invalid
+            .additional_addresses
+            .push(xds_listener::AdditionalAddress {
+                address: Some(socket("127.0.0.2", 8443)),
+            });
+        assert!(matches!(
+            listener_snapshot(invalid),
+            Err(XdsError::InvalidListener { .. })
+        ));
     }
 
     #[test]

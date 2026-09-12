@@ -14,7 +14,7 @@ is established, users should track `main` for the latest fixes.
 
 Please report privately via GitHub Security Advisories:
 
-1. Go to the [Security tab](https://github.com/kdubbo/transit/security/advisories/new).
+1. Go to the [Security tab](https://github.com/dubml/transit/security/advisories/new).
 2. Provide a description, affected versions, reproduction steps, and impact.
 
 We aim to acknowledge reports within **72 hours** and to provide a remediation

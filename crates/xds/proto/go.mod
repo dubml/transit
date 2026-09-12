@@ -1,4 +1,4 @@
-module github.com/kdubbo/xds-api
+module github.com/dubml/xds-api
 
 go 1.26.0
 

@@ -48,12 +48,12 @@ jobs:
       # numbers locally via the same env vars when profiling.
       - name: Throughput and latency regression gate
         env:
-          DXGATE_PERF_REQUESTS: "200"
-          DXGATE_PERF_MIN_RPS: "50"
-          DXGATE_SLA_REQUESTS: "100"
-          DXGATE_SLA_P95_MS: "750"
+          TRANSIT_PERF_REQUESTS: "200"
+          TRANSIT_PERF_MIN_RPS: "50"
+          TRANSIT_SLA_REQUESTS: "100"
+          TRANSIT_SLA_P95_MS: "750"
         run: |
-          cargo test --release -p dxgate-proxy \
+          cargo test --release -p transit-proxy \
             --test performance --test sla -- --ignored
 
   build:
@@ -64,7 +64,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build release binary
-        run: cargo build --release --bin dxgate
+        run: cargo build --release --bin transit
 
   msrv:
     name: MSRV (1.88)

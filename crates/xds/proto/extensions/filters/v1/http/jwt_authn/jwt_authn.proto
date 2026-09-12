@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package extensions.filters.http.jwt_authn.v1;
 
-option go_package = "github.com/kdubbo/xds-api/extensions/filters/v1/http/jwt_authn;jwt_authnv1";
+option go_package = "github.com/dubml/xds-api/extensions/filters/v1/http/jwt_authn;jwt_authnv1";
 
 message JwtAuthentication {
   repeated JwtProvider providers = 1;

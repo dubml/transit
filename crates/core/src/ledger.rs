@@ -7,46 +7,31 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DataQuality {
+    #[default]
     Complete,
     Inconsistent,
     Unclassified,
 }
 
-impl Default for DataQuality {
-    fn default() -> Self {
-        Self::Complete
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PricingStatus {
     Exact,
+    #[default]
     Unpriced,
     Missing,
     NoCatalog,
 }
 
-impl Default for PricingStatus {
-    fn default() -> Self {
-        Self::Unpriced
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttributionMode {
+    #[default]
     Direct,
     Rollup,
-}
-
-impl Default for AttributionMode {
-    fn default() -> Self {
-        Self::Direct
-    }
 }
 
 /// Mutually exclusive token buckets ensuring strict accounting integrity.
@@ -470,15 +455,15 @@ pub fn quote(
 
     let uncached = tokens.uncached_prompt_tokens();
     let mut items = Vec::new();
-    let mut usd = 0u128;
-    let mut credits = 0u128;
-    let mut credits_complete = true;
+    let mut totals = Totals {
+        usd: 0,
+        credits: 0,
+        credits_complete: true,
+    };
 
     push_item(
         &mut items,
-        &mut usd,
-        &mut credits,
-        &mut credits_complete,
+        &mut totals,
         "uncached_input",
         uncached,
         Some(row.input_usd_nanos_per_m),
@@ -488,9 +473,7 @@ pub fn quote(
     if tokens.cached_prompt_tokens > 0 {
         push_item(
             &mut items,
-            &mut usd,
-            &mut credits,
-            &mut credits_complete,
+            &mut totals,
             "cached_input",
             tokens.cached_prompt_tokens,
             row.cached_usd_nanos_per_m,
@@ -501,9 +484,7 @@ pub fn quote(
     if tokens.cache_write_tokens > 0 {
         push_item(
             &mut items,
-            &mut usd,
-            &mut credits,
-            &mut credits_complete,
+            &mut totals,
             "cache_write",
             tokens.cache_write_tokens,
             row.cache_write_usd_nanos_per_m,
@@ -513,9 +494,7 @@ pub fn quote(
     }
     push_item(
         &mut items,
-        &mut usd,
-        &mut credits,
-        &mut credits_complete,
+        &mut totals,
         "output",
         tokens.completion_tokens,
         Some(row.output_usd_nanos_per_m),
@@ -531,9 +510,9 @@ pub fn quote(
         tokens,
         uncached_prompt_tokens: uncached,
         line_items: items,
-        api_usd_nanos: usd,
-        chatgpt_credit_micros: credits,
-        chatgpt_credits_complete: credits_complete,
+        api_usd_nanos: totals.usd,
+        chatgpt_credit_micros: totals.credits,
+        chatgpt_credits_complete: totals.credits_complete,
         api_usd_source: if vendor == "anthropic" {
             ANTHROPIC_USD_SOURCE
         } else {
@@ -555,11 +534,15 @@ fn usd_vendor(model: &str) -> &'static str {
     }
 }
 
+struct Totals {
+    usd: u128,
+    credits: u128,
+    credits_complete: bool,
+}
+
 fn push_item(
     items: &mut Vec<LineItem>,
-    usd_total: &mut u128,
-    credits_total: &mut u128,
-    credits_complete: &mut bool,
+    totals: &mut Totals,
     component: &'static str,
     tokens: u64,
     usd_per_m: Option<UsdNanos>,
@@ -573,14 +556,14 @@ fn push_item(
         });
     };
     let api_usd_nanos = mul_per_million(tokens, usd_per_m);
-    *usd_total += api_usd_nanos;
+    totals.usd += api_usd_nanos;
     let chatgpt_credit_micros = if let Some(rate) = credit_per_m {
         let add = mul_per_million(tokens, rate);
-        *credits_total += add;
+        totals.credits += add;
         Some(add)
     } else {
         if tokens > 0 {
-            *credits_complete = false;
+            totals.credits_complete = false;
         }
         None
     };
@@ -1282,4 +1265,3 @@ mod tests {
         assert_eq!(tb_bad.output_non_reasoning, 0);
     }
 }
-

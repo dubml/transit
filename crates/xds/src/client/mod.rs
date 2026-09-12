@@ -21,7 +21,6 @@ use crate::proto::service::discovery::v1::aggregated_discovery_service_client::A
 use crate::proto::service::discovery::v1::{
     DeltaDiscoveryRequest, DeltaDiscoveryResponse, DiscoveryRequest,
 };
-use transit_core::{ConfigStore, RouterIdentity, SourceId};
 use prost_types::{value::Kind, Struct, Value};
 use state::{AdsState, LISTENER_TYPE, SECRET_TYPE};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -34,6 +33,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Channel, Endpoint};
 use tonic::Code;
 use tracing::{debug, info, warn};
+use transit_core::{ConfigStore, RouterIdentity, SourceId};
 
 mod transport;
 
@@ -77,6 +77,9 @@ pub enum XdsError {
     #[error("invalid TLS secret {name}: {reason}")]
     InvalidSecret { name: String, reason: String },
 
+    #[error("invalid listener {name}: {reason}")]
+    InvalidListener { name: String, reason: String },
+
     /// The control plane does not implement `DeltaAggregatedResources`. Handled
     /// internally by falling back to state-of-the-world ADS.
     #[error("control plane does not implement delta ADS")]
@@ -106,7 +109,11 @@ pub struct XdsClient {
 
 impl XdsClient {
     pub fn new(cfg: XdsClientConfig) -> Self {
-        Self { cfg, gateway: None, service_account: None }
+        Self {
+            cfg,
+            gateway: None,
+            service_account: None,
+        }
     }
 
     pub fn with_gateway_identity(mut self, gateway: String) -> Self {
@@ -115,7 +122,9 @@ impl XdsClient {
     }
 
     pub fn with_service_account_credentials(
-        mut self, root_ca: std::path::PathBuf, token: std::path::PathBuf,
+        mut self,
+        root_ca: std::path::PathBuf,
+        token: std::path::PathBuf,
     ) -> Self {
         self.service_account = Some((root_ca, token));
         self
@@ -125,13 +134,17 @@ impl XdsClient {
         let mut request = tonic::Request::new(body);
         if let Some((_, token_file)) = &self.service_account {
             // Projected ServiceAccount tokens rotate; read again for every stream.
-            let token = tokio::fs::read_to_string(token_file).await
-                .map_err(|_| XdsError::Credentials("cannot read xDS ServiceAccount token".into()))?;
+            let token = tokio::fs::read_to_string(token_file).await.map_err(|_| {
+                XdsError::Credentials("cannot read xDS ServiceAccount token".into())
+            })?;
             let token = token.trim();
             if token.is_empty() || token.len() > 32768 {
-                return Err(XdsError::Credentials("invalid xDS ServiceAccount token length".into()));
+                return Err(XdsError::Credentials(
+                    "invalid xDS ServiceAccount token length".into(),
+                ));
             }
-            let value = format!("Bearer {token}").parse()
+            let value = format!("Bearer {token}")
+                .parse()
                 .map_err(|_| XdsError::Credentials("invalid xDS ServiceAccount token".into()))?;
             request.metadata_mut().insert("authorization", value);
         }
@@ -153,7 +166,8 @@ impl XdsClient {
             transport::configure(
                 endpoint,
                 std::env::var_os("GRPC_XDS_BOOTSTRAP").map(std::path::PathBuf::from),
-            ).await?
+            )
+            .await?
         };
 
         endpoint
@@ -188,7 +202,7 @@ impl XdsClient {
                     mode = StreamMode::StateOfTheWorld;
                     continue;
                 }
-                Err(err) => warn!(%err, ?mode, "ADS stream failed"),
+                Err(err) => warn!(%err, detail = ?err, ?mode, "ADS stream failed"),
             }
             time::sleep(self.cfg.reconnect_delay).await;
         }
@@ -335,7 +349,9 @@ impl XdsClient {
         }
 
         let response = ads
-            .stream_aggregated_resources(self.stream_request(ReceiverStream::new(request_rx)).await?)
+            .stream_aggregated_resources(
+                self.stream_request(ReceiverStream::new(request_rx)).await?,
+            )
             .await
             .map_err(|status| XdsError::StreamOpen(Box::new(status)))?;
         let mut stream = response.into_inner();

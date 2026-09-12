@@ -2,6 +2,6 @@ syntax = "proto3";
 
 package extensions.filters.http.router.v1;
 
-option go_package = "github.com/kdubbo/xds-api/extensions/filters/http/router/v1;routerv1";
+option go_package = "github.com/dubml/xds-api/extensions/filters/v1/http/router;routerv1";
 
 message Router {}

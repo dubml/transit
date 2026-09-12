@@ -1,11 +1,4 @@
 use clap::Parser;
-use transit_core::{
-    AuthPolicy, ConfigStore, RouterIdentity, RuntimeConfig, RuntimeMode, SecretKeyReference, DEFAULT_CLUSTER_ID,
-    DEFAULT_DNS_DOMAIN,
-};
-use transit_proxy::{ProxyServer, ProxyState};
-use transit_ui::UiServer;
-use transit_xds::{BootstrapConfig, XdsClient, XdsClientConfig};
 use k8s_openapi::api::core::v1::Secret;
 use kube::{Api, Client};
 use opentelemetry::KeyValue;
@@ -23,7 +16,15 @@ use tokio::time;
 use tracing::{error, info, warn};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use transit_core::{
+    AuthPolicy, ConfigStore, RouterIdentity, RuntimeMode, SecretKeyReference, DEFAULT_CLUSTER_ID,
+    DEFAULT_DNS_DOMAIN,
+};
+use transit_proxy::{ProxyServer, ProxyState};
+use transit_ui::UiServer;
+use transit_xds::{BootstrapConfig, XdsClient, XdsClientConfig};
 
+mod local_config;
 mod mode;
 
 #[derive(Debug, Parser)]
@@ -34,20 +35,27 @@ struct Args {
     #[arg(long, env = "TRANSIT_MODE", default_value = "standalone")]
     mode: RuntimeMode,
 
-    #[arg(
-        long,
-        env = "TRANSIT_XDS_ADDRESS",
-        default_value = ""
-    )]
+    #[arg(long, env = "TRANSIT_XDS_ADDRESS", default_value = "")]
     xds_address: String,
 
     #[arg(long, env = "TRANSIT_XDS_ENABLED")]
     xds_enabled: Option<bool>,
 
-    #[arg(long, env = "TRANSIT_HTTP_ADDR", default_value = "0.0.0.0:80")]
+    /// Gateway namespace/name used by the independent control plane.
+    #[arg(long, env = "TRANSIT_GATEWAY")]
+    gateway: Option<String>,
+
+    #[arg(long, env = "TRANSIT_XDS_ROOT_CA")]
+    xds_root_ca: Option<PathBuf>,
+
+    /// Projected ServiceAccount token with the transit-xds audience.
+    #[arg(long, env = "TRANSIT_XDS_TOKEN_FILE")]
+    xds_token_file: Option<PathBuf>,
+
+    #[arg(long, env = "TRANSIT_HTTP_ADDR", default_value_t = SocketAddr::from(([0, 0, 0, 0], transit_proxy::access_settings::DEFAULT_HTTP_PORT)))]
     http_addr: SocketAddr,
 
-    #[arg(long, env = "TRANSIT_UI_ADDR", default_value = "0.0.0.0:15021")]
+    #[arg(long, env = "TRANSIT_UI_ADDR", default_value_t = SocketAddr::from(([0, 0, 0, 0], transit_core::UI_PORT)))]
     ui_addr: SocketAddr,
 
     /// Directory containing gateway-managed OAuth accounts.
@@ -163,16 +171,13 @@ enum LedgerAction {
 
 fn run_ledger(
     model: String,
-    prompt_tokens: u64,
-    cached_tokens: u64,
-    cache_write_tokens: u64,
-    completion_tokens: u64,
+    tokens: transit_core::TokenCounts,
     tier: String,
     context: String,
     json: bool,
     country: Option<String>,
 ) -> std::io::Result<()> {
-    use transit_core::{quote_tokens, ContextBand, ServiceTier, TokenCounts};
+    use transit_core::{quote_tokens, ContextBand, ServiceTier};
     let tier = match tier.to_ascii_lowercase().as_str() {
         "standard" => ServiceTier::Standard,
         "fast" | "priority" => ServiceTier::Fast,
@@ -195,18 +200,8 @@ fn run_ledger(
             ));
         }
     };
-    let quote = quote_tokens(
-        &model,
-        TokenCounts {
-            prompt_tokens,
-            cached_prompt_tokens: cached_tokens,
-            cache_write_tokens,
-            completion_tokens,
-        },
-        tier,
-        context,
-    )
-    .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string()))?;
+    let quote = quote_tokens(&model, tokens, tier, context)
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err.to_string()))?;
     if json {
         let payload = if let Some(country) = country.as_deref() {
             let fx =
@@ -215,13 +210,12 @@ fn run_ledger(
                 })?;
             serde_json::json!({ "quote": quote, "fx": fx })
         } else {
-            serde_json::to_value(&quote)
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+            serde_json::to_value(&quote).map_err(|err| std::io::Error::other(err.to_string()))?
         };
         println!(
             "{}",
             serde_json::to_string_pretty(&payload)
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+                .map_err(|err| std::io::Error::other(err.to_string()))?
         );
         return Ok(());
     }
@@ -282,7 +276,7 @@ fn run_local_ledger(
         println!(
             "{}",
             serde_json::to_string_pretty(&report)
-                .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err.to_string()))?
+                .map_err(|err| std::io::Error::other(err.to_string()))?
         );
         return Ok(());
     }
@@ -338,10 +332,12 @@ async fn main() -> std::io::Result<()> {
         })?;
         return run_ledger(
             model,
-            prompt_tokens,
-            cached_tokens,
-            cache_write_tokens,
-            completion_tokens,
+            transit_core::TokenCounts {
+                prompt_tokens,
+                cached_prompt_tokens: cached_tokens,
+                cache_write_tokens,
+                completion_tokens,
+            },
             tier,
             context,
             json,
@@ -407,21 +403,25 @@ async fn main() -> std::io::Result<()> {
         std::env::current_dir()?.join(account_dir)
     };
     let access_defaults = transit_proxy::access_settings::AccessConfig {
-            host: args.http_addr.ip().to_string(),
-            port: args.http_addr.port(),
-            auth_dir: account_dir.display().to_string(),
-            api_keys: Vec::new(),
-            tls: Default::default(),
-            remote_management: transit_proxy::access_settings::RemoteManagement {
-                allow_remote: args.llm_admin_token.is_some(),
-                secret_key: args.llm_admin_token.clone().unwrap_or_default(),
-                ..Default::default()
-            },
-        };
+        host: args.http_addr.ip().to_string(),
+        port: args.http_addr.port(),
+        auth_dir: account_dir.display().to_string(),
+        api_keys: Vec::new(),
+        tls: Default::default(),
+        remote_management: transit_proxy::access_settings::RemoteManagement {
+            allow_remote: args.llm_admin_token.is_some(),
+            secret_key: args.llm_admin_token.clone().unwrap_or_default(),
+            ..Default::default()
+        },
+    };
     let access = if args.mode == RuntimeMode::Standalone {
-        state.access_settings().configure(access_path, access_defaults)?
+        state
+            .access_settings()
+            .configure(access_path, access_defaults)?
     } else {
-        state.access_settings().configure_read_only(args.access_config.as_deref(), access_defaults)?
+        state
+            .access_settings()
+            .configure_read_only(args.access_config.as_deref(), access_defaults)?
     };
     let http_addr = SocketAddr::new(
         access.host.parse().map_err(std::io::Error::other)?,
@@ -429,22 +429,28 @@ async fn main() -> std::io::Result<()> {
     );
     if args.mode == RuntimeMode::Standalone || args.llm_accounts_dir.is_some() {
         configure_llm_accounts(
-        &state,
-        args.ui_addr,
-        Some(&transit_proxy::access_settings::expand_path(
-            &access.auth_dir,
-        )?),
-        args.llm_admin_token.as_deref(),
+            &state,
+            args.ui_addr,
+            Some(&transit_proxy::access_settings::expand_path(
+                &access.auth_dir,
+            )?),
+            args.llm_admin_token.as_deref(),
         )?;
     }
 
     if let Some(endpoint) = startup.xds_endpoint {
-        let xds = XdsClient::new(XdsClientConfig {
+        let mut xds = XdsClient::new(XdsClientConfig {
             endpoint,
             identity,
             listener_names: args.listener_names,
             reconnect_delay: Duration::from_secs(10),
         });
+        if let Some(gateway) = args.gateway {
+            xds = xds.with_gateway_identity(gateway);
+        }
+        if let (Some(ca), Some(token)) = (args.xds_root_ca, args.xds_token_file) {
+            xds = xds.with_service_account_credentials(ca, token);
+        }
         let xds_store = store.clone();
         tokio::spawn(async move {
             if let Err(err) = xds.run(xds_store).await {
@@ -455,31 +461,45 @@ async fn main() -> std::io::Result<()> {
         info!("xDS client disabled");
     }
 
-    if let Some(path) = args.static_config.clone() {
-        let cfg = load_runtime_config(&path).await?;
-        cfg.validate().map_err(|errors| std::io::Error::new(
-            std::io::ErrorKind::InvalidData, format!("Invalid standalone configuration: {errors:?}")
-        ))?;
-        match state.apply_config_from(transit_core::SourceId::Static, cfg) {
-            Ok(()) => info!(path = %path.display(), "static config applied"),
-            Err(conflicts) => {
-                warn!(path = %path.display(), ?conflicts, "static config applied with conflicts")
-            }
-        }
-    }
+    let local_configuration = match args.static_config.clone() {
+        Some(path) => Some(local_config::LocalConfiguration::load(path, &state).await?),
+        None => None,
+    };
 
     if args.mode == RuntimeMode::Kubernetes {
-        tokio::spawn(sync_referenced_secrets(state.clone(), args.namespace.clone()));
+        tokio::spawn(sync_referenced_secrets(
+            state.clone(),
+            args.namespace.clone(),
+        ));
     }
 
     let proxy = ProxyServer::new(state.clone());
     let access_log_proxy = proxy.clone();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let config_watcher = local_configuration.map(|configuration| {
+        tokio::spawn(configuration.watch(state.clone(), shutdown_requested(shutdown_rx.clone())))
+    });
+    if args.mode == RuntimeMode::Kubernetes {
+        state.require_configured_listeners();
+    }
     let ui = UiServer::new(state, http_addr, args.metrics_enabled)
         .with_version(env!("CARGO_PKG_VERSION"))
         .with_runtime_mode(startup.runtime);
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let mut proxy_task =
-        tokio::spawn(proxy.serve_with_shutdown(http_addr, shutdown_requested(shutdown_rx.clone())));
+    let proxy_shutdown = shutdown_rx.clone();
+    let mut proxy_task = tokio::spawn(async move {
+        if args.mode == RuntimeMode::Kubernetes {
+            proxy
+                .serve_configured_with_shutdown(
+                    Duration::from_secs(args.drain_timeout_seconds),
+                    shutdown_requested(proxy_shutdown),
+                )
+                .await
+        } else {
+            proxy
+                .serve_with_shutdown(http_addr, shutdown_requested(proxy_shutdown))
+                .await
+        }
+    });
     let mut ui_task =
         tokio::spawn(ui.serve_with_shutdown(args.ui_addr, shutdown_requested(shutdown_rx)));
 
@@ -505,6 +525,10 @@ async fn main() -> std::io::Result<()> {
     }
 
     access_log_proxy.shutdown_access_logs().await;
+    if let Some(watcher) = config_watcher {
+        watcher.abort();
+        let _ = watcher.await;
+    }
 
     if otel_enabled {
         opentelemetry::global::shutdown_tracer_provider();
@@ -740,17 +764,6 @@ fn parse_otel_tags(raw: Option<&str>) -> std::io::Result<Vec<KeyValue>> {
         .collect())
 }
 
-async fn load_runtime_config(path: &std::path::Path) -> std::io::Result<RuntimeConfig> {
-    let raw = tokio::fs::read_to_string(path).await?;
-    if path.extension().and_then(|e| e.to_str()) == Some("json") {
-        serde_json::from_str(&raw)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
-    } else {
-        serde_yaml::from_str(&raw)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
-    }
-}
-
 fn apply_bootstrap(args: &mut Args, bootstrap: BootstrapConfig) {
     if let Some(value) = bootstrap.xds_address {
         args.xds_address = value;
@@ -787,6 +800,23 @@ fn apply_bootstrap(args: &mut Args, bootstrap: BootstrapConfig) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn default_api_and_management_ports_match_the_shared_contract() {
+        use clap::CommandFactory;
+        let command = super::Args::command();
+        for (name, address) in [("http_addr", "0.0.0.0:26080"), ("ui_addr", "0.0.0.0:26021")] {
+            let arg = command
+                .get_arguments()
+                .find(|arg| arg.get_id() == name)
+                .unwrap();
+            assert_eq!(
+                arg.get_default_values(),
+                &[std::ffi::OsString::from(address)]
+            );
+        }
+        assert_eq!(transit_core::HTTPS_LISTENER_PORT, 26443);
+    }
+
+    #[test]
     fn loopback_management_initializes_without_env_and_remote_requires_token() {
         let nonce = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -803,7 +833,7 @@ mod tests {
         let local = super::ProxyState::new();
         super::configure_llm_accounts(
             &local,
-            "127.0.0.1:15021".parse().unwrap(),
+            "127.0.0.1:26021".parse().unwrap(),
             Some(&directory),
             None,
         )
@@ -814,7 +844,7 @@ mod tests {
         let restarted = super::ProxyState::new();
         super::configure_llm_accounts(
             &restarted,
-            "127.0.0.1:15021".parse().unwrap(),
+            "127.0.0.1:26021".parse().unwrap(),
             Some(&directory),
             None,
         )
@@ -824,7 +854,7 @@ mod tests {
         let remote = super::ProxyState::new();
         let err = super::configure_llm_accounts(
             &remote,
-            "0.0.0.0:15021".parse().unwrap(),
+            "0.0.0.0:26021".parse().unwrap(),
             Some(&directory),
             None,
         )
@@ -833,7 +863,7 @@ mod tests {
         assert!(!remote.llm_accounts().enabled());
         super::configure_llm_accounts(
             &remote,
-            "0.0.0.0:15021".parse().unwrap(),
+            "0.0.0.0:26021".parse().unwrap(),
             Some(&directory),
             Some("test-explicit-management-token-long-enough"),
         )
@@ -845,17 +875,20 @@ mod tests {
         assert!(remote.llm_accounts().local_session_token().is_none());
     }
     use super::{apply_bootstrap, parse_otel_tags, Args};
-    use transit_xds::BootstrapConfig;
     use std::net::SocketAddr;
     use std::path::PathBuf;
+    use transit_xds::BootstrapConfig;
 
     fn base_args() -> Args {
         Args {
             mode: transit_core::RuntimeMode::Standalone,
-            xds_address: "http://old:15012".to_string(),
+            xds_address: "http://old:26012".to_string(),
             xds_enabled: None,
-            http_addr: "0.0.0.0:80".parse().unwrap(),
-            ui_addr: "0.0.0.0:15021".parse().unwrap(),
+            gateway: None,
+            xds_root_ca: None,
+            xds_token_file: None,
+            http_addr: "0.0.0.0:26080".parse().unwrap(),
+            ui_addr: "0.0.0.0:26021".parse().unwrap(),
             llm_accounts_dir: None,
             llm_admin_token: None,
             access_config: None,
@@ -895,7 +928,7 @@ mod tests {
         apply_bootstrap(
             &mut args,
             BootstrapConfig {
-                xds_address: Some("http://dubbod.dubbo-system.svc:15012".to_string()),
+                xds_address: Some("http://dubbod.dubbo-system.svc:26012".to_string()),
                 http_addr: Some("0.0.0.0:8080".parse::<SocketAddr>().unwrap()),
                 listener_names: vec!["public-dubbo.app.svc.cluster.local:80".to_string()],
                 cluster_id: Some("Kubernetes".to_string()),
@@ -904,7 +937,7 @@ mod tests {
             },
         );
 
-        assert_eq!(args.xds_address, "http://dubbod.dubbo-system.svc:15012");
+        assert_eq!(args.xds_address, "http://dubbod.dubbo-system.svc:26012");
         assert_eq!(args.http_addr.port(), 8080);
         assert_eq!(args.cluster_id, "Kubernetes");
         assert_eq!(args.dns_domain, "svc.local");
@@ -923,5 +956,4 @@ mod tests {
         assert_eq!(cfg.providers.len(), 2);
         assert_eq!(cfg.backends.len(), 7);
     }
-
 }

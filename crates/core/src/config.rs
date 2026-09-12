@@ -3,9 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::SocketAddr;
 
-pub const HTTP_LISTENER_PORT: u16 = 80;
-pub const HTTPS_LISTENER_PORT: u16 = 443;
-pub const UI_PORT: u16 = 15021;
+pub const HTTP_LISTENER_PORT: u16 = 26080;
+pub const HTTPS_LISTENER_PORT: u16 = 26443;
+pub const UI_PORT: u16 = 26021;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeConfig {
@@ -98,7 +98,10 @@ impl RuntimeConfig {
                     format!("backend {} is defined more than once", backend.name),
                 ));
             }
-            if let BackendKind::Llm { provider, endpoint, .. } = &backend.kind {
+            if let BackendKind::Llm {
+                provider, endpoint, ..
+            } = &backend.kind
+            {
                 if endpoint.is_none() && !providers.contains(provider.as_str()) {
                     conflicts.push(ConfigConflict::new(
                         "missing-provider",
@@ -683,7 +686,7 @@ pub enum BackendKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         credential_ref: Option<SecretKeyReference>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        quota_state: Option<QuotaState>,
+        quota_state: Option<Box<QuotaState>>,
         // Rewrites the request's model name before forwarding (alias -> upstream
         // name, e.g. an Azure deployment). Matching for backend selection runs
         // on the original name.
@@ -1157,7 +1160,7 @@ mod tests {
             version: "test".into(),
             listeners: vec![Listener {
                 name: "http".into(),
-                bind: "0.0.0.0:80".parse().unwrap(),
+                bind: SocketAddr::from(([0, 0, 0, 0], HTTP_LISTENER_PORT)),
                 protocol: ListenerProtocol::Http,
                 virtual_hosts: vec![VirtualHost {
                     name: "example".into(),

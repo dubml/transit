@@ -7,7 +7,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/wrappers.proto";
 import "type/matcher/v1/regex.proto";
 
-option go_package = "github.com/kdubbo/xds-api/route/v1;routev1";
+option go_package = "github.com/dubml/xds-api/route/v1;routev1";
 
 message VirtualHost {
   string name = 1;

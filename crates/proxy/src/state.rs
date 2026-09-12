@@ -1,4 +1,9 @@
 use crate::activation::Activator;
+use serde::Serialize;
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use transit_core::{
     format_credit_micros, format_usd_nanos, A2aEfficiencyRow, ApplyOutcome, AttributionMode,
     CacheTierBreakdown, Cluster, ConfigConflict, ConfigDelta, ConfigSnapshot, ConfigStore,
@@ -6,13 +11,8 @@ use transit_core::{
     OptimizationLedgerSummary, OptimizationOpportunity, OutlierDetectionConfig, PricingStatus,
     RateLimitPolicy, Result, RuntimeConfig, SecretKeyReference, SecurityDecision, SourceId,
     SourceState, SpendAccountRow, SpendLedgerSummary, SpendModelRow, TokenBreakdown, TokenCounts,
-    TokenLedgerSummary, TokenLimitPolicy, WeightedBackend, WeightedCluster, TransitError,
+    TokenLedgerSummary, TokenLimitPolicy, TransitError, WeightedBackend, WeightedCluster,
 };
-use serde::Serialize;
-use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const COST_TICK_CAP: usize = 512;
 const COST_EVENT_CAP: usize = 1024;
@@ -122,6 +122,7 @@ pub struct ProxyState {
 }
 
 struct Inner {
+    listener_readiness: RwLock<Option<(Option<u64>, Vec<ConfigConflict>)>>,
     llm_accounts: crate::LlmAccounts,
     access_settings: crate::access_settings::AccessSettings,
     llm_timings: Arc<crate::LlmTimings>,
@@ -514,6 +515,7 @@ impl ProxyState {
     pub fn with_activator(store: Arc<ConfigStore>, activation: Activator) -> Self {
         Self {
             inner: Arc::new(Inner {
+                listener_readiness: RwLock::new(None),
                 llm_accounts: crate::LlmAccounts::default(),
                 access_settings: crate::access_settings::AccessSettings::default(),
                 llm_timings: Arc::new(crate::LlmTimings::default()),
@@ -610,13 +612,36 @@ impl ProxyState {
 
     pub fn readiness(&self) -> Readiness {
         let snapshot = self.inner.store.snapshot();
+        let mut conflicts = snapshot.conflicts().to_vec();
+        if let Some((revision, errors)) = &*self.inner.listener_readiness.read().unwrap() {
+            conflicts.extend(errors.iter().cloned());
+            if *revision != Some(snapshot.revision()) {
+                conflicts.push(ConfigConflict::new(
+                    "listener-pending",
+                    "Configured listeners have not finished applying the current revision",
+                ));
+            }
+        }
         Readiness {
-            ready: snapshot.ready(),
+            ready: snapshot.ready() && conflicts.is_empty(),
             revision: snapshot.revision(),
             version: snapshot.version().to_string(),
             source_versions: snapshot.source_versions().clone(),
-            conflicts: snapshot.conflicts().to_vec(),
+            conflicts,
         }
+    }
+
+    /// Enables the socket readiness gate before the listener task starts.
+    pub fn require_configured_listeners(&self) {
+        *self.inner.listener_readiness.write().unwrap() = Some((None, Vec::new()));
+    }
+
+    pub(crate) fn set_listener_readiness(
+        &self,
+        revision: Option<u64>,
+        errors: Vec<ConfigConflict>,
+    ) {
+        *self.inner.listener_readiness.write().unwrap() = Some((revision, errors));
     }
 
     /// Drops hot-state keyed on resources the current configuration no longer
@@ -1789,7 +1814,9 @@ impl ProxyState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use transit_core::{Cluster, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, VirtualHost};
+    use transit_core::{
+        Cluster, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, VirtualHost,
+    };
 
     fn test_cluster(
         name: &str,

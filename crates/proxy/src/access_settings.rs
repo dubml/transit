@@ -14,6 +14,10 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
+pub use transit_core::{
+    HTTPS_LISTENER_PORT as DEFAULT_HTTPS_PORT, HTTP_LISTENER_PORT as DEFAULT_HTTP_PORT,
+};
+
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TlsSettings {
@@ -32,7 +36,7 @@ pub struct RemoteManagement {
     pub secret_key: String,
 }
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct AccessConfig {
     pub host: String,
@@ -44,6 +48,37 @@ pub struct AccessConfig {
     pub tls: TlsSettings,
     #[serde(default)]
     pub remote_management: RemoteManagement,
+}
+
+impl<'de> Deserialize<'de> for AccessConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "kebab-case", deny_unknown_fields)]
+        struct Input {
+            host: String,
+            port: Option<u16>,
+            auth_dir: String,
+            #[serde(default)]
+            api_keys: Vec<String>,
+            #[serde(default)]
+            tls: TlsSettings,
+            #[serde(default)]
+            remote_management: RemoteManagement,
+        }
+        let input = Input::deserialize(deserializer)?;
+        Ok(Self {
+            host: input.host,
+            port: input.port.unwrap_or(if input.tls.enable {
+                DEFAULT_HTTPS_PORT
+            } else {
+                DEFAULT_HTTP_PORT
+            }),
+            auth_dir: input.auth_dir,
+            api_keys: input.api_keys,
+            tls: input.tls,
+            remote_management: input.remote_management,
+        })
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -138,7 +173,10 @@ impl AccessSettings {
         let mut saved = match path {
             Some(path) => serde_json::from_slice::<SavedConfig>(&std::fs::read(path)?)
                 .map_err(|_| io::Error::other("Invalid access configuration JSON"))?,
-            None => SavedConfig { revision: 0, config: defaults },
+            None => SavedConfig {
+                revision: 0,
+                config: defaults,
+            },
         };
         validate(&mut saved.config).map_err(io::Error::other)?;
         let secret = &mut saved.config.remote_management.secret_key;
@@ -146,7 +184,8 @@ impl AccessSettings {
             *secret = hash_secret(secret).map_err(io::Error::other)?;
         }
         let mut random = [0; 32];
-        SystemRandom::new().fill(&mut random)
+        SystemRandom::new()
+            .fill(&mut random)
             .map_err(|_| io::Error::other("Could not create management session"))?;
         let active = saved.config.clone();
         *self.data.write().unwrap() = Some(Runtime {
@@ -252,7 +291,9 @@ impl AccessSettings {
             .as_mut()
             .ok_or_else(|| SaveError::Invalid("Access configuration is unavailable".into()))?;
         if !runtime.writable {
-            return Err(SaveError::Invalid("Access settings are managed by the Kubernetes deployment".into()));
+            return Err(SaveError::Invalid(
+                "Access settings are managed by the Kubernetes deployment".into(),
+            ));
         }
         if revision != runtime.saved.revision {
             return Err(SaveError::Conflict);
@@ -598,19 +639,26 @@ pub fn tls_config(settings: &TlsSettings) -> io::Result<Option<Arc<rustls::Serve
         .map_err(|_| io::Error::other("Cannot read TLS certificate"))?;
     let key = std::fs::read(expand_path(&settings.key)?)
         .map_err(|_| io::Error::other("Cannot read TLS private key"))?;
+    tls_config_from_pem(&cert, &key).map(Some)
+}
+
+pub(crate) fn tls_config_from_pem(
+    cert: &[u8],
+    key: &[u8],
+) -> io::Result<Arc<rustls::ServerConfig>> {
     if cert.len() > 1024 * 1024 || key.len() > 1024 * 1024 {
         return Err(io::Error::other("TLS files exceed 1 MiB"));
     }
-    let certificates: Vec<_> = rustls_pemfile::certs(&mut cert.as_slice())?
+    let certificates: Vec<_> = rustls_pemfile::certs(&mut &*cert)?
         .into_iter()
         .map(rustls::Certificate)
         .collect();
-    let mut keys = rustls_pemfile::pkcs8_private_keys(&mut key.as_slice())?;
+    let mut keys = rustls_pemfile::pkcs8_private_keys(&mut &*key)?;
     if keys.is_empty() {
-        keys = rustls_pemfile::rsa_private_keys(&mut key.as_slice())?;
+        keys = rustls_pemfile::rsa_private_keys(&mut &*key)?;
     }
     if keys.is_empty() {
-        keys = rustls_pemfile::ec_private_keys(&mut key.as_slice())?;
+        keys = rustls_pemfile::ec_private_keys(&mut &*key)?;
     }
     let key = keys
         .into_iter()
@@ -623,7 +671,7 @@ pub fn tls_config(settings: &TlsSettings) -> io::Result<Option<Arc<rustls::Serve
         .with_single_cert(certificates, rustls::PrivateKey(key))
         .map_err(|_| io::Error::other("Invalid TLS certificate/private key pair"))?;
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    Ok(Some(Arc::new(config)))
+    Ok(Arc::new(config))
 }
 
 fn validate_key_pair(certificates: &[rustls::Certificate], key: &[u8]) -> io::Result<()> {
@@ -707,6 +755,48 @@ pub async fn serve_router(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protocol_defaults_apply_only_when_port_is_omitted() {
+        for (tls, expected) in [(false, DEFAULT_HTTP_PORT), (true, DEFAULT_HTTPS_PORT)] {
+            let mut input = serde_json::json!({"host":"127.0.0.1","auth-dir":"/tmp/accounts","tls":{"enable":tls}});
+            let config: AccessConfig = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(config.port, expected);
+            for port in [80, 443, 8317, 26080, 26443] {
+                input["port"] = serde_json::json!(port);
+                let config: AccessConfig = serde_json::from_value(input.clone()).unwrap();
+                assert_eq!(config.port, port);
+                let copy: AccessConfig =
+                    serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+                assert_eq!(copy.port, port);
+            }
+            input["unknown"] = serde_json::json!(true);
+            assert!(serde_json::from_value::<AccessConfig>(input).is_err());
+        }
+    }
+
+    #[test]
+    fn deployment_settings_cannot_be_rewritten_or_create_local_storage() {
+        let dir = Directory::new();
+        let path = dir.0.join("mounted-settings.json");
+        let original =
+            serde_json::to_vec(&serde_json::json!({"revision":7,"config":dir.defaults()})).unwrap();
+        std::fs::write(&path, &original).unwrap();
+        let settings = AccessSettings::default();
+        settings
+            .configure_read_only(Some(&path), dir.defaults())
+            .unwrap();
+        assert!(!settings.view().unwrap().writable);
+        let mut changed = settings.view().unwrap().config;
+        changed.port = DEFAULT_HTTP_PORT;
+        assert!(matches!(
+            settings.save(7, changed, None),
+            Err(SaveError::Invalid(_))
+        ));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!dir.0.join("accounts").exists());
+    }
+
     struct Directory(PathBuf);
     impl Directory {
         fn new() -> Self {

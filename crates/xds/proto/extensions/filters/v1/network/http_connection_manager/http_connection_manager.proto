@@ -9,7 +9,7 @@ import "core/v1/base.proto";
 import "core/v1/config_source.proto";
 import "route/v1/route.proto";
 
-option go_package = "github.com/kdubbo/xds-api/extensions/filters/network/http_connection_manager/v1;http_connection_managerv1";
+option go_package = "github.com/dubml/xds-api/extensions/filters/v1/network/http_connection_manager;http_connection_managerv1";
 
 message HttpConnectionManager {
 

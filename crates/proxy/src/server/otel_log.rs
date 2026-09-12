@@ -25,8 +25,8 @@ pub(super) struct OtelAccessLogExporter {
 
 impl OtelAccessLogExporter {
     pub(super) fn new(endpoint: &str) -> Result<Self, opentelemetry::logs::LogError> {
-        let service_name = env::var("TRANSIT_OTEL_SERVICE_NAME")
-            .unwrap_or_else(|_| "transit".to_string());
+        let service_name =
+            env::var("TRANSIT_OTEL_SERVICE_NAME").unwrap_or_else(|_| "transit".to_string());
         let mut resource_attributes = vec![
             KeyValue::new("service.name", service_name),
             KeyValue::new("service.component", "transit.access"),
