@@ -1,8 +1,26 @@
 /* OAuth account workspace. Loaded before the shared UI bootstraps. */
 let llmManagementToken = '';
 
-// ChatGPT mark: Cli-Proxy-API-Management-Center; see ui/THIRD_PARTY_NOTICES.md.
-const llmChatGptLogo = '<svg role="img" aria-label="ChatGPT" focusable="false" fill="currentColor" fill-rule="evenodd" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M21.55 10.004a5.416 5.416 0 00-.478-4.501c-1.217-2.09-3.662-3.166-6.05-2.66A5.59 5.59 0 0010.831 1C8.39.995 6.224 2.546 5.473 4.838A5.553 5.553 0 001.76 7.496a5.487 5.487 0 00.691 6.5 5.416 5.416 0 00.477 4.502c1.217 2.09 3.662 3.165 6.05 2.66A5.586 5.586 0 0013.168 23c2.443.006 4.61-1.546 5.361-3.84a5.553 5.553 0 003.715-2.66 5.488 5.488 0 00-.693-6.497v.001zm-8.381 11.558a4.199 4.199 0 01-2.675-.954c.034-.018.093-.05.132-.074l4.44-2.53a.71.71 0 00.364-.623v-6.176l1.877 1.069c.02.01.033.029.036.05v5.115c-.003 2.274-1.87 4.118-4.174 4.123zM4.192 17.78a4.059 4.059 0 01-.498-2.763c.032.02.09.055.131.078l4.44 2.53c.225.13.504.13.73 0l5.42-3.088v2.138a.068.068 0 01-.027.057L9.9 19.288c-1.999 1.136-4.552.46-5.707-1.51h-.001zM3.023 8.216A4.15 4.15 0 015.198 6.41l-.002.151v5.06a.711.711 0 00.364.624l5.42 3.087-1.876 1.07a.067.067 0 01-.063.005l-4.489-2.559c-1.995-1.14-2.679-3.658-1.53-5.63h.001zm15.417 3.54l-5.42-3.088L14.896 7.6a.067.067 0 01.063-.006l4.489 2.557c1.998 1.14 2.683 3.662 1.529 5.633a4.163 4.163 0 01-2.174 1.807V12.38a.71.71 0 00-.363-.623zm1.867-2.773a6.04 6.04 0 00-.132-.078l-4.44-2.53a.731.731 0 00-.729 0l-5.42 3.088V7.325a.068.068 0 01.027-.057L14.1 4.713c2-1.137 4.555-.46 5.707 1.513.487.833.664 1.809.499 2.757h.001zm-11.741 3.81l-1.877-1.068a.065.065 0 01-.036-.051V6.559c.001-2.277 1.873-4.122 4.181-4.12.976 0 1.92.338 2.671.954-.034.018-.092.05-.131.073l-4.44 2.53a.71.71 0 00-.365.623l-.003 6.173v.002zm1.02-2.168L12 9.25l2.414 1.375v2.75L12 14.75l-2.415-1.375v-2.75z"></path></svg>';
+const llmProviderInfo = {
+  chatgpt: { label: 'OpenAI', oauth: 'codex' },
+  anthropic: { label: 'Anthropic', oauth: 'claude' },
+  antigravity: { label: 'Antigravity', oauth: 'antigravity' }
+};
+
+function llmFamilyForProvider(provider) {
+  if (provider === 'antigravity') return 'antigravity';
+  return provider === 'claude' ? 'anthropic' : 'chatgpt';
+}
+
+const llmProviderLogos = {
+  chatgpt: '<svg class="llm-provider-logo llm-provider-logo-chatgpt" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M22.282 9.821a6 6 0 0 0-.516-4.91a6.05 6.05 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a6 6 0 0 0-3.998 2.9a6.05 6.05 0 0 0 .743 7.097a5.98 5.98 0 0 0 .51 4.911a6.05 6.05 0 0 0 6.515 2.9A6 6 0 0 0 13.26 24a6.06 6.06 0 0 0 5.772-4.206a6 6 0 0 0 3.997-2.9a6.06 6.06 0 0 0-.747-7.073M13.26 22.43a4.48 4.48 0 0 1-2.876-1.04l.141-.081l4.779-2.758a.8.8 0 0 0 .392-.681v-6.737l2.02 1.168a.07.07 0 0 1 .038.052v5.583a4.504 4.504 0 0 1-4.494 4.494M3.6 18.304a4.47 4.47 0 0 1-.535-3.014l.142.085l4.783 2.759a.77.77 0 0 0 .78 0l5.843-3.369v2.332a.08.08 0 0 1-.033.062L9.74 19.95a4.5 4.5 0 0 1-6.14-1.646M2.34 7.896a4.5 4.5 0 0 1 2.366-1.973V11.6a.77.77 0 0 0 .388.677l5.815 3.354l-2.02 1.168a.08.08 0 0 1-.071 0l-4.83-2.786A4.504 4.504 0 0 1 2.34 7.872zm16.597 3.855l-5.833-3.387L15.119 7.2a.08.08 0 0 1 .071 0l4.83 2.791a4.494 4.494 0 0 1-.676 8.105v-5.678a.79.79 0 0 0-.407-.667m2.01-3.023l-.141-.085l-4.774-2.782a.78.78 0 0 0-.785 0L9.409 9.23V6.897a.07.07 0 0 1 .028-.061l4.83-2.787a4.5 4.5 0 0 1 6.68 4.66zm-12.64 4.135l-2.02-1.164a.08.08 0 0 1-.038-.057V6.075a4.5 4.5 0 0 1 7.375-3.453l-.142.08L8.704 5.46a.8.8 0 0 0-.393.681zm1.097-2.365l2.602-1.5l2.607 1.5v2.999l-2.597 1.5l-2.607-1.5Z"></path></svg>',
+  anthropic: '<svg class="llm-provider-logo llm-provider-logo-anthropic" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><path d="M17.304 3.541h-3.672l6.696 16.918H24Zm-10.608 0L0 20.459h3.744l1.37-3.553h7.005l1.369 3.553h3.744L10.536 3.541Zm-.371 10.223L8.616 7.82l2.291 5.945Z"></path></svg>',
+  antigravity: '<svg class="llm-provider-logo llm-provider-logo-antigravity" viewBox="0 0 112 114" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="antigravity-logo-gradient" x1="18" y1="96" x2="97" y2="18" gradientUnits="userSpaceOnUse"><stop stop-color="#3186FF"></stop><stop offset=".34" stop-color="#00B95C"></stop><stop offset=".67" stop-color="#FBBC04"></stop><stop offset="1" stop-color="#FC413D"></stop></linearGradient></defs><path fill="url(#antigravity-logo-gradient)" d="M89.699 93.695c4.667 3.5 11.667 1.167 5.25-5.25C75.699 69.778 79.783 18.445 55.866 18.445S36.033 69.778 16.783 88.445c-7 7 0.583 8.75 5.25 5.25 18.083-12.25 16.917-33.833 33.833-33.833s15.75 21.583 33.833 33.833Z"></path></svg>'
+};
+
+function llmProviderMark(family) {
+  return llmProviderLogos[family] || '';
+}
 
 function llmIcon(name) {
   const paths = {
@@ -14,6 +32,7 @@ function llmIcon(name) {
     models: '<path d="m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5"/>',
     delete: '<path d="M3 6h18M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M5 6v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6M10 10v7m4-7v7"/>',
     settings: '<g transform="translate(2 2) scale(1.25)" stroke-width="1.44"><circle cx="8" cy="8" r="2.3"/><path d="M6.8 1.5h2.4l.4 1.5c.4.1.7.3 1.1.5l1.4-.7 1.7 1.7-.7 1.4c.2.4.4.7.5 1.1l1.5.4v2.4l-1.5.4c-.1.4-.3.7-.5 1.1l.7 1.4-1.7 1.7-1.4-.7c-.4.2-.7.4-1.1.5l-.4 1.5H6.8l-.4-1.5c-.4-.1-.7-.3-1.1-.5l-1.4.7-1.7-1.7.7-1.4a3.8 3.8 0 0 1-.5-1.1L1 9.2V6.8l1.5-.4c.1-.4.3-.7.5-1.1l-.7-1.4 1.7-1.7 1.4.7c.4-.2.7-.4 1.1-.5l.4-1.5z"/></g>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
     codex: '<path d="m6 7 4 5-4 5m7 0h5"/>'
   };
   return '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths[name] + '</svg>';
@@ -23,7 +42,7 @@ function llmModal(title, content, saveLabel, onSave) {
   const previous = document.activeElement;
   const dialog = document.createElement('dialog');
   dialog.className = 'llm-dialog';
-  dialog.innerHTML = '<form><header><h2>' + esc(title) + '</h2><button type="button" class="quiet-button" data-close aria-label="' + esc(uiText('Close', '关闭')) + '">×</button></header><div class="llm-dialog-body">' + content + '</div><p class="llm-form-error" role="alert"></p><footer><button type="button" class="quiet-button" data-close>' + uiText('Cancel', '取消') + '</button><button class="quiet-button llm-primary" type="submit">' + esc(saveLabel) + '</button></footer></form>';
+  dialog.innerHTML = '<form><header><h2>' + esc(title) + '</h2><button type="button" class="quiet-button" data-close aria-label="' + esc(uiText('Close', '关闭')) + '">×</button></header><div class="llm-dialog-body">' + content + '</div><p class="llm-form-error" role="alert"></p><footer><button type="button" class="quiet-button" data-close>' + (saveLabel ? uiText('Cancel', '取消') : uiText('Close', '关闭')) + '</button>' + (saveLabel ? '<button class="quiet-button llm-primary" type="submit">' + esc(saveLabel) + '</button>' : '') + '</footer></form>';
   document.body.appendChild(dialog);
   const close = () => dialog.close();
   dialog.querySelectorAll('[data-close]').forEach(button => button.onclick = close);
@@ -31,11 +50,11 @@ function llmModal(title, content, saveLabel, onSave) {
   dialog.querySelector('form').onsubmit = async event => {
     event.preventDefault();
     const button = dialog.querySelector('[type=submit]');
-    button.disabled = true;
+    if (button) button.disabled = true;
     dialog.querySelector('[role=alert]').textContent = '';
     try { if (await onSave(dialog) !== false) close(); }
     catch (error) { if (dialog.isConnected) dialog.querySelector('[role=alert]').textContent = error.message; }
-    finally { button.disabled = false; }
+    finally { if (button) button.disabled = false; }
   };
   dialog.showModal();
   return dialog;
@@ -81,96 +100,78 @@ async function llmLocalSession() {
   llmManagementToken = (await response.json()).token;
 }
 
-async function llmLoginDialog() {
-  const family = state.llmFamily || 'chatgpt';
-  const name = family === 'anthropic' ? 'Anthropic' : 'Codex';
-  const provider = family === 'anthropic' ? 'claude' : 'codex';
-  const backends = (state.llmData?.backends || []).filter(b => b.mode === 'subscription' && b.family === family);
+async function llmLoginDialog(requestedFamily) {
+  const family = requestedFamily || state.llmFamily || 'chatgpt';
+  const info = llmProviderInfo[family] || llmProviderInfo.chatgpt;
+  const name = info.label;
+  const provider = info.oauth;
   const managementEnabled = state.llmData?.management_enabled === true;
   const localSession = state.llmData?.management_mode === 'local';
   let login = null, expiresAt = 0, saved = false;
-  const content = '<div class="llm-login-heading"><p>' + uiText('Sign in through OAuth to automatically obtain and save the authentication file.', '通过 OAuth 流程登录，自动获取并保存认证文件。') + '</p><button type="button" class="quiet-button llm-primary" data-start>' + uiText('Start ' + name + ' login', '开始 ' + name + ' 登录') + '</button></div>'
-    + '<label>' + uiText('Backend binding · optional', '后端绑定 · 可选') + '<select name="backend">' + backends.map(b => '<option value="' + esc(b.name) + '">' + esc(b.name) + '</option>').join('') + '<option value="">' + uiText('Save account without binding', '暂不绑定，先保存账户') + '</option></select></label>'
-    + (managementEnabled ? (localSession ? '' : '<section data-login-management' + (llmManagementToken ? ' hidden' : '') + '><label>' + uiText('Gateway management token', '网关管理令牌') + '<input name="management_token" type="password" autocomplete="off" minlength="24"></label><p class="muted">' + uiText('Use the management key saved in Configuration, or the initial TRANSIT_LLM_ADMIN_TOKEN. It stays in this page session.', '填写 Configuration 中保存的管理密钥，或首次启动时设置的 TRANSIT_LLM_ADMIN_TOKEN；仅用于当前页面会话。') + '</p></section>')
+  const content = (managementEnabled ? (localSession ? '' : '<section data-login-management' + (llmManagementToken ? ' hidden' : '') + '><label>' + uiText('Gateway management token', '网关管理令牌') + '<input name="management_token" type="password" autocomplete="off" minlength="24"></label><p class="muted">' + uiText('Use the management key saved in Configuration, or the initial TRANSIT_LLM_ADMIN_TOKEN. It stays in this page session.', '填写 Configuration 中保存的管理密钥，或首次启动时设置的 TRANSIT_LLM_ADMIN_TOKEN；仅用于当前页面会话。') + '</p><button type="button" class="quiet-button llm-primary" data-start>' + uiText('Connect', '连接') + '</button></section>')
       : '<section class="llm-login-setup" role="note"><strong>' + uiText('OAuth management is not enabled', '当前服务尚未启用 OAuth 管理') + '</strong><p>' + uiText('No authorization link can be generated yet. Configure the account directory and management token, restart the gateway, then reload this page.', '目前无法生成授权链接。请配置账户保存目录和管理令牌，重启网关后刷新此页面。') + '</p><code>TRANSIT_LLM_ACCOUNTS_DIR</code><p>' + uiText('A private directory for authentication files.', '用于保存认证文件的私有目录。') + '</p><code>TRANSIT_LLM_ADMIN_TOKEN</code><p>' + uiText('A management token you create, at least 24 characters long.', '由你设置的管理令牌，至少 24 个字符。') + '</p></section>')
-    + '<section class="llm-login-link" hidden><span class="muted">' + uiText('Authorization link', '授权链接') + '</span><p data-url></p><div class="llm-heading-actions"><button type="button" class="quiet-button" data-copy>' + uiText('Copy link', '复制链接') + '</button><a class="quiet-button" data-open target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">' + uiText('Open link', '打开链接') + '</a></div></section>'
-    + '<label class="llm-login-callback" hidden>' + uiText('Callback URL', '回调 URL') + '<input name="callback" type="url" autocomplete="off" spellcheck="false" maxlength="16384"><span>' + uiText('After authorization redirects to localhost, copy the full URL from the address bar and submit it here, even if the page cannot connect.', '授权跳转到 localhost 后，即使页面无法连接，也请复制地址栏中的完整 URL 并提交到这里。') + '</span></label>'
-    + '<p class="llm-login-status" role="status" aria-live="polite">' + (managementEnabled ? uiText('Start login to generate your authorization link.', '点击开始登录后生成授权链接。') : uiText('Waiting for gateway configuration', '等待启用网关 OAuth 管理')) + '</p>';
+    + '<section class="llm-login-link" hidden><p data-url></p><div class="llm-heading-actions"><button type="button" class="quiet-button" data-copy>' + uiText('Copy link', '复制链接') + '</button><a class="quiet-button" data-open target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">' + uiText('Open link', '打开链接') + '</a></div></section>';
   const credentials = async form => {
     if (localSession) { if (!llmManagementToken) await llmLocalSession(); return; }
     const input = form.querySelector('[name=management_token]');
     if (input?.value) llmManagementToken = input.value;
     if (!llmManagementToken || llmManagementToken.length < 24) {
       llmManagementToken = '';
-      form.querySelector('[data-login-management]').hidden = false;
-      input.focus();
+      const mgmt = form.querySelector('[data-login-management]');
+      if (mgmt) mgmt.hidden = false;
+      input?.focus();
       throw new Error(uiText('Enter the gateway management token configured at startup (at least 24 characters).', '请填写启动网关时配置的管理令牌（至少 24 个字符）。'));
     }
   };
   const showCredentialError = form => {
     if (!llmManagementToken && form.isConnected && managementEnabled && !localSession) {
-      form.querySelector('[data-login-management]').hidden = false;
-      form.querySelector('[name=management_token]').value = '';
+      const mgmt = form.querySelector('[data-login-management]');
+      if (mgmt) mgmt.hidden = false;
+      const input = form.querySelector('[name=management_token]');
+      if (input) input.value = '';
     }
   };
-  const dialog = llmModal(name + ' OAuth', content, uiText('Submit callback URL', '提交回调 URL'), async form => {
-    if (!login || Date.now() >= expiresAt) throw new Error(uiText('Login expired. Start a new login.', '登录已过期，请重新开始登录。'));
-    const status = form.querySelector('[role=status]');
-    form.querySelector('[data-start]').disabled = true;
-    status.textContent = uiText('Authenticating and saving…', '正在认证并保存…');
-    try {
-      await credentials(form);
-      const response = await llmAdminFetch(login.id + '/callback', { method: 'POST', body: JSON.stringify({ callback_url: form.querySelector('[name=callback]').value.trim() }) }, '/admin/llm/oauth/');
-      await completed(await response.json());
-    } catch (error) { showCredentialError(form); status.textContent = uiText('Not completed. Check the error or restart login.', '尚未完成，请检查错误或重新开始登录。'); throw error; }
-    finally { if (form.isConnected) form.querySelector('[data-start]').disabled = false; }
+  const dialog = llmModal(name + ' OAuth', content, '', async () => {
+    await startLogin();
     return false;
   });
   dialog.classList.add('llm-login-dialog');
-  const submit = dialog.querySelector('[type=submit]');
-  submit.hidden = true;
   const completed = async account => {
     if (saved) return;
     saved = true; login = null;
-    if (dialog.isConnected) {
-      dialog.querySelector('[name=callback]').value = '';
-      for (const selector of ['.llm-login-link', '.llm-login-callback', '[type=submit]', '[data-start]']) dialog.querySelector(selector).hidden = true;
-      dialog.querySelector('[data-url]').textContent = '';
-      dialog.querySelector('[data-open]').removeAttribute('href');
-      dialog.querySelector('[role=status]').textContent = uiText('Signed in. Authentication file saved: ', '登录成功，认证文件已保存：') + account.id;
-      dialog.querySelector('footer [data-close]').textContent = uiText('Done', '完成');
-    }
+    if (dialog.isConnected) dialog.close();
+    notify(uiText('Signed in. Authentication file saved: ', '登录成功，认证文件已保存：') + account.id);
     await llmReload().catch(() => notify(uiText('Account saved. Refresh the dashboard to see it.', '账户已保存，请刷新仪表盘查看。')));
   };
-  const start = dialog.querySelector('[data-start]');
-  start.disabled = !managementEnabled;
-  start.onclick = async () => {
-    start.disabled = true; submit.disabled = true;
-    const status = dialog.querySelector('[role=status]');
+  const startLogin = async () => {
+    const startBtn = dialog.querySelector('[data-start]');
+    if (startBtn) startBtn.disabled = true;
     dialog.querySelector('[role=alert]').textContent = '';
-    status.textContent = uiText('Creating authorization link…', '正在生成授权链接…');
     try {
       await credentials(dialog);
       if (login) { await llmAdminFetch(login.id, { method: 'DELETE' }, '/admin/llm/oauth/'); login = null; }
-      const response = await llmAdminFetch('start', { method: 'POST', body: JSON.stringify({ provider, backend: dialog.querySelector('[name=backend]').value }) }, '/admin/llm/oauth/');
+      const response = await llmAdminFetch('start', { method: 'POST', body: JSON.stringify({ provider, backend: '' }) }, '/admin/llm/oauth/');
       if (!dialog.isConnected) return;
       login = await response.json(); expiresAt = Date.now() + login.expires_in * 1000;
       dialog.dataset.callbackMode = login.callback_mode;
-      if (!localSession) { dialog.querySelector('[name=management_token]').value = ''; dialog.querySelector('[data-login-management]').hidden = true; }
-      dialog.querySelector('[name=backend]').disabled = true;
+      if (!localSession) {
+        const input = dialog.querySelector('[name=management_token]');
+        if (input) input.value = '';
+        const mgmt = dialog.querySelector('[data-login-management]');
+        if (mgmt) mgmt.hidden = true;
+      }
       dialog.querySelector('[data-url]').textContent = login.authorization_url;
       dialog.querySelector('[data-open]').href = login.authorization_url;
-      dialog.querySelector('[name=callback]').placeholder = login.redirect_uri + '?code=…&state=…';
-      dialog.querySelector('[name=callback]').value = '';
-      dialog.querySelector('[name=callback]').required = true;
       dialog.querySelector('.llm-login-link').hidden = false;
-      dialog.querySelector('.llm-login-callback').hidden = false;
-      submit.hidden = false;
-      status.textContent = login.callback_mode === 'automatic' ? uiText('Waiting for authorization… Same-machine browsers complete automatically; remote browsers can submit the callback URL below.', '等待认证中… 同机浏览器授权后将自动保存；远程浏览器可在下方提交回调 URL。') : uiText('Callback port is unavailable. Authorize, then paste the full callback URL below. Link expires in 10 minutes.', '回调端口不可用。请完成授权后在下方粘贴完整回调 URL；链接 10 分钟内有效。');
-      start.textContent = uiText('Restart login', '重新开始登录');
-    } catch (error) { showCredentialError(dialog); if (dialog.isConnected) dialog.querySelector('[role=alert]').textContent = error.message; status.textContent = uiText('Could not start login', '登录未能启动'); }
-    finally { start.disabled = false; submit.disabled = !login; }
+    } catch (error) {
+      showCredentialError(dialog);
+      if (dialog.isConnected) dialog.querySelector('[role=alert]').textContent = error.message;
+    } finally {
+      if (startBtn && dialog.isConnected) startBtn.disabled = false;
+    }
   };
+  const startBtn = dialog.querySelector('[data-start]');
+  if (startBtn) startBtn.onclick = startLogin;
   dialog.querySelector('[data-copy]').onclick = async () => {
     try { await navigator.clipboard.writeText(login.authorization_url); notify(uiText('Link copied', '链接已复制')); }
     catch { dialog.querySelector('[role=alert]').textContent = uiText('Copy unavailable. Select and copy the link above.', '无法自动复制，请选中上方链接手动复制。'); }
@@ -178,9 +179,9 @@ async function llmLoginDialog() {
   let polling = false;
   const timer = setInterval(async () => {
     if (login && Date.now() >= expiresAt && !saved) {
-      login = null; submit.disabled = true;
+      login = null;
       dialog.querySelector('[data-open]').removeAttribute('href');
-      dialog.querySelector('[role=status]').textContent = uiText('Login expired. Start a new login.', '登录已过期，请重新开始登录。');
+      dialog.querySelector('[role=alert]').textContent = uiText('Login expired. Start a new login.', '登录已过期，请重新开始登录。');
     }
     if (!login || saved || polling || !dialog.isConnected) return;
     const id = login.id;
@@ -191,11 +192,10 @@ async function llmLoginDialog() {
       if (!dialog.isConnected || login?.id !== id) return;
       if (result.status === 'success') await completed(result.account);
       else if (['error', 'expired', 'cancelled'].includes(result.status)) {
-        login = null; submit.disabled = true;
-        dialog.querySelector('[role=status]').textContent = uiText('Login did not complete. Start a new login.', '登录未完成，请重新开始登录。');
-        dialog.querySelector('[role=alert]').textContent = result.error || '';
+        login = null;
+        dialog.querySelector('[role=alert]').textContent = result.error || uiText('Login did not complete. Start a new login.', '登录未完成，请重新开始登录。');
         dialog.querySelector('[data-open]').removeAttribute('href');
-      } else if (result.status === 'exchanging') dialog.querySelector('[role=status]').textContent = uiText('Authenticating and saving…', '正在认证并保存…');
+      }
     } catch (error) { if (dialog.isConnected) dialog.querySelector('[role=alert]').textContent = error.message; }
     finally { polling = false; }
   }, 1500);
@@ -204,7 +204,7 @@ async function llmLoginDialog() {
     if (login && llmManagementToken) fetch('/admin/llm/oauth/' + login.id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + llmManagementToken }, keepalive: true }).catch(() => {});
     login = null;
   });
-  if (localSession && managementEnabled && backends.length <= 1) start.onclick();
+  if (managementEnabled && (localSession || llmManagementToken)) startLogin();
 }
 
 async function llmReload() {
@@ -216,7 +216,7 @@ async function llmReload() {
 }
 
 function llmFileEditor(account, isNew) {
-  const family = account.document.type === 'claude' ? 'anthropic' : 'chatgpt';
+  const family = llmFamilyForProvider(account.document.type);
   const available = (state.llmData?.backends || []).filter(b => b.mode === 'subscription' && b.family === family);
   const choices = '<option value=""' + (!account.backend ? ' selected' : '') + '>' + uiText('Save account without binding', '暂不绑定，先保存账户') + '</option>' + available.map(b => '<option value="' + esc(b.name) + '"' + (b.name === account.backend ? ' selected' : '') + '>' + esc(b.name) + '</option>').join('') + (account.backend && !available.some(b => b.name === account.backend) ? '<option selected value="' + esc(account.backend) + '">' + esc(account.backend) + ' · ' + uiText('Unavailable', '不可用') + '</option>' : '');
   const content = '<div class="llm-form-pair"><label>' + uiText('Account ID', '账户 ID') + '<input name="id" required pattern="[A-Za-z0-9_-]{1,120}" value="' + esc(account.id || '') + '"' + (isNew ? '' : ' readonly') + '></label><label>' + uiText('Backend binding · optional', '后端绑定 · 可选') + '<select name="backend">' + choices + '</select></label></div><label>OAuth JSON<textarea name="document" rows="16" spellcheck="false" required></textarea></label><p class="muted">' + uiText('Contains credentials. Only explicit download or save sends this document.', '内容包含凭证。仅显式下载或保存会传送此文件。') + '</p>';
@@ -253,7 +253,7 @@ function llmChooseFile(existing) {
     try {
       if (file.size > 1024 * 1024) throw new Error(uiText('OAuth file must be smaller than 1 MiB', 'OAuth 文件不得超过 1 MiB'));
       const document = JSON.parse(await file.text());
-      const family = document.type === 'claude' ? 'anthropic' : 'chatgpt';
+      const family = llmFamilyForProvider(document.type);
       const old = existing ? await (await llmAdminFetch(encodeURIComponent(existing.id))).json() : { id: file.name.replace(/\.json$/i, '').replace(/[^A-Za-z0-9_-]/g, '-'), backend: subscriptions.find(b => b.family === family)?.name || '', revision: 0, models: [] };
       llmFileEditor({ ...old, document }, !existing);
     } catch (error) { notify(error.message); }
@@ -263,33 +263,55 @@ function llmChooseFile(existing) {
 
 async function llmEditModels(summary) {
   let account = await (await llmAdminFetch(encodeURIComponent(summary.id))).json();
-  const backend = state.llmData.backends.find(b => b.name === account.backend);
-  const excluded = new Set(account.models.filter(r => r.disabled && !r.model.includes('*')).map(r => r.model));
-  const patterns = account.models.filter(r => r.disabled && r.model.includes('*')).map(r => r.model);
-  const known = new Map([...(backend?.models || []), ...account.models.map(r => r.model).filter(m => !m.includes('*'))].map(id => [id,id]));
-  const content = '<p class="llm-model-scope"><strong>' + esc(account.document.type === 'codex' ? 'Codex' : 'Claude') + '</strong><span>' + esc(summary.email || summary.id) + '</span></p>'
+  const isPattern = model => model.includes('*') || model.startsWith('re:') || /^\/.+\/$/.test(model);
+  const excluded = new Set(account.models.filter(r => r.disabled && !isPattern(r.model)).map(r => r.model));
+  const patterns = account.models.filter(r => r.disabled && isPattern(r.model)).map(r => r.model);
+  const exactRules = account.models.filter(r => !patterns.includes(r.model));
+  const existingAliasModels = new Set(account.models.filter(r => r.alias).map(r => r.model));
+  const known = new Map();
+  let catalogLoaded = false;
+  const content = '<p class="llm-model-scope"><strong>' + esc(llmProviderInfo[llmFamilyForProvider(account.document.type)].label) + '</strong><span>' + esc(summary.email || summary.id) + '</span></p>'
     + '<p class="muted">' + uiText('Applies to this account. Excluded models cannot be routed through their original names or aliases.', '仅作用于当前账户。禁用后，原模型及其别名都不会路由到此账户。') + '</p>'
-    + '<div class="llm-model-sections"><section class="llm-model-section"><header><h3>' + uiText('OAuth model exclusions', 'OAuth 模型禁用') + '</h3><span data-excluded-count></span></header><p class="muted">' + uiText('Select models you do not want to use.', '勾选不想使用的模型。') + '</p><input type="search" data-model-search aria-label="' + uiText('Search models', '搜索模型') + '" placeholder="' + uiText('Search models', '搜索模型') + '"><p class="llm-catalog-status" role="status">' + uiText('Loading available models…', '正在加载可用模型…') + '</p><div class="llm-model-options"></div><label>' + uiText('Exclusion rules', '禁用规则') + '<textarea name="excluded_patterns" rows="3" placeholder="gpt-5-*">' + esc(patterns.join('\n')) + '</textarea></label><p class="muted">' + uiText('One model name or pattern per line. * matches any characters; exclusions are case-insensitive.', '每行一个模型名或规则；* 匹配任意字符，禁用匹配不区分大小写。') + '</p></section>'
-    + '<section class="llm-model-section"><header><h3>' + uiText('OAuth model aliases', 'OAuth 模型别名') + '</h3><button class="quiet-button" type="button" data-add-alias>+ ' + uiText('Add alias', '添加别名') + '</button></header><p class="muted">' + uiText('Clients call the alias; requests use the original model.', '客户端使用别名调用，请求发送给原模型。') + '</p><datalist id="llm-model-catalog"></datalist><div class="llm-model-rules"></div><p class="muted" data-alias-empty>' + uiText('No aliases. Add one to rename a model.', '暂无别名，点击“添加别名”修改模型名称。') + '</p></section></div>';
+    + '<div class="llm-model-sections"><section class="llm-model-section"><header><h3>' + uiText('OAuth model exclusions', 'OAuth 模型禁用') + '</h3><span data-excluded-count></span></header><p class="muted">' + uiText('Select models you do not want to use.', '勾选不想使用的模型。') + '</p><input type="search" data-model-search aria-label="' + uiText('Search models', '搜索模型') + '" placeholder="' + uiText('Search or /regular expression/', '搜索或输入 /正则表达式/') + '"><p class="llm-catalog-status" role="status">' + uiText('Loading current models…', '正在加载当前模型…') + '</p><div class="llm-model-options"></div><label>' + uiText('Exclusion rules', '禁用规则') + '<textarea name="excluded_patterns" rows="2" placeholder="gpt-5-*\nre:^gemini-3\\.">' + esc(patterns.join('\n')) + '</textarea></label><p class="muted">' + uiText('One rule per line. Use * as a wildcard, or re:expression / /expression/ for regular expressions. Matching is case-insensitive.', '每行一条规则。* 是通配符；re:表达式 或 /表达式/ 使用正则，匹配不区分大小写。') + '</p></section>'
+    + '<section class="llm-model-section"><header><h3>' + uiText('OAuth model aliases', 'OAuth 模型别名') + '</h3><button class="quiet-button" type="button" data-add-alias>+ ' + uiText('Add alias', '添加别名') + '</button></header><p class="muted">' + uiText('Choose a current provider model, then expose it under an alias.', '选择供应商当前模型，再为它设置别名。') + '</p><div class="llm-model-rules"></div><p class="muted" data-alias-empty>' + uiText('No aliases. Add one to rename a model.', '暂无别名，点击“添加别名”修改模型名称。') + '</p></section></div>';
   const dialog = llmModal(uiText('Model management', '模型管理'), content, uiText('Save rules', '保存规则'), async form => {
-    const rules = new Map(account.models.filter(r => !r.model.includes('*')).map(r => [r.model,{...r,disabled:excluded.has(r.model),alias:'',keep_original:true}]));
+    const rules = new Map(exactRules.map(r => [r.model,{...r,disabled:excluded.has(r.model),alias:'',keep_original:true}]));
     const ensure = model => { if (!rules.has(model)) rules.set(model,{model,disabled:false,alias:'',keep_original:true,reasoning_effort:''}); return rules.get(model); };
     for (const model of excluded) ensure(model).disabled = true;
     const sources = new Set();
     for (const row of form.querySelectorAll('.llm-alias-row')) {
       const model = row.querySelector('[name=model]').value.trim(), alias = row.querySelector('[name=alias]').value.trim();
       if (!model || !alias) throw new Error(uiText('Original model and alias are required.', '原模型名称和别名不能为空。'));
+      if (catalogLoaded && !known.has(model) && !existingAliasModels.has(model)) throw new Error(uiText('Choose a model from the current provider list.', '请选择供应商当前模型列表中的模型。'));
       if (sources.has(model)) throw new Error(uiText('Each original model can have one alias.', '同一个原模型只能设置一条别名。'));
       sources.add(model);
-      Object.assign(ensure(model),{alias,keep_original:row.querySelector('[name=keep_original]').checked,reasoning_effort:row.querySelector('[name=effort]').value});
+      Object.assign(ensure(model),{alias,keep_original:row.querySelector('[name=keep_original]').checked});
     }
-    for (const model of form.querySelector('[name=excluded_patterns]').value.split('\n').map(s => s.trim()).filter(Boolean)) ensure(model).disabled = true;
+    const manual = form.querySelector('[name=excluded_patterns]').value.split('\n').map(s => s.trim()).filter(Boolean);
+    for (const model of manual) {
+      const expression = regexExpression(model);
+      if (expression !== null) {
+        try { new RegExp(expression,'i'); }
+        catch (_) { throw new Error(uiText('Invalid exclusion regular expression: ', '禁用正则表达式无效：') + model); }
+      }
+      ensure(model).disabled = true;
+    }
     const next = {...account,models:[...rules.values()].filter(r => r.disabled || r.alias || r.reasoning_effort)};
     await llmAdminFetch(encodeURIComponent(account.id), { method: 'PUT', body: JSON.stringify(next) });
     await llmReload(); notify(uiText('Model rules saved', '模型规则已保存'));
   });
   dialog.classList.add('llm-model-dialog');
+  function regexExpression(value) {
+    if (value.startsWith('re:')) return value.slice(3);
+    if (value.length > 2 && value.startsWith('/') && value.endsWith('/')) return value.slice(1,-1);
+    return null;
+  }
   function matchesPattern(pattern, model) {
+    const expression = regexExpression(pattern);
+    if (expression !== null) {
+      try { return new RegExp(expression,'i').test(model); }
+      catch (_) { return false; }
+    }
     pattern = pattern.toLowerCase(); model = model.toLowerCase();
     let i=0,j=0,star=-1,retry=0;
     while (j<model.length) {
@@ -302,22 +324,46 @@ async function llmEditModels(summary) {
     return i === pattern.length;
   }
   function manualRules() { return dialog.querySelector('[name=excluded_patterns]').value.split('\n').map(s=>s.trim()).filter(Boolean); }
+  function matchesQuery(query, id, label) {
+    if (!query) return true;
+    const expression = regexExpression(query);
+    if (expression !== null) {
+      try { return new RegExp(expression,'i').test(id + ' ' + label); }
+      catch (_) { return false; }
+    }
+    return (id + ' ' + label).toLowerCase().includes(query.toLowerCase());
+  }
   function updateCount() {
     const rules = [...excluded,...manualRules()];
     const count = [...known.keys()].filter(id=>rules.some(rule=>matchesPattern(rule,id))).length;
     dialog.querySelector('[data-excluded-count]').textContent = uiText('Excluded ', '已禁用 ') + count + ' / ' + known.size;
   }
   function renderCatalog() {
-    const query = dialog.querySelector('[data-model-search]').value.trim().toLowerCase();
+    const query = dialog.querySelector('[data-model-search]').value.trim();
     const items = [...known].sort(([a],[b]) => a.localeCompare(b));
-    dialog.querySelector('.llm-model-options').innerHTML = items.filter(([id,label]) => (id+' '+label).toLowerCase().includes(query)).map(([id,label]) => { const byRule=manualRules().some(rule=>matchesPattern(rule,id)); return '<label class="llm-model-option"><input type="checkbox" data-exclude-model="' + esc(id) + '"' + (byRule || [...excluded].some(rule=>matchesPattern(rule,id)) ? ' checked' : '') + (byRule ? ' disabled title="' + uiText('Excluded by a rule below', '已被下方规则禁用') + '"' : '') + '><span title="' + esc(label) + '">' + esc(id) + '</span></label>'; }).join('') || '<p class="muted">' + uiText('No matching models. You can enter a rule below.', '暂无匹配模型，可以在下方手动输入规则。') + '</p>';
-    dialog.querySelector('#llm-model-catalog').innerHTML = items.map(([id,label]) => '<option value="' + esc(id) + '">' + esc(label) + '</option>').join('');
+    dialog.querySelector('.llm-model-options').innerHTML = items.filter(([id,label]) => matchesQuery(query,id,label)).map(([id,label]) => { const byRule=manualRules().some(rule=>matchesPattern(rule,id)); return '<label class="llm-model-option"><input type="checkbox" data-exclude-model="' + esc(id) + '"' + (byRule || excluded.has(id) ? ' checked' : '') + (byRule ? ' disabled title="' + uiText('Excluded by a rule below', '已被下方规则禁用') + '"' : '') + '><span title="' + esc(label) + '">' + esc(id) + '</span><small>' + esc(label === id ? '' : label) + '</small></label>'; }).join('') || '<p class="muted">' + uiText('No current models match.', '当前模型中没有匹配项。') + '</p>';
     dialog.querySelectorAll('[data-exclude-model]').forEach(input => input.onchange = () => { if (input.checked) excluded.add(input.dataset.excludeModel); else excluded.delete(input.dataset.excludeModel); updateCount(); });
+    dialog.querySelectorAll('.llm-alias-row').forEach(renderAliasSuggestions);
     updateCount();
+  }
+  function renderAliasSuggestions(row) {
+    const input = row.querySelector('[name=model]'), suggestions = row.querySelector('.llm-model-suggestions');
+    if (document.activeElement !== input || !known.size) { suggestions.hidden = true; return; }
+    const matches = [...known].filter(([id,label]) => matchesQuery(input.value.trim(),id,label)).slice(0,6);
+    suggestions.innerHTML = matches.map(([id,label]) => '<button type="button" data-model="' + esc(id) + '"><strong>' + esc(id) + '</strong>' + (label === id ? '' : '<span>' + esc(label) + '</span>') + '</button>').join('') || '<span class="muted">' + uiText('No current model matches', '当前模型中没有匹配项') + '</span>';
+    suggestions.hidden = false;
+    suggestions.querySelectorAll('[data-model]').forEach(button => {
+      button.onmousedown = event => event.preventDefault();
+      button.onclick = () => { input.value = button.dataset.model; suggestions.hidden = true; input.focus(); };
+    });
   }
   function addAlias(rule = {}) {
     const row = document.createElement('div'); row.className = 'llm-alias-row';
-    row.innerHTML = '<label>' + uiText('Original model', '原模型名称') + '<input name="model" list="llm-model-catalog" required autocomplete="off" value="' + esc(rule.model || '') + '"></label><span class="llm-alias-arrow" aria-hidden="true">→</span><label>' + uiText('Alias', '别名') + '<input name="alias" required autocomplete="off" value="' + esc(rule.alias || '') + '"></label><div class="llm-alias-options"><label class="llm-check"><input name="keep_original" type="checkbox"' + (rule.keep_original ? ' checked' : '') + '>' + uiText('Keep original name', '保留原名') + '</label><button class="quiet-button llm-delete" type="button" data-remove-alias aria-label="' + uiText('Remove alias', '删除别名') + '">' + llmIcon('delete') + '</button></div><details><summary>' + uiText('Default reasoning', '默认推理等级') + '</summary><select name="effort" aria-label="' + uiText('Default reasoning', '默认推理等级') + '">' + ['', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh'].map(e => '<option value="' + e + '"' + (e === rule.reasoning_effort ? ' selected' : '') + '>' + (e || uiText('Inherit', '继承')) + '</option>').join('') + '</select></details>';
+    row.innerHTML = '<div class="llm-alias-model"><label>' + uiText('Original model', '原模型名称') + '<input name="model" required autocomplete="off" spellcheck="false" value="' + esc(rule.model || '') + '" placeholder="' + uiText('Search current models', '搜索当前模型') + '"></label><div class="llm-model-suggestions" hidden></div></div><span class="llm-alias-arrow" aria-hidden="true">→</span><label>' + uiText('Alias', '别名') + '<input name="alias" required autocomplete="off" spellcheck="false" value="' + esc(rule.alias || '') + '"></label><div class="llm-alias-options"><label class="llm-check"><input name="keep_original" type="checkbox"' + (rule.keep_original ? ' checked' : '') + '>' + uiText('Keep original name', '保留原名') + '</label><button class="quiet-button llm-delete" type="button" data-remove-alias title="' + uiText('Remove alias', '删除别名') + '" aria-label="' + uiText('Remove alias', '删除别名') + '">' + llmIcon('delete') + '</button></div>';
+    const modelInput = row.querySelector('[name=model]');
+    modelInput.onfocus = () => renderAliasSuggestions(row);
+    modelInput.oninput = () => renderAliasSuggestions(row);
+    modelInput.onblur = () => setTimeout(() => { if (row.isConnected) row.querySelector('.llm-model-suggestions').hidden = true; },100);
     row.querySelector('[data-remove-alias]').onclick = () => { row.remove(); dialog.querySelector('[data-alias-empty]').hidden = !!dialog.querySelector('.llm-alias-row'); };
     dialog.querySelector('.llm-model-rules').appendChild(row);
     dialog.querySelector('[data-alias-empty]').hidden = true;
@@ -335,9 +381,11 @@ async function llmEditModels(summary) {
         const latest = await (await llmAdminFetch(encodeURIComponent(account.id))).json();
         if (JSON.stringify(latest.models) === JSON.stringify(account.models) && latest.backend === account.backend) account = latest;
       }
+      known.clear();
       for (const model of catalog.models) known.set(model.id,model.display_name || model.id);
+      catalogLoaded = true;
       renderCatalog();
-      dialog.querySelector('.llm-catalog-status').textContent = uiText('Loaded ', '已加载 ') + catalog.models.length + uiText(' provider models', ' 个供应商模型');
+      dialog.querySelector('.llm-catalog-status').textContent = uiText('Current provider models · ', '供应商当前模型 · ') + catalog.models.length;
     } catch (error) {
       if (dialog.isConnected) dialog.querySelector('.llm-catalog-status').textContent = uiText('Model list unavailable; manual rules still work. ', '模型列表加载失败，仍可手动填写规则。') + error.message;
     }
@@ -347,6 +395,7 @@ async function llmEditModels(summary) {
 
 async function llmAccountAction(action, account, button) {
   if (action === 'upload') { llmChooseFile(account); return; }
+  if (action === 'view-credits') { llmCreditDialog(account); return; }
   button.disabled = true;
   try {
     const id = encodeURIComponent(account.id);
@@ -371,64 +420,28 @@ async function llmAccountAction(action, account, button) {
   finally { button.disabled = false; }
 }
 
-function renderFamilyDropdown(family) {
-  const actions = $('page-actions');
-  if (!actions) return;
-  const current = family === 'anthropic' ? 'Anthropic' : 'ChatGPT';
-  actions.innerHTML = '<div class="llm-family-dropdown" id="llm-family-dropdown">'
-    + '<button type="button" class="llm-family-trigger" id="llm-family-trigger" aria-haspopup="listbox" aria-expanded="false" aria-label="' + uiText('Provider', '供应商') + '">'
-    + '<span class="llm-family-val">' + current + '</span>'
-    + '<svg class="llm-family-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>'
-    + '</button>'
-    + '<div class="llm-family-menu" id="llm-family-menu" role="listbox" hidden>'
-    + '<button type="button" role="option" class="llm-family-option' + (family === 'chatgpt' ? ' active' : '') + '" data-value="chatgpt" aria-selected="' + (family === 'chatgpt') + '"><span>ChatGPT</span><svg class="llm-family-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>'
-    + '<button type="button" role="option" class="llm-family-option' + (family === 'anthropic' ? ' active' : '') + '" data-value="anthropic" aria-selected="' + (family === 'anthropic') + '"><span>Anthropic</span><svg class="llm-family-check" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>'
+function llmProviderTabs(data, mode, family, actions = '') {
+  const source = mode === 'subscription' ? data.accounts : data.backends.filter(backend => backend.mode === mode);
+  const counts = Object.fromEntries(Object.keys(llmProviderInfo).map(id => [id, 0]));
+  for (const item of source) {
+    const id = mode === 'subscription' ? llmFamilyForProvider(item.provider) : item.family;
+    if (id in counts) counts[id]++;
+  }
+  const tabs = [['all', uiText('All', '全部')], ...Object.entries(llmProviderInfo).map(([id, info]) => [id, info.label])];
+  return '<nav class="llm-provider-tabs" id="llm-provider-tabs" aria-label="' + uiText('Provider filter', '供应商筛选') + '">'
+    + '<div class="llm-provider-tab-list">'
+    + tabs.map(([id, label]) => {
+      const active = family === id;
+      const count = id === 'all' ? source.length : counts[id];
+      const content = id === 'all'
+        ? '<span>' + esc(label) + '</span>'
+        : '<span class="llm-provider-mark">' + llmProviderMark(id) + '</span>';
+      return '<button type="button" class="llm-provider-tab' + (active ? ' active' : '') + '" data-family="' + id + '" title="' + esc(label) + '" aria-label="' + esc(label) + '" aria-pressed="' + active + '">'
+        + content + '<span class="llm-provider-count">' + count + '</span></button>';
+    }).join('')
     + '</div>'
-    + '<select id="llm-family" class="hidden" aria-hidden="true" tabindex="-1"><option value="chatgpt"' + (family === 'chatgpt' ? ' selected' : '') + '>ChatGPT</option><option value="anthropic"' + (family === 'anthropic' ? ' selected' : '') + '>Anthropic</option></select>'
-    + '</div>';
-
-  const trigger = $('llm-family-trigger');
-  const menu = $('llm-family-menu');
-  if (!trigger || !menu) return;
-
-  function closeMenu() {
-    menu.hidden = true;
-    trigger.setAttribute('aria-expanded', 'false');
-    document.removeEventListener('click', onDocClick);
-    document.removeEventListener('keydown', onDocKey);
-  }
-  function onDocClick(e) {
-    if (!trigger.contains(e.target) && !menu.contains(e.target)) closeMenu();
-  }
-  function onDocKey(e) {
-    if (e.key === 'Escape') closeMenu();
-  }
-
-  trigger.onclick = (e) => {
-    e.stopPropagation();
-    if (menu.hidden) {
-      menu.hidden = false;
-      trigger.setAttribute('aria-expanded', 'true');
-      setTimeout(() => {
-        document.addEventListener('click', onDocClick);
-        document.addEventListener('keydown', onDocKey);
-      }, 0);
-    } else {
-      closeMenu();
-    }
-  };
-
-  menu.querySelectorAll('.llm-family-option').forEach(btn => {
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      const val = btn.dataset.value;
-      closeMenu();
-      if (val !== state.llmFamily) {
-        state.llmFamily = val;
-        renderLlm();
-      }
-    };
-  });
+    + actions
+    + '</nav>';
 }
 
 const llmSelectedAccounts = new Set();
@@ -509,27 +522,10 @@ function llmResetQuota(account, creditId) {
     });
 }
 
-function llmQuotaTime(value) {
-  const [absolute, relative] = llmDate(value).split(' · ');
-  const soon = Date.parse(value) - Date.now();
-  return '<time title="' + esc(value || '') + '">' + esc(absolute) + (relative ? ' · <span' + (soon > 0 && soon < 3600000 ? ' class="llm-time-soon"' : '') + '>' + esc(relative) + '</span>' : '') + '</time>';
-}
-
-function llmQuotaMarkup(account) {
+function llmCreditDialog(account) {
   const q = account.quota;
-  const rawPlan = q?.plan_type || account.plan_type;
-  const plan = rawPlan ? rawPlan[0].toUpperCase() + rawPlan.slice(1) : '—';
-  const renewal = q?.renewal_at || account.renewal_at;
   const credits = q?.reset_credits;
   const loading = llmQuotaJobs.get(account.id)?.loading;
-  const windows = (q?.windows || []).map(w => {
-    const seconds = Number(w.window_seconds);
-    const period = seconds === 18000 ? uiText('5-hour limit', '5 小时限额') : seconds === 604800 ? uiText('Weekly limit', '周限额') : seconds >= 2419200 && seconds <= 2678400 ? uiText('Monthly limit', '月限额') : uiText(Math.round(seconds / 3600) + '-hour limit', Math.round(seconds / 3600) + ' 小时限额');
-    const prefix = ({ five_hour: '', seven_day: '', seven_day_opus: 'Opus', seven_day_sonnet: 'Sonnet', iguana_necktie: 'Fable', 'code-review': uiText('Code review', '代码审查') })[w.name] ?? w.name;
-    const remaining = typeof w.used_percent === 'number' ? Math.max(0,Math.min(100,100-w.used_percent)) : null;
-    const label = [prefix,period].filter(Boolean).join(' ');
-    return '<div class="quota-window-item"><div class="quota-window-label-row"><strong>' + esc(label) + '</strong><span><b title="' + uiText('Remaining quota', '剩余额度') + '">' + (remaining === null ? '—' : Math.round(remaining) + '%') + '</b> ' + llmQuotaTime(w.reset_at) + '</span></div><div class="llm-quota-track"' + (remaining === null ? ' aria-label="' + uiText('Quota not reported', '额度未返回') + '"' : ' role="progressbar" aria-label="' + esc(label) + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + remaining + '"') + '><span style="width:' + (remaining ?? 0) + '%" class="' + (remaining !== null && remaining <= 20 ? 'low' : '') + '"></span></div></div>';
-  }).join('');
   const timezone = new Intl.DateTimeFormat('en', { timeZoneName: 'shortOffset' }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || '';
   const expirations = (credits?.credits || []).slice().sort((a,b) => (Date.parse(a.expires_at) || Infinity) - (Date.parse(b.expires_at) || Infinity));
   const pendingCredit = account.pending_reset_credit_id;
@@ -540,21 +536,101 @@ function llmQuotaMarkup(account) {
     const disabled = !credit.id || (pendingCredit && !pending) || (!pending && (expired || loading || account.quota_error || q?.credits_error));
     return '<div class="llm-credit-row"><div><span>' + uiText('Reset ', '第 ') + (i+1) + uiText('', ' 次') + '</span>' + llmQuotaTime(credit.expires_at) + '</div><button type="button" class="quiet-button" data-action="reset" data-credit-id="' + esc(credit.id || '') + '" aria-label="' + esc(uiText('Use reset ', '使用第 ') + (i+1) + uiText('', ' 次重置')) + '"' + (disabled ? ' disabled' : '') + '>' + (pending ? uiText('Retry', '重试确认') : uiText('Use reset', '使用重置')) + '</button></div>';
   }).join('');
-  return '<section class="llm-quota-panel"><div class="llm-plan-pills"><span>' + uiText('Plan: ', '套餐：') + '<b>' + esc(plan) + '</b></span><span>' + uiText('Renewal ', '续费时间 ') + llmQuotaTime(renewal) + '</span>' + (account.provider === 'codex' ? '<span>' + uiText('Reset credits ', '主动重置次数 ') + '<b>' + esc(credits?.available_count ?? '—') + '</b></span>' : '') + '</div>'
-    + '<div class="llm-quota-windows">' + (windows || '<p class="muted">' + (loading ? uiText('Loading provider quota…', '正在查询供应商额度…') : uiText('Quota not reported. Refresh to query the provider.', '尚无额度数据，请刷新查询供应商。')) + '</p>') + '</div>'
-    + (creditRows ? '<div class="llm-credit-expirations"><strong>' + uiText('Reset credit expiration', '主动重置过期时间') + ' (' + esc(timezone) + ')</strong>' + creditRows + '</div>' : '')
+  const availableCount = credits?.available_count ?? expirations.length;
+  const content = '<div class="llm-credit-dialog-content">'
+    + '<header class="llm-credit-header"><strong>' + uiText('Reset credit expiration', '到期时间') + (timezone ? ' (' + esc(timezone) + ')' : '') + '</strong><span>' + uiText('Available: ', '可用：') + '<b>' + esc(availableCount) + '</b></span></header>'
+    + (creditRows ? '<div class="llm-credit-list">' + creditRows + '</div>' : '<p class="muted">' + uiText('No reset credits available', '暂无可用的重置卡') + '</p>')
+    + ([account.quota_error,q?.credits_error,q?.profile_error].filter(Boolean).map(message => '<p class="llm-quota-error" role="status">' + esc(message) + (q?.observed_at ? ' · ' + uiText('Last observation retained', '保留上次观测') : '') + '</p>').join(''))
+    + '</div>';
+  const dialog = llmModal(uiText('Reset credits', '重置卡'), content, '', () => {});
+  dialog.classList.add('llm-credit-dialog');
+  dialog.querySelectorAll('[data-action=reset]').forEach(button => {
+    button.onclick = () => {
+      dialog.close();
+      llmResetQuota(account, button.dataset.creditId);
+    };
+  });
+  return dialog;
+}
+
+function llmQuotaTime(value) {
+  const [absolute, relative] = llmDate(value).split(' · ');
+  const soon = Date.parse(value) - Date.now();
+  return '<time title="' + esc(value || '') + '">' + esc(absolute) + (relative ? ' · <span' + (soon > 0 && soon < 3600000 ? ' class="llm-time-soon"' : '') + '>' + esc(relative) + '</span>' : '') + '</time>';
+}
+
+function llmQuotaWindowMarkup(w) {
+  const seconds = Number(w.window_seconds);
+  const period = !(seconds > 0) ? '' : seconds === 18000 ? uiText('5-hour limit', '5 小时限额') : seconds === 604800 ? uiText('Weekly limit', '周限额') : seconds >= 2419200 && seconds <= 2678400 ? uiText('Monthly limit', '月限额') : uiText(Math.round(seconds / 3600) + '-hour limit', Math.round(seconds / 3600) + ' 小时限额');
+  const prefix = ({ five_hour: '', seven_day: '', seven_day_opus: 'Opus', seven_day_sonnet: 'Sonnet', iguana_necktie: 'Fable', 'code-review': uiText('Code review', '代码审查') })[w.name] ?? w.name;
+  const remaining = typeof w.used_percent === 'number' ? Math.max(0,Math.min(100,100-w.used_percent)) : null;
+  const label = w.window_label || [prefix,period].filter(Boolean).join(' ');
+  return '<div class="quota-window-item"><div class="quota-window-label-row"><strong>' + esc(label) + '</strong><span><b title="' + uiText('Remaining quota', '剩余额度') + '">' + (remaining === null ? '—' : Math.round(remaining) + '%') + '</b> ' + llmQuotaTime(w.reset_at) + '</span></div><div class="llm-quota-track"' + (remaining === null ? ' aria-label="' + uiText('Quota not reported', '额度未返回') + '"' : ' role="progressbar" aria-label="' + esc(label) + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + remaining + '"') + '><span style="width:' + (remaining ?? 0) + '%" class="' + (remaining !== null && remaining <= 20 ? 'low' : '') + '"></span></div></div>';
+}
+
+function llmPlanMarkup(account) {
+  const q = account.quota;
+  const rawPlan = q?.plan_type || account.plan_type;
+  const renewal = q?.renewal_at || account.renewal_at;
+  const credits = q?.reset_credits;
+  const parts = [];
+  if (rawPlan) parts.push('<span>' + uiText('Plan: ', '套餐：') + '<b>' + esc(rawPlan[0].toUpperCase() + rawPlan.slice(1)) + '</b></span>');
+  if (renewal) parts.push('<span>' + uiText('Renewal ', '续费时间 ') + llmQuotaTime(renewal) + '</span>');
+  if (account.provider === 'codex' && !(credits?.credits?.length || account.pending_reset_credit_id)) {
+    parts.push('<span>' + uiText('Reset credits ', '重置卡 ') + '<b>' + esc(credits?.available_count ?? '0') + '</b>' + uiText('', ' 次') + '</span>');
+  }
+  return parts.length ? '<div class="llm-plan-pills">' + parts.join('') + '</div>' : '';
+}
+
+function llmQuotaMarkup(account) {
+  const q = account.quota;
+  const credits = q?.reset_credits;
+  const loading = llmQuotaJobs.get(account.id)?.loading;
+  const summaryGroups = new Map();
+  const modelWindows = [];
+  for (const window of q?.windows || []) {
+    if (window.window !== 'summary') {
+      if (account.provider !== 'antigravity') modelWindows.push(window);
+      continue;
+    }
+    const name = window.name || uiText('Antigravity', 'Antigravity');
+    let group = summaryGroups.get(name);
+    if (!group) {
+      group = { name, description: window.group_description || '', windows: [] };
+      summaryGroups.set(name, group);
+    } else if (!group.description && window.group_description) {
+      group.description = window.group_description;
+    }
+    group.windows.push(window);
+  }
+  const summary = summaryGroups.size ? '<div class="llm-quota-summary-groups">' + [...summaryGroups.values()].map(group => '<section class="llm-quota-group"><header><strong>' + esc(group.name) + '</strong>' + (group.description ? '<span>' + esc(group.description) + '</span>' : '') + '</header><div class="llm-quota-group-windows">' + group.windows.map(llmQuotaWindowMarkup).join('') + '</div></section>').join('') + '</div>' : '';
+  const windows = summary + modelWindows.map(llmQuotaWindowMarkup).join('');
+  const timezone = new Intl.DateTimeFormat('en', { timeZoneName: 'shortOffset' }).formatToParts(new Date()).find(p => p.type === 'timeZoneName')?.value || '';
+  const expirations = (credits?.credits || []).slice().sort((a,b) => (Date.parse(a.expires_at) || Infinity) - (Date.parse(b.expires_at) || Infinity));
+  const pendingCredit = account.pending_reset_credit_id;
+  if (pendingCredit && !expirations.some(c => c.id === pendingCredit)) expirations.push({ id: pendingCredit });
+  const availableCount = credits?.available_count ?? expirations.length;
+  const hasCredits = expirations.length > 0 || Boolean(pendingCredit);
+  const creditBadge = hasCredits ? '<div class="llm-credit-expirations">'
+    + '<button type="button" class="quiet-button llm-credit-badge' + (pendingCredit ? ' has-pending' : '') + '" data-action="view-credits" aria-label="' + esc(uiText('Reset credits ', '重置卡 ') + availableCount) + '">'
+    + '<span class="llm-credit-label">' + uiText('Reset credits ', '重置卡 ') + '</span><b class="llm-credit-count">' + esc(availableCount) + '</b></button>'
+    + '</div>' : '';
+  return '<section class="llm-quota-panel"><div class="llm-quota-windows">' + (windows || '<p class="muted">' + (loading ? uiText('Loading provider quota…', '正在查询供应商额度…') : uiText('Quota not reported. Refresh to query the provider.', '尚无额度数据，请刷新查询供应商。')) + '</p>') + '</div>'
+    + creditBadge
     + ([account.quota_error,q?.credits_error,q?.profile_error].filter(Boolean).map(message => '<p class="llm-quota-error" role="status">' + esc(message) + (q?.observed_at ? ' · ' + uiText('Last observation retained', '保留上次观测') : '') + '</p>').join('')) + '</section>';
 }
 
 function llmSubscriptionCard(account) {
   const card = document.createElement('article'); card.className = 'llm-account-card llm-subscription-card'; card.dataset.accountId = account.id;
-  card.dataset.search = [account.id, account.backend, account.email, account.provider].filter(Boolean).join(' ');
   let hash = 2166136261;
   for (const character of account.id) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
-  const name = [account.provider, account.email || uiText('Unknown email', '未知邮箱'), (hash >>> 0).toString(16).padStart(8,'0').slice(0,7)].join('-');
-  card.innerHTML = '<header class="llm-identity"><span class="llm-provider-mark">' + (account.provider === 'codex' ? llmChatGptLogo : llmIcon('codex')) + '</span><h3 title="' + esc(name) + '">' + esc(name) + '</h3></header>' + llmQuotaMarkup(account)
-    + '<footer class="llm-account-footer"><input type="checkbox" data-select aria-label="' + esc(uiText('Select ', '选择 ') + (account.email || account.id)) + '"' + (llmSelectedAccounts.has(account.id) ? ' checked' : '') + '><div class="llm-account-actions"></div><label class="llm-account-toggle"><span>' + uiText('Enabled', '启用') + '</span><input type="checkbox" role="switch" data-action="toggle" aria-label="' + esc(uiText('Enable ', '启用 ') + (account.email || account.id)) + '"' + (account.disabled ? '' : ' checked') + '></label></footer>';
-  const labels = { models: uiText('Models', '模型'), quota: uiText('Refresh quota', '刷新额度'), download: uiText('Download OAuth file', '下载 OAuth 文件'), edit: uiText('Account settings', '账户设置'), delete: uiText('Delete account', '删除账户') };
+  const providerName = account.provider === 'codex' ? 'OpenAI' : account.provider;
+  const name = [providerName, account.email || uiText('Unknown email', '未知邮箱'), (hash >>> 0).toString(16).padStart(8,'0').slice(0,7)].join('-');
+  card.dataset.search = [account.id, account.backend, account.email, account.provider, providerName, name].filter(Boolean).join(' ');
+  card.innerHTML = '<header class="llm-identity"><div class="llm-identity-main"><span class="llm-provider-mark">' + llmProviderMark(llmFamilyForProvider(account.provider)) + '</span><div class="llm-identity-meta"><h3 title="' + esc(name) + '">' + esc(name) + '</h3>' + llmPlanMarkup(account) + '</div></div></header>' + llmQuotaMarkup(account)
+    + '<div class="llm-account-actions" role="group" aria-label="' + esc(uiText('Account actions', '账户操作')) + '"></div><label class="llm-account-toggle"><span>' + uiText('Enabled', '启用') + '</span><input type="checkbox" role="switch" data-action="toggle" aria-label="' + esc(uiText('Enable ', '启用 ') + (account.email || account.id)) + '"' + (account.disabled ? '' : ' checked') + '></label><input type="checkbox" data-select aria-label="' + esc(uiText('Select ', '选择 ') + (account.email || account.id)) + '"' + (llmSelectedAccounts.has(account.id) ? ' checked' : '') + '>';
+  const labels = { models: uiText('Models', '模型'), download: uiText('Download OAuth file', '下载 OAuth 文件'), edit: uiText('Account settings', '账户设置'), delete: uiText('Delete account', '删除账户') };
+  labels.quota = uiText('Refresh quota', '刷新额度');
   for (const [action,label] of Object.entries(labels)) {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'quiet-button llm-icon-button' + (action === 'delete' ? ' llm-delete' : '');
     button.title = button.ariaLabel = label; button.dataset.action = action;
@@ -567,29 +643,101 @@ function llmSubscriptionCard(account) {
   return card;
 }
 
+function llmPlatformRow(account, providers) {
+  const b = account.detail;
+  const row = document.createElement('article');
+  row.className = 'llm-platform-row';
+  row.dataset.accountId = account.id;
+  const provider = providers.get(b.provider) || { name: b.provider, family: b.family, authentication: 'unset' };
+  const models = (b.models || []).join(', ') || '*';
+  row.innerHTML = '<div class="llm-platform-cell llm-platform-name"><strong>' + esc(b.name) + '</strong><small>' + esc(models) + '</small></div>'
+    + '<div class="llm-platform-cell"><span class="llm-platform-provider"><span class="llm-provider-mark">' + llmProviderMark(provider.family) + '</span><strong>' + esc(provider.name) + '</strong><small>' + esc(provider.authentication === 'api-key' ? uiText('API key', 'API Key') : uiText('Unset', '未设置')) + '</small></span></div>'
+    + '<div class="llm-platform-cell"><span class="llm-platform-outgoing">' + uiText('Incoming model', '传入模型') + '</span></div>'
+    + '<div class="llm-platform-cell"><span class="type-badge">' + uiText('None', '无') + '</span></div>';
+  return row;
+}
+
+function llmCreateProvider() {
+  const defaults = { chatgpt: 'openai', anthropic: 'anthropic', antigravity: 'antigravity' };
+  const options = Object.entries(llmProviderInfo).map(([id, info]) => '<option value="' + id + '">' + esc(info.label) + '</option>').join('');
+  const content = '<label>' + uiText('Provider name', 'Provider 名称') + '<input name="name" required pattern="[A-Za-z0-9._-]{1,80}" maxlength="80" spellcheck="false"></label>'
+    + '<div class="llm-form-pair"><label>' + uiText('Provider', '供应商') + '<select name="family">' + options + '</select></label><label>' + uiText('Base URL · optional', 'Base URL · 可选') + '<input name="base_url" type="url" placeholder="https://…" spellcheck="false"></label></div>'
+    + '<fieldset class="llm-auth-mode"><legend>' + uiText('Provider API key', 'Provider API Key') + '</legend><label><input type="radio" name="authentication" value="unset" checked>' + uiText('Unset', '未设置') + '</label><label><input type="radio" name="authentication" value="api-key">' + uiText('API key', 'API Key') + '</label></fieldset>'
+    + '<label data-api-key hidden>' + uiText('API key', 'API Key') + '<div class="llm-secret-input"><input name="api_key" type="password" autocomplete="new-password" spellcheck="false"><button class="quiet-button" type="button" data-reveal-key aria-label="' + esc(uiText('Show API key', '显示 API Key')) + '">' + llmIcon('edit') + '</button></div></label><p class="muted">' + uiText('The key is stored separately from the runtime configuration with local-owner-only permissions.', '密钥与运行配置分开保存，并限制为本地所有者可读。') + '</p>';
+  const dialog = llmModal(uiText('Create provider', '创建 Provider'), content, uiText('Create provider', '创建 Provider'), async form => {
+    const family = form.querySelector('[name=family]').value;
+    const name = form.querySelector('[name=name]').value.trim();
+    await llmAdminFetch('platform/providers', { method: 'POST', body: JSON.stringify({
+      expected_version: state.llmData?.config_version || '', family, name,
+      authentication: form.querySelector('[name=authentication]:checked').value,
+      api_key: form.querySelector('[name=api_key]').value,
+      base_url: form.querySelector('[name=base_url]').value.trim()
+    }) }, '/admin/llm/');
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      await llmReload();
+      if ((state.llmData.providers || []).some(provider => provider.name === name)) break;
+    }
+    state.llmMode = 'api'; state.llmFamily = family; renderLlm();
+    notify(uiText('Provider created', 'Provider 已创建'));
+  });
+  const family = dialog.querySelector('[name=family]'), name = dialog.querySelector('[name=name]');
+  const applyDefaults = () => { name.value = defaults[family.value]; };
+  family.onchange = applyDefaults;
+  dialog.querySelectorAll('[name=authentication]').forEach(input => input.onchange = () => { dialog.querySelector('[data-api-key]').hidden = dialog.querySelector('[name=authentication]:checked').value !== 'api-key'; });
+  dialog.querySelector('[data-reveal-key]').onclick = () => { const input = dialog.querySelector('[name=api_key]'); input.type = input.type === 'password' ? 'text' : 'password'; };
+  applyDefaults();
+}
+
+function llmAddModel() {
+  const providers = state.llmData?.providers || [];
+  const choices = providers.map(provider => '<option value="' + esc(provider.name) + '">' + esc(provider.name) + ' · ' + esc(llmProviderInfo[provider.family]?.label || provider.family) + '</option>').join('');
+  const content = '<label>' + uiText('Incoming model match', '传入模型匹配') + '<input name="model" required maxlength="200" value="*" spellcheck="false"></label><p class="muted">' + uiText('Use * to accept every model, or enter one exact model ID.', '使用 * 匹配全部模型，或输入一个精确模型 ID。') + '</p><label>' + uiText('Provider', 'Provider') + '<select name="provider" required>' + choices + '</select></label>';
+  llmModal(uiText('Add model', '添加模型'), content, uiText('Add model', '添加模型'), async form => {
+    if (!providers.length) throw new Error(uiText('Create a provider before adding a model.', '请先创建 Provider，再添加模型。'));
+    const provider = form.querySelector('[name=provider]').value;
+    const model = form.querySelector('[name=model]').value.trim();
+    await llmAdminFetch('platform/models', { method: 'POST', body: JSON.stringify({ expected_version: state.llmData?.config_version || '', provider, model }) }, '/admin/llm/');
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      await llmReload();
+      if (state.llmData.backends.some(backend => backend.name === provider + '/' + model)) break;
+    }
+    state.llmMode = 'api'; renderLlm();
+    notify(uiText('Model added', '模型已添加'));
+  });
+}
+
 function renderLlmWorkspace() {
   const host = $('tab-llm');
-  const data = state.llmData || { accounts: [], backends: [] };
-  const mode = state.llmMode || 'subscription', family = state.llmFamily || 'chatgpt';
-  const modes = [['subscription', uiText('Account subscription', '账户订阅')], ['api', uiText('API', 'API')], ['local', uiText('Local open weights', '本地开源权重')]];
-  const selected = data.backends.filter(b => b.mode === mode && (mode === 'local' || b.family === family));
+  const data = state.llmData || { accounts: [], providers: [], backends: [] };
+  if (state.llmMode === 'local') state.llmMode = 'subscription';
+  const mode = state.llmMode || 'subscription', family = state.llmFamily || 'all';
+  const modes = [['subscription', uiText('Account subscription', '账户订阅')], ['api', uiText('Platform', '平台')]];
+  const selected = data.backends.filter(b => b.mode === mode && (family === 'all' || b.family === family));
   const error = state.endpointErrors['/debug/llm'];
+  const subscriptionActions = mode === 'subscription' ? '<div class="llm-heading-actions">'
+    + (family === 'all' ? '' : '<button id="llm-login" type="button" class="quiet-button llm-icon-button" title="' + uiText('OAuth login', 'OAuth 登录') + '" aria-label="' + uiText('OAuth login', 'OAuth 登录') + '">' + llmIcon('login') + '</button>')
+    + '<button id="llm-import" type="button" class="quiet-button llm-icon-button" title="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '" aria-label="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '">' + llmIcon('upload') + '</button></div>' : '';
+  const platformActions = mode === 'api' ? '<div class="llm-heading-actions"><button id="llm-add-model" type="button" class="quiet-button llm-primary"' + (data.platform_writable && (data.providers || []).length ? '' : ' disabled') + '>' + uiText('Add model', '添加模型') + '</button><button id="llm-create-provider" type="button" class="quiet-button" title="' + esc(data.platform_writable ? uiText('Create Providers', '创建 Provider') : uiText('A writable local runtime configuration is required', '需要可写的本地运行配置')) + '"' + (data.platform_writable ? '' : ' disabled') + '>' + uiText('Create Providers', '创建 Provider') + '</button></div>' : '';
+  const platformHeader = mode === 'api' ? '<div class="llm-platform-table-head"><span>' + uiText('Name', '名称') + '</span><span>' + uiText('Provider', 'Provider') + '</span><span>' + uiText('Outgoing model', '输出模型') + '</span><span>' + uiText('Policy state', '策略状态') + '</span></div>' : '';
   host.innerHTML = '<div class="llm-workspace"><div class="llm-workspace-toolbar"><div class="llm-mode-tabs" role="group" aria-label="' + uiText('LLM mode', 'LLM 模式') + '">' + modes.map(([id, label]) => '<button type="button" data-mode="' + id + '" aria-pressed="' + (mode === id) + '">' + label + '</button>').join('') + '</div></div>'
+    + llmProviderTabs(data, mode, family, subscriptionActions + platformActions)
     + (error ? '<div class="data-notice" role="alert">' + esc(error) + ' · ' + uiText('Displayed data may be stale.', '当前显示的数据可能已过期。') + '</div>' : '')
-    + '<div class="llm-section-heading"><h3>' + (mode === 'subscription' ? uiText('Accounts', '账户') : uiText('Backends', '后端')) + '</h3>' + (mode === 'subscription' ? '<div class="llm-heading-actions"><button id="llm-login" type="button" class="quiet-button llm-icon-button" title="' + uiText('OAuth login', 'OAuth 登录') + '" aria-label="' + uiText('OAuth login', 'OAuth 登录') + '">' + llmIcon('login') + '</button><button id="llm-import" type="button" class="quiet-button llm-icon-button" title="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '" aria-label="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '">' + llmIcon('upload') + '</button></div>' : '') + '</div><div class="llm-accounts-grid" id="llm-accounts-grid"></div></div>';
-  if (mode !== 'local') {
-    renderFamilyDropdown(family);
-  } else {
-    const actions = $('page-actions');
-    if (actions) actions.innerHTML = '';
-  }
+    + platformHeader + '<div class="llm-accounts-grid' + (mode === 'api' ? ' llm-platform-list' : '') + '" id="llm-accounts-grid"></div></div>';
+  const actions = $('page-actions');
+  if (actions) actions.innerHTML = '';
   host.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => { state.llmMode = button.dataset.mode; renderLlm(); });
+  host.querySelectorAll('.llm-provider-tab').forEach(button => button.onclick = () => { state.llmFamily = button.dataset.family; renderLlm(); });
   if ($('llm-import')) $('llm-import').onclick = () => llmChooseFile();
-  if ($('llm-login')) $('llm-login').onclick = () => llmLoginDialog();
+  if ($('llm-login')) $('llm-login').onclick = () => llmLoginDialog(family);
+  if ($('llm-create-provider')) $('llm-create-provider').onclick = () => llmCreateProvider();
+  if ($('llm-add-model')) $('llm-add-model').onclick = () => llmAddModel();
   const query = (state.queries?.llm || state.query || '').toLowerCase();
-  const accounts = mode === 'subscription' ? data.accounts.filter(a => (a.provider === 'claude' ? 'anthropic' : 'chatgpt') === family).map(a => ({ ...a, detail: data.backends.find(b => b.name === a.backend) || { name: uiText('Unbound account', '未绑定账户'), models: (a.models || []).map(rule => rule.model), provider: a.provider } })) : selected.map(b => ({ id: b.name, backend: b.name, detail: b }));
+  const accounts = mode === 'subscription' ? data.accounts.filter(a => family === 'all' || llmFamilyForProvider(a.provider) === family).map(a => ({ ...a, detail: data.backends.find(b => b.name === a.backend) || { name: uiText('Unbound account', '未绑定账户'), models: (a.models || []).map(rule => rule.model), provider: a.provider } })) : selected.map(b => ({ id: b.name, backend: b.name, detail: b }));
   const visible = accounts.filter(a => JSON.stringify([a.id, a.email, a.backend, a.detail.models]).toLowerCase().includes(query));
   const grid = $('llm-accounts-grid');
+  const providers = new Map((data.providers || []).map(provider => [provider.name, provider]));
   for (const id of llmSelectedAccounts) if (!data.accounts.some(a => a.id === id)) llmSelectedAccounts.delete(id);
   if (mode === 'subscription') {
     const checked = visible.filter(a => llmSelectedAccounts.has(a.id));
@@ -610,6 +758,7 @@ function renderLlmWorkspace() {
   }
   for (const account of visible) {
     if (mode === 'subscription') { grid.appendChild(llmSubscriptionCard(account)); continue; }
+    if (mode === 'api') { grid.appendChild(llmPlatformRow(account, providers)); continue; }
     const b = account.detail, card = document.createElement('article'); card.className = 'llm-account-card';
     const quota = (b.quota?.windows || []).map(w => '<div class="quota-window-item"><div class="quota-window-label-row"><span>' + esc(w.name + ' · ' + w.window) + '</span><span>' + esc(w.used_percent) + '% ' + uiText('used', '已用') + '</span></div><progress max="100" value="' + Math.max(0, Math.min(100, Number(w.used_percent) || 0)) + '"></progress><small>' + esc(w.reset_at || '') + '</small></div>').join('');
     card.innerHTML = '<div class="llm-account-header"><div class="llm-account-header-top"><strong>' + esc(account.id) + '</strong><span class="type-badge">' + esc(mode === 'subscription' ? 'OAuth' : b.provider) + '</span></div><div class="llm-account-header-sub">' + esc(account.email || b.endpoint || b.name) + '</div></div><div class="llm-account-body"><div class="llm-stat-row"><span>' + uiText('Backend', '后端') + '</span><span class="code">' + esc(account.backend || uiText('Not bound', '未绑定')) + '</span></div><div class="llm-stat-row"><span>' + uiText('Models', '模型') + '</span><span class="llm-stat-v">' + esc((b.models || []).join(', ') || uiText('Unrestricted', '未限定')) + '</span></div>' + (mode === 'subscription' ? '<div class="llm-stat-row"><span>' + uiText('Token expires', 'Token 到期') + '</span><span class="llm-stat-v">' + esc(account.expires_at || '—') + '</span></div>' + (quota || '<p class="muted">' + uiText('Quota not reported', '尚无额度观测') + '</p>') : '') + '</div><div class="llm-account-footer"><span class="muted">' + (mode === 'subscription' ? uiText('File revision ', '文件版本 ') + account.revision : uiText('Gateway configuration', '网关配置')) + '</span><div class="llm-account-actions"></div></div>';

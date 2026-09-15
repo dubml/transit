@@ -1,0 +1,2384 @@
+use crate::a2a;
+use crate::llm::{self, LlmDialect};
+use crate::mcp;
+use crate::ProxyState;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{
+    HeaderMap, HeaderValue as HttpHeaderValue, Method, Request, Response, StatusCode, Uri, Version,
+};
+use axum::routing::any;
+use axum::Router;
+use hyper::body::Bytes;
+use opentelemetry::trace::TraceContextExt;
+use serde_json::Value;
+use std::collections::BTreeSet;
+use std::env;
+use std::future::Future;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tokio::time;
+use tracing::{debug, info, warn, Instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+use transit_core::{
+    AgentProtocol, AgentRoute, AttributionMode, Backend, ConfigSnapshot, CostEvent, DataQuality,
+    MatchInput, PricingStatus, RetryPolicy, TokenBreakdown, WeightedBackend, HTTP_LISTENER_PORT,
+};
+
+mod access_log;
+mod auth;
+mod context;
+mod detect;
+mod headers;
+mod listeners;
+mod llm_flow;
+mod otel_log;
+mod policy;
+mod routing;
+mod security;
+mod trace;
+mod upstream;
+
+use access_log::{access_log_line, AccessLogConfig, AccessLogEvent};
+use context::{apply_stream_headers, AgentRequestContext};
+use detect::{detect_agent_protocol, is_event_stream, is_grpc_request};
+use headers::{
+    apply_provider_headers, apply_request_headers, apply_response_headers,
+    remove_connection_headers,
+};
+use llm_flow::{finalize_llm_response, prepare_llm_exchange, prepare_oauth_exchange, usage_sink};
+use otel_log::OtelAccessLogExporter;
+use policy::{evaluate_policies, PolicyDefault, PolicyRuntime};
+use routing::{
+    backend_matches_protocol, backend_provider, compose_backend_uri, endpoint_authority,
+    header_pairs, host_header, protocol_name, upstream_request_mode, UpstreamRequestMode,
+};
+use security::{enforce_listener_security, JwtKeyCache};
+use trace::{extract_trace_context, inject_trace_context, trace_and_span_ids};
+use upstream::UpstreamClients;
+
+const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
+const DEFAULT_MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
+
+#[derive(Clone)]
+pub struct ProxyServer {
+    state: ProxyState,
+    clients: UpstreamClients,
+    policy_default: PolicyDefault,
+    metrics_identity: MetricsIdentity,
+    access_log: AccessLogConfig,
+    otel_access_log: Option<OtelAccessLogExporter>,
+    max_body_bytes: usize,
+    listener_port: u16,
+    jwt_key_cache: JwtKeyCache,
+}
+
+impl ProxyServer {
+    pub fn new(state: ProxyState) -> Self {
+        let access_log = AccessLogConfig::from_env();
+        for warning in access_log.warnings() {
+            warn!(%warning, "invalid access-log Telemetry setting");
+        }
+        let otel_access_log = match access_log.otlp_endpoint.as_deref() {
+            Some(endpoint) => match OtelAccessLogExporter::new(endpoint) {
+                Ok(exporter) => Some(exporter),
+                Err(err) => {
+                    warn!(%err, endpoint, "failed initializing OTLP access-log exporter");
+                    None
+                }
+            },
+            None => None,
+        };
+        Self {
+            state,
+            clients: UpstreamClients::from_env(),
+            policy_default: PolicyDefault::from_env(),
+            metrics_identity: MetricsIdentity::from_env(),
+            access_log,
+            otel_access_log,
+            max_body_bytes: parse_max_body_bytes(
+                env::var("TRANSIT_MAX_BODY_BYTES").ok().as_deref(),
+            ),
+            listener_port: HTTP_LISTENER_PORT,
+            jwt_key_cache: JwtKeyCache::default(),
+        }
+    }
+
+    /// Flushes the separate OTLP log signal after listener shutdown. The app's
+    /// tracing provider has its own shutdown path, so it must not own this.
+    pub async fn shutdown_access_logs(&self) {
+        if let Some(exporter) = self.otel_access_log.clone() {
+            if let Err(err) = tokio::task::spawn_blocking(move || exporter.shutdown()).await {
+                warn!(%err, "OTLP access-log exporter shutdown task failed");
+            }
+        }
+    }
+
+    pub async fn serve(self, addr: SocketAddr) -> std::io::Result<()> {
+        self.serve_with_shutdown(addr, std::future::pending::<()>())
+            .await
+    }
+
+    /// Serves until `shutdown` resolves, then stops accepting and lets in-flight
+    /// requests finish before returning.
+    pub async fn serve_with_shutdown(
+        self,
+        addr: SocketAddr,
+        shutdown: impl Future<Output = ()> + Send + 'static,
+    ) -> std::io::Result<()> {
+        let mut server = self;
+        server.listener_port = addr.port();
+        let tls = server.state.access_settings().active_tls();
+        let app = Router::new()
+            .fallback(any(proxy_request))
+            .with_state(server);
+        crate::access_settings::serve_router(app, addr, tls, shutdown).await
+    }
+}
+
+#[derive(Clone)]
+struct MetricsIdentity {
+    namespace: String,
+    gateway: String,
+}
+
+impl MetricsIdentity {
+    fn from_env() -> Self {
+        Self {
+            namespace: env::var("POD_NAMESPACE").unwrap_or_else(|_| "unknown".to_string()),
+            gateway: env::var("TRANSIT_GATEWAY_NAME")
+                .or_else(|_| env::var("GATEWAY_NAME"))
+                .unwrap_or_else(|_| "unknown".to_string()),
+        }
+    }
+}
+
+fn parse_max_body_bytes(value: Option<&str>) -> usize {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|limit| *limit > 0)
+        .unwrap_or(DEFAULT_MAX_BODY_BYTES)
+}
+
+// Buffered reads back agent-route retries and body inspection; the limit keeps a
+// single oversized request from exhausting proxy memory before policies run.
+async fn read_body_limited(
+    headers: &HeaderMap,
+    mut body: Body,
+    limit: usize,
+) -> Result<Bytes, (StatusCode, String)> {
+    use hyper::body::HttpBody;
+
+    if let Some(length) = headers
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        if length > limit {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("request body of {length} bytes exceeds limit of {limit} bytes"),
+            ));
+        }
+    }
+
+    let mut buf = Vec::new();
+    while let Some(chunk) = body.data().await {
+        let chunk =
+            chunk.map_err(|e| (StatusCode::BAD_REQUEST, format!("read request body: {e}")))?;
+        if buf.len() + chunk.len() > limit {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("request body exceeds limit of {limit} bytes"),
+            ));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(Bytes::from(buf))
+}
+
+#[derive(Clone)]
+struct GatewayCredentialHeaders(Vec<http::HeaderName>);
+
+async fn proxy_request(State(server): State<ProxyServer>, req: Request<Body>) -> Response<Body> {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let parent_context = extract_trace_context(req.headers());
+    let span = tracing::info_span!(
+        "transit.request",
+        http.method = %method,
+        http.target = %path,
+        http.status_code = tracing::field::Empty,
+        http.latency_ms = tracing::field::Empty,
+        gateway.namespace = tracing::field::Empty,
+        gateway.name = tracing::field::Empty,
+        http.route = tracing::field::Empty,
+        transit.cluster = tracing::field::Empty,
+        upstream.address = tracing::field::Empty
+    );
+    span.set_parent(parent_context);
+    // Held for the whole handler: a request denied by policy or rejected before
+    // routing still occupied the gateway while it was being handled.
+    let _in_flight = server.state.track_request();
+    let result = forward(server, req).instrument(span.clone()).await;
+    match result {
+        Ok(resp) => {
+            span.record("http.status_code", resp.status().as_u16());
+            resp
+        }
+        Err((status, message)) => {
+            span.record("http.status_code", status.as_u16());
+            warn!(status = status.as_u16(), %message, "request failed");
+            Response::builder()
+                .status(status)
+                .body(Body::from(message))
+                .unwrap_or_else(|_| Response::new(Body::from("proxy error")))
+        }
+    }
+}
+
+async fn forward(
+    server: ProxyServer,
+    mut req: Request<Body>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let (mut parts, body) = req.into_parts();
+    let mut upstream_headers = parts.headers.clone();
+    if !server
+        .state
+        .access_settings()
+        .authenticate_api(&mut upstream_headers, &mut parts.uri)
+    {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Invalid or missing gateway API key".into(),
+        ));
+    }
+    let consumed = parts
+        .headers
+        .keys()
+        .filter(|name| !upstream_headers.contains_key(*name))
+        .cloned()
+        .collect();
+    parts.extensions.insert(GatewayCredentialHeaders(consumed));
+    req = Request::from_parts(parts, body);
+    // One atomic refcount bump gives the whole request a stable, indexed view of
+    // the configuration; nothing is copied per request.
+    let snapshot = server.state.snapshot();
+    enforce_listener_security(&server, &snapshot, &req).await?;
+    // gRPC and Dubbo Triple require end-to-end HTTP/2 with streaming bodies and
+    // trailer propagation; buffering the body here would break both, so they skip
+    // the agent path and stream straight through cluster routing.
+    if is_grpc_request(req.headers()) {
+        return forward_http(server, snapshot, req).await;
+    }
+    if detect_agent_protocol(req.uri().path()).is_some() || snapshot.has_agent_routes() {
+        let (parts, body) = req.into_parts();
+        let body_bytes = read_body_limited(&parts.headers, body, server.max_body_bytes).await?;
+        let detected = detect_agent_protocol(parts.uri.path());
+        let candidates: &[AgentProtocol] = match detected {
+            Some(AgentProtocol::Http) => &[AgentProtocol::Http],
+            Some(AgentProtocol::Llm) => &[AgentProtocol::Llm],
+            Some(AgentProtocol::Mcp) => &[AgentProtocol::Mcp],
+            Some(AgentProtocol::A2a) => &[AgentProtocol::A2a],
+            None => &[
+                AgentProtocol::Llm,
+                AgentProtocol::Mcp,
+                AgentProtocol::A2a,
+                AgentProtocol::Http,
+            ],
+        };
+        for protocol in candidates {
+            let context = AgentRequestContext::new(*protocol, &parts, &body_bytes);
+            if let Some(route) = snapshot
+                .agent_route_for_port(server.listener_port, &context.input())
+                .cloned()
+            {
+                // Agent routes may retry or federate internally, but access logs
+                // represent the single request the client sent to the gateway.
+                let method = context.method.as_str().to_string();
+                let host = context.host.clone();
+                let path = context.path_and_query.clone();
+                let protocol = protocol_name(context.protocol);
+                let route_name = route.name.clone();
+                let started = Instant::now();
+                let result =
+                    forward_agent(server.clone(), snapshot, parts, body_bytes, context, route)
+                        .await;
+                let status_code = result
+                    .as_ref()
+                    .map(|response| response.status().as_u16())
+                    .unwrap_or_else(|(status, _)| status.as_u16());
+                let (trace_id, span_id) = current_trace_ids();
+                emit_access_log(
+                    &server,
+                    &AccessLogEvent {
+                        namespace: &server.metrics_identity.namespace,
+                        gateway: &server.metrics_identity.gateway,
+                        route: &route_name,
+                        cluster: "agent",
+                        protocol,
+                        // A route can deliberately select/federate multiple
+                        // backends. Avoid claiming an individual backend here.
+                        backend: "multiple",
+                        method: &method,
+                        host: &host,
+                        path: &path,
+                        status_code,
+                        latency_ms: started.elapsed().as_millis() as u64,
+                        upstream: "agent",
+                        trace_id: &trace_id,
+                        span_id: &span_id,
+                    },
+                );
+                return result;
+            }
+        }
+        req = Request::from_parts(parts, Body::from(body_bytes));
+    }
+
+    forward_http(server, snapshot, req).await
+}
+
+async fn forward_http(
+    server: ProxyServer,
+    snapshot: Arc<ConfigSnapshot>,
+    mut req: Request<Body>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let method = req.method().as_str().to_string();
+    let host = host_header(req.headers()).unwrap_or("*").to_string();
+    let path = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/")
+        .to_string();
+    let headers = header_pairs(req.headers());
+    let input = MatchInput {
+        host: &host,
+        path: &path,
+        headers: &headers,
+    };
+
+    let route = match snapshot
+        .route_for(server.listener_port, &input)
+        // grpc-engine terminates the xDS listener and forwards to transit's
+        // local HTTP port, so the application request can lose the original
+        // targetPort. Only fall back when one xDS listener port matches.
+        .or_else(|_| snapshot.route_for_unique_port(&input))
+    {
+        Ok(route) => route,
+        Err(err) => {
+            record_http_observation(
+                &server,
+                HttpObservation {
+                    route: "none",
+                    cluster: "none",
+                    method: &method,
+                    host: &host,
+                    path: &path,
+                    status_code: StatusCode::NOT_FOUND.as_u16(),
+                    latency_ms: 0,
+                    upstream: "none",
+                },
+            );
+            return Err((StatusCode::NOT_FOUND, err.to_string()));
+        }
+    };
+    let route_name = route.name.clone();
+    record_http_span(&server, &route_name, "none", "none", 0, 0);
+    let weighted_clusters = route.weighted_clusters.clone();
+
+    let weighted = match server
+        .state
+        .pick_cluster(&route_name, &weighted_clusters)
+        .await
+    {
+        Some(weighted) => weighted,
+        None => {
+            record_http_observation(
+                &server,
+                HttpObservation {
+                    route: &route_name,
+                    cluster: "none",
+                    method: &method,
+                    host: &host,
+                    path: &path,
+                    status_code: StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                    latency_ms: 0,
+                    upstream: "none",
+                },
+            );
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "route has no clusters".to_string(),
+            ));
+        }
+    };
+
+    let mut cluster = match snapshot.cluster(&weighted.name) {
+        Some(cluster) => cluster.clone(),
+        None => {
+            record_http_observation(
+                &server,
+                HttpObservation {
+                    route: &route_name,
+                    cluster: &weighted.name,
+                    method: &method,
+                    host: &host,
+                    path: &path,
+                    status_code: StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                    latency_ms: 0,
+                    upstream: "none",
+                },
+            );
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("cluster {} not found", weighted.name),
+            ));
+        }
+    };
+    let cluster_name = cluster.name.clone();
+
+    // A cluster with no endpoints is normally a dead backend, but it is also
+    // what a scaled-to-zero service looks like. Ask the activator before
+    // failing: it holds the request, reports the demand that drives the
+    // scale-up, and hands back the cluster once an endpoint appears. When
+    // activation is disabled, or the target is not activatable, this returns
+    // immediately and the 503 below is reached exactly as before.
+    if server.state.pick_endpoint(&cluster).await.is_err() {
+        let activator = server.state.activation();
+        if let Some(activated) = activator.activate(&server.state, &cluster_name).await {
+            cluster = activated;
+        }
+    }
+
+    let endpoint = match server.state.pick_endpoint(&cluster).await {
+        Ok(endpoint) => endpoint,
+        Err(err) => {
+            record_http_observation(
+                &server,
+                HttpObservation {
+                    route: &route_name,
+                    cluster: &cluster_name,
+                    method: &method,
+                    host: &host,
+                    path: &path,
+                    status_code: StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                    latency_ms: 0,
+                    upstream: "none",
+                },
+            );
+            return Err((StatusCode::SERVICE_UNAVAILABLE, err.to_string()));
+        }
+    };
+    let upstream = endpoint_authority(endpoint);
+    record_http_span(&server, &route_name, &cluster_name, &upstream, 0, 0);
+    let _circuit_breaker_permit = match server.state.try_acquire_circuit_breaker(&cluster) {
+        Ok(permit) => permit,
+        Err(_) => {
+            record_http_observation(
+                &server,
+                HttpObservation {
+                    route: &route_name,
+                    cluster: &cluster_name,
+                    method: &method,
+                    host: &host,
+                    path: &path,
+                    status_code: StatusCode::SERVICE_UNAVAILABLE.as_u16(),
+                    latency_ms: 0,
+                    upstream: &upstream,
+                },
+            );
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                format!("cluster {} circuit breaker open", cluster_name),
+            ));
+        }
+    };
+
+    let tls = cluster.tls.as_ref();
+    let request_mode = upstream_request_mode(tls);
+    let scheme = match request_mode {
+        UpstreamRequestMode::PlainHttp => "http",
+        UpstreamRequestMode::SimpleTls | UpstreamRequestMode::DubboMutual => "https",
+    };
+    let upstream_uri = format!("{}://{}{}", scheme, upstream, path)
+        .parse::<Uri>()
+        .map_err(|e| {
+            record_http_observation(
+                &server,
+                HttpObservation {
+                    route: &route_name,
+                    cluster: &cluster_name,
+                    method: &method,
+                    host: &host,
+                    path: &path,
+                    status_code: StatusCode::BAD_GATEWAY.as_u16(),
+                    latency_ms: 0,
+                    upstream: &upstream,
+                },
+            );
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("invalid upstream uri: {e}"),
+            )
+        })?;
+
+    debug!(
+        route = %route_name,
+        cluster = %cluster_name,
+        endpoint = %endpoint.address,
+        upstream_mode = ?request_mode,
+        "forwarding request"
+    );
+
+    let use_h2 = cluster.http2 || is_grpc_request(req.headers());
+    if let Some(consumed) = req.extensions().get::<GatewayCredentialHeaders>().cloned() {
+        for name in consumed.0 {
+            req.headers_mut().remove(name);
+        }
+    }
+    *req.uri_mut() = upstream_uri;
+    req.headers_mut().remove(http::header::HOST);
+    // The downstream and upstream HTTP versions are independent: pin the upstream
+    // request version to the negotiated client protocol instead of echoing the
+    // downstream version, and drop HTTP/1-only connection headers before h2.
+    *req.version_mut() = if use_h2 {
+        remove_connection_headers(req.headers_mut());
+        Version::HTTP_2
+    } else {
+        Version::HTTP_11
+    };
+    inject_trace_context(req.headers_mut());
+
+    // Scoped to the upstream call: that is the window a route is actually
+    // occupying a connection, and the one an autoscaler needs to see.
+    let _route_in_flight = server.state.track_route_request(
+        &server.metrics_identity.namespace,
+        &server.metrics_identity.gateway,
+        &route_name,
+        &cluster_name,
+    );
+    let started = Instant::now();
+    let result = match (request_mode, use_h2) {
+        (UpstreamRequestMode::PlainHttp, false) => server.clients.request_plain(req).await,
+        (UpstreamRequestMode::PlainHttp, true) | (UpstreamRequestMode::SimpleTls, true) => {
+            server.clients.request_h2(req).await
+        }
+        (UpstreamRequestMode::SimpleTls, false) => server.clients.request_web(req).await,
+        (UpstreamRequestMode::DubboMutual, h2) => {
+            let tls = tls.expect("dubbo mutual request mode requires TLS config");
+            server
+                .clients
+                .request_mtls(&cluster, tls, &snapshot, req, h2)
+                .await
+        }
+    };
+    let latency_ms = started.elapsed().as_millis() as u64;
+    let status = result
+        .as_ref()
+        .map(|response| response.status().as_u16())
+        .unwrap_or_else(|(status, _)| status.as_u16());
+    // Feeds the cluster's outlier detector so a persistently failing endpoint stops
+    // being picked; connect failures surface here as the 502 the client would see.
+    server
+        .state
+        .record_endpoint_result(&cluster, endpoint, status);
+    record_http_observation(
+        &server,
+        HttpObservation {
+            route: &route_name,
+            cluster: &cluster_name,
+            method: &method,
+            host: &host,
+            path: &path,
+            status_code: status,
+            latency_ms,
+            upstream: &upstream,
+        },
+    );
+    result
+}
+
+struct HttpObservation<'a> {
+    route: &'a str,
+    cluster: &'a str,
+    method: &'a str,
+    host: &'a str,
+    path: &'a str,
+    status_code: u16,
+    latency_ms: u64,
+    upstream: &'a str,
+}
+
+fn record_http_observation(server: &ProxyServer, observation: HttpObservation<'_>) {
+    record_http_metric(
+        server,
+        observation.route,
+        observation.cluster,
+        observation.method,
+        observation.status_code,
+        observation.latency_ms,
+    );
+    record_http_span(
+        server,
+        observation.route,
+        observation.cluster,
+        observation.upstream,
+        observation.status_code,
+        observation.latency_ms,
+    );
+    emit_http_access_log(server, &observation);
+}
+
+fn record_http_span(
+    server: &ProxyServer,
+    route: &str,
+    cluster: &str,
+    upstream: &str,
+    status_code: u16,
+    latency_ms: u64,
+) {
+    let span = tracing::Span::current();
+    span.record(
+        "gateway.namespace",
+        server.metrics_identity.namespace.as_str(),
+    );
+    span.record("gateway.name", server.metrics_identity.gateway.as_str());
+    span.record("http.route", route);
+    span.record("transit.cluster", cluster);
+    span.record("upstream.address", upstream);
+    if status_code > 0 {
+        span.record("http.status_code", status_code);
+    }
+    span.record("http.latency_ms", latency_ms);
+}
+
+fn record_http_metric(
+    server: &ProxyServer,
+    route: &str,
+    cluster: &str,
+    method: &str,
+    status_code: u16,
+    latency_ms: u64,
+) {
+    server.state.record_http_request(
+        &server.metrics_identity.namespace,
+        &server.metrics_identity.gateway,
+        route,
+        cluster,
+        method,
+        status_code,
+        latency_ms,
+    );
+}
+
+async fn forward_agent(
+    server: ProxyServer,
+    snapshot: Arc<ConfigSnapshot>,
+    parts: http::request::Parts,
+    mut body: Bytes,
+    mut context: AgentRequestContext,
+    route: Arc<AgentRoute>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    apply_agent_path_rewrite(&route, &mut context);
+    // A backend-prefixed name minted by list federation ("mcp-b__search")
+    // pins the request to that backend and is rewritten back to the upstream
+    // name before matching or forwarding.
+    let mut alias_backend: Option<String> = None;
+    if context.protocol == AgentProtocol::Mcp {
+        let alias = context
+            .tool
+            .as_deref()
+            .and_then(mcp::split_alias)
+            .map(|(backend, original)| (backend.to_string(), original.to_string()));
+        if let Some((backend_name, original)) = alias {
+            if route
+                .weighted_backends
+                .iter()
+                .any(|weighted| weighted.name == backend_name)
+            {
+                if let Ok(mut json) = serde_json::from_slice::<Value>(&body) {
+                    json["params"]["name"] = Value::String(original.clone());
+                    body = Bytes::from(json.to_string());
+                    context.tool = Some(original);
+                    alias_backend = Some(backend_name);
+                }
+            }
+        }
+    }
+
+    let eligible = route
+        .weighted_backends
+        .iter()
+        .filter_map(|weighted| {
+            let backend = snapshot.backend(&weighted.name)?;
+            if backend_matches_protocol(backend, context.protocol)
+                && oauth_supports_model(&server.state, backend, context.model.as_deref())
+                && backend.supports_tool(context.tool.as_deref())
+                && backend.supports_agent(context.agent.as_deref())
+                && backend_supports_llm_request(&snapshot, backend, &context)
+                && alias_backend
+                    .as_deref()
+                    .is_none_or(|name| weighted.name == name)
+            {
+                Some(weighted.clone())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    if eligible.is_empty() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("agent route {} has no eligible backends", route.name),
+        ));
+    }
+
+    let primary = if let Some(bound) = mcp_session_backend(&server, &context, &eligible) {
+        bound
+    } else if let Some(bound) = a2a_task_bound_backend(&server, &context, &eligible) {
+        // A2A tasks are stateful: follow-ups referencing a task id must reach
+        // the backend that owns the task.
+        bound
+    } else if context.protocol == AgentProtocol::Mcp && context.tool.is_some() {
+        // Calls naming a tool/prompt must land on the backend that list
+        // federation credited with the bare name: the first eligible backend
+        // in route-declared order. Round-robin would let a colliding name
+        // resolve to a different backend than the one whose item was listed.
+        eligible[0].clone()
+    } else if context.protocol == AgentProtocol::A2a && context.path == a2a::AGENT_CARD_PATH {
+        // An agent card is one agent's identity; serve it deterministically
+        // instead of rotating between backends' cards.
+        eligible[0].clone()
+    } else {
+        server
+            .state
+            .pick_backend(&route.name, &eligible)
+            .await
+            .cloned()
+            .unwrap_or_else(|| eligible[0].clone())
+    };
+    let mut ordered = vec![primary.clone()];
+    ordered.extend(eligible.iter().filter(|b| b.name != primary.name).cloned());
+
+    let primary_backend = snapshot.backend(&primary.name).ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("backend {} not found", primary.name),
+        )
+    })?;
+    let policy_runtime = evaluate_policies(
+        &server,
+        &snapshot,
+        &route,
+        primary_backend,
+        &context,
+        body.len(),
+    )?;
+
+    if context.protocol == AgentProtocol::Mcp && eligible.len() > 1 {
+        if let Some(spec) = context.mcp_method.as_deref().and_then(mcp::list_spec) {
+            // Cursors are opaque to the gateway and only valid against the
+            // backend that issued them, so paged follow-ups skip federation —
+            // federated responses never carry a cursor, making this reachable
+            // only for clients paging a single backend directly.
+            let has_cursor = serde_json::from_slice::<Value>(&body)
+                .ok()
+                .as_ref()
+                .and_then(|json| mcp::request_cursor(json).map(ToString::to_string))
+                .is_some();
+            if !has_cursor {
+                // Federation walks backends in route-declared order so alias
+                // assignment on name collisions is stable across requests.
+                return federate_mcp_list(
+                    &server,
+                    &snapshot,
+                    &route,
+                    &eligible,
+                    &parts,
+                    &body,
+                    &context,
+                    &policy_runtime,
+                    &spec,
+                )
+                .await;
+            }
+        }
+    }
+
+    let response = request_agent_with_failover(
+        &server,
+        &snapshot,
+        &route,
+        &ordered,
+        &parts,
+        &body,
+        &context,
+        &policy_runtime,
+    )
+    .await?;
+
+    // On multi-backend routes, list calls are answered by federation, so the
+    // initialize handshake must advertise those capabilities even when the
+    // session's own backend lacks them.
+    if context.protocol == AgentProtocol::Mcp
+        && context.mcp_method.as_deref() == Some("initialize")
+        && eligible.len() > 1
+    {
+        return augment_initialize_response(&server, response).await;
+    }
+    Ok(response)
+}
+
+fn apply_agent_path_rewrite(route: &AgentRoute, context: &mut AgentRequestContext) {
+    let Some(replacement) = route.replace_prefix_match.as_deref() else {
+        return;
+    };
+    let input = context.input();
+    let Some(path_match) = route
+        .matches
+        .iter()
+        .find(|candidate| candidate.matches(&input))
+        .map(|candidate| &candidate.path)
+    else {
+        return;
+    };
+    let suffix = match path_match {
+        transit_core::PathMatch::Prefix(prefix) => context.path.strip_prefix(prefix),
+        transit_core::PathMatch::Exact(exact) if context.path == *exact => Some(""),
+        _ => None,
+    };
+    let Some(suffix) = suffix else {
+        return;
+    };
+    let query = context
+        .path_and_query
+        .strip_prefix(&context.path)
+        .unwrap_or_default();
+    context.path = format!("{replacement}{suffix}");
+    context.path_and_query = format!("{}{query}", context.path);
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn request_agent_with_failover(
+    server: &ProxyServer,
+    snapshot: &ConfigSnapshot,
+    route: &AgentRoute,
+    ordered: &[WeightedBackend],
+    parts: &http::request::Parts,
+    body: &Bytes,
+    context: &AgentRequestContext,
+    policy_runtime: &PolicyRuntime,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let retry = policy_runtime.retry.clone().unwrap_or(RetryPolicy {
+        attempts: 1,
+        statuses: vec![502, 503, 504],
+    });
+    let attempts = retry.attempts.max(1) as usize;
+    let mut last_error = None;
+
+    for attempt in 0..attempts {
+        for weighted in ordered {
+            let Some(backend) = snapshot.backend(&weighted.name) else {
+                continue;
+            };
+            let started = Instant::now();
+            let upstream_span = tracing::info_span!(
+                "transit.agent.upstream",
+                protocol = protocol_name(context.protocol),
+                route = %route.name,
+                backend = %backend.name,
+                http.status_code = tracing::field::Empty
+            );
+            match request_agent_backend(
+                server,
+                snapshot,
+                route,
+                backend,
+                parts,
+                body,
+                context,
+                policy_runtime,
+            )
+            .instrument(upstream_span.clone())
+            .await
+            {
+                Ok(mut response) => {
+                    let status = response.status();
+                    upstream_span.record("http.status_code", status.as_u16());
+                    let req_latency_ms = started.elapsed().as_millis() as u64;
+                    update_mcp_session(&server.state, backend, context, response.headers(), status);
+                    record_mcp_tool_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        status.is_success(),
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
+                    record_a2a_method_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        status.is_success(),
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
+                    server.state.record_agent_request(
+                        protocol_name(context.protocol),
+                        &route.name,
+                        &backend.name,
+                        status.as_u16(),
+                        req_latency_ms,
+                    );
+                    apply_response_headers(
+                        response.headers_mut(),
+                        &policy_runtime.response_headers,
+                    );
+                    apply_stream_headers(response.headers_mut(), context);
+                    if attempt + 1 < attempts && retry.statuses.contains(&status.as_u16()) {
+                        last_error = Some((
+                            status,
+                            format!("upstream {} returned {}", backend.name, status),
+                        ));
+                        continue;
+                    }
+                    if context.protocol == AgentProtocol::A2a {
+                        response = process_a2a_response(server, backend, context, response).await?;
+                    }
+                    return Ok(response);
+                }
+                Err(err) => {
+                    let req_latency_ms = started.elapsed().as_millis() as u64;
+                    upstream_span.record("http.status_code", err.0.as_u16());
+                    record_mcp_tool_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        false,
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
+                    record_a2a_method_call(
+                        server,
+                        route,
+                        backend,
+                        context,
+                        false,
+                        req_latency_ms,
+                        &parts.headers,
+                        body.len(),
+                        attempt,
+                    );
+                    server.state.record_agent_request(
+                        protocol_name(context.protocol),
+                        &route.name,
+                        &backend.name,
+                        err.0.as_u16(),
+                        req_latency_ms,
+                    );
+                    last_error = Some(err);
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("agent route {} had no reachable backends", route.name),
+        )
+    }))
+}
+
+// Per-tool call accounting; success tracks the HTTP status only, since
+// JSON-RPC-level errors would require buffering every response body.
+#[allow(clippy::too_many_arguments)]
+fn record_mcp_tool_call(
+    server: &ProxyServer,
+    route: &AgentRoute,
+    backend: &Backend,
+    context: &AgentRequestContext,
+    success: bool,
+    latency_ms: u64,
+    headers: &HeaderMap,
+    io_bytes: usize,
+    attempt: usize,
+) {
+    if context.protocol != AgentProtocol::Mcp || context.mcp_method.as_deref() != Some("tools/call")
+    {
+        return;
+    }
+    if let Some(tool) = &context.tool {
+        server
+            .state
+            .record_mcp_tool_call(&route.name, &backend.name, tool, success);
+
+        let (trace_id, span_id) = trace_and_span_ids(headers);
+        let t_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        server.state.record_cost_event(CostEvent {
+            event_id: format!("evt_mcp_{:x}", t_ms % 0xffffff),
+            trace_id,
+            span_id,
+            parent_span_id: None,
+            timestamp_ms: t_ms,
+            route: route.name.clone(),
+            backend: backend.name.clone(),
+            model: "-".to_string(),
+            provider: "mcp".to_string(),
+            account: backend.name.clone(),
+            protocol: "mcp".to_string(),
+            operation: format!("tools/{tool}"),
+            token_breakdown: TokenBreakdown::default(),
+            latency_ms,
+            ttft_ms: None,
+            status_code: if success { 200 } else { 502 },
+            data_quality: DataQuality::Complete,
+            pricing_status: PricingStatus::Unpriced,
+            api_usd_nanos: None,
+            api_usd: None,
+            chatgpt_credit_micros: None,
+            chatgpt_credits: None,
+            attribution_mode: AttributionMode::Direct,
+            io_bytes: io_bytes as u64,
+            retries: attempt as u32,
+        });
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_a2a_method_call(
+    server: &ProxyServer,
+    route: &AgentRoute,
+    backend: &Backend,
+    context: &AgentRequestContext,
+    success: bool,
+    latency_ms: u64,
+    headers: &HeaderMap,
+    io_bytes: usize,
+    attempt: usize,
+) {
+    if context.protocol != AgentProtocol::A2a {
+        return;
+    }
+    if let Some(method) = &context.a2a_method {
+        server
+            .state
+            .record_a2a_method_call(&route.name, &backend.name, method, success);
+
+        let (trace_id, span_id) = trace_and_span_ids(headers);
+        let t_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let is_rollup = context.a2a_task_id.is_some() && method.contains("tasks");
+        server.state.record_cost_event(CostEvent {
+            event_id: format!("evt_a2a_{:x}", t_ms % 0xffffff),
+            trace_id,
+            span_id,
+            parent_span_id: None,
+            timestamp_ms: t_ms,
+            route: route.name.clone(),
+            backend: backend.name.clone(),
+            model: "-".to_string(),
+            provider: "a2a".to_string(),
+            account: backend.name.clone(),
+            protocol: "a2a".to_string(),
+            operation: format!("a2a/{method}"),
+            token_breakdown: TokenBreakdown::default(),
+            latency_ms,
+            ttft_ms: None,
+            status_code: if success { 200 } else { 502 },
+            data_quality: DataQuality::Complete,
+            pricing_status: PricingStatus::Unpriced,
+            api_usd_nanos: None,
+            api_usd: None,
+            chatgpt_credit_micros: None,
+            chatgpt_credits: None,
+            attribution_mode: if is_rollup {
+                AttributionMode::Rollup
+            } else {
+                AttributionMode::Direct
+            },
+            io_bytes: io_bytes as u64,
+            retries: attempt as u32,
+        });
+    }
+}
+
+// Post-processes an A2A upstream response: binds task ids to the owning
+// backend for follow-up affinity, and rewrites agent-card URLs so clients
+// keep talking to the gateway instead of the backend directly.
+async fn process_a2a_response(
+    server: &ProxyServer,
+    backend: &Backend,
+    context: &AgentRequestContext,
+    response: Response<Body>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    if !response.status().is_success() {
+        return Ok(response);
+    }
+
+    if is_event_stream(response.headers()) {
+        // Streamed task creation (message/stream): bind affinity as soon as
+        // the first task id appears in the stream.
+        let state = server.state.clone();
+        let backend_name = backend.name.clone();
+        let (parts, body) = response.into_parts();
+        let sniffed = a2a::sniff_task_stream(
+            body,
+            Box::new(move |task_id| state.bind_a2a_task(task_id, backend_name)),
+        );
+        return Ok(Response::from_parts(parts, sniffed));
+    }
+
+    let is_card = context.path == a2a::AGENT_CARD_PATH;
+    if !is_card && context.a2a_method.is_none() {
+        // Not a JSON-RPC exchange or a card fetch; nothing to learn.
+        return Ok(response);
+    }
+
+    let (mut parts, body) = response.into_parts();
+    let bytes = read_body_limited(&parts.headers, body, server.max_body_bytes)
+        .await
+        .map_err(|(_, message)| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("read A2A upstream response: {message}"),
+            )
+        })?;
+    let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(Response::from_parts(parts, Body::from(bytes)));
+    };
+
+    if is_card {
+        let scheme = header_value(&context.headers, "x-forwarded-proto").unwrap_or("http");
+        // context.host is port-stripped for vhost matching; the card needs
+        // the authority exactly as the client addressed the gateway.
+        let authority = header_value(&context.headers, "host").unwrap_or(&context.host);
+        if a2a::rewrite_card_urls(&mut value, scheme, authority) {
+            let body = value.to_string();
+            parts.headers.insert(
+                http::header::CONTENT_LENGTH,
+                HttpHeaderValue::from(body.len()),
+            );
+            return Ok(Response::from_parts(parts, Body::from(body)));
+        }
+        return Ok(Response::from_parts(parts, Body::from(bytes)));
+    }
+
+    if let Some(task_id) = a2a::response_task_id(&value) {
+        server.state.bind_a2a_task(task_id, backend.name.clone());
+    }
+    Ok(Response::from_parts(parts, Body::from(bytes)))
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn request_agent_backend(
+    server: &ProxyServer,
+    snapshot: &ConfigSnapshot,
+    route: &AgentRoute,
+    backend: &Backend,
+    parts: &http::request::Parts,
+    body: &Bytes,
+    context: &AgentRequestContext,
+    policy_runtime: &PolicyRuntime,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let started = Instant::now();
+    let provider = backend_provider(snapshot, backend);
+    let endpoint = backend.endpoint(provider).ok_or_else(|| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("backend {} has no endpoint", backend.name),
+        )
+    })?;
+
+    let bindings = server.state.llm_accounts().for_backend(&backend.name);
+    let requires_oauth = matches!(&backend.kind, transit_core::BackendKind::Llm { account_type: Some(kind), .. } if matches!(kind.as_str(), "subscription" | "oauth"));
+    let account =
+        if context.protocol == AgentProtocol::Llm && (requires_oauth || !bindings.is_empty()) {
+            Some(
+                server
+                    .state
+                    .llm_accounts()
+                    .select(backend, context.model.as_deref())
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "No enabled OAuth account supports this model".to_string(),
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+    if account.is_some() && context.method == Method::GET && context.path == "/v1/models" {
+        let mut models = std::collections::BTreeMap::new();
+        for bound in bindings.iter().filter(|a| !a.disabled()) {
+            let catalog = server
+                .state
+                .llm_accounts()
+                .account_models(&bound.id)
+                .await
+                .map_err(|error| (StatusCode::BAD_GATEWAY, error))?;
+            let current = server.state.llm_accounts().get(&bound.id).ok_or_else(|| {
+                (
+                    StatusCode::CONFLICT,
+                    "Account changed; reload models".into(),
+                )
+            })?;
+            if current.disabled() || current.backend != backend.name {
+                continue;
+            }
+            for model in catalog {
+                let original = model["id"].as_str().unwrap_or_default();
+                if !backend.supports_model(Some(original)) {
+                    continue;
+                }
+                for name in current.public_model_names(original) {
+                    models.insert(name.to_string(), serde_json::json!({"id":name,"object":"model","owned_by":current.provider()}));
+                }
+            }
+        }
+        return Ok(Response::builder().header(http::header::CONTENT_TYPE,"application/json")
+            .body(Body::from(serde_json::json!({"object":"list","data":models.into_values().collect::<Vec<_>>()} ).to_string())).unwrap());
+    }
+    let exchange = if context.protocol == AgentProtocol::Llm {
+        Some(match &account {
+            Some(account) => {
+                prepare_oauth_exchange(backend, provider, endpoint, context, body, account)?
+            }
+            None => prepare_llm_exchange(backend, provider, endpoint, context, body)?,
+        })
+    } else {
+        None
+    };
+
+    let (uri, out_body) = match &exchange {
+        Some(exchange) => (exchange.uri.clone(), exchange.body.clone()),
+        None => (
+            compose_backend_uri(context.protocol, endpoint, &context.path_and_query)?,
+            body.clone(),
+        ),
+    };
+
+    let mut headers = parts.headers.clone();
+    if let Some(consumed) = parts.extensions.get::<GatewayCredentialHeaders>() {
+        for name in &consumed.0 {
+            headers.remove(name);
+        }
+    }
+    apply_request_headers(&mut headers, &policy_runtime.request_headers);
+    if let Some(exchange) = &exchange {
+        if exchange.dialect != LlmDialect::OpenAi {
+            // The caller's gateway credential must not leak to a foreign-dialect
+            // provider; provider auth is injected below.
+            headers.remove(http::header::AUTHORIZATION);
+        }
+        if exchange.body_rewritten {
+            headers.insert(
+                http::header::CONTENT_TYPE,
+                HttpHeaderValue::from_static("application/json"),
+            );
+        }
+    }
+    let provider_secret = provider
+        .and_then(|value| value.credential_ref.as_ref())
+        .and_then(|reference| server.state.credential(reference));
+    apply_provider_headers(&mut headers, provider, provider_secret.as_deref());
+    if let Some(account) = &account {
+        headers.remove("x-api-key");
+        headers.remove("x-goog-api-key");
+        headers.insert(
+            http::header::AUTHORIZATION,
+            HttpHeaderValue::from_str(&format!("Bearer {}", account.access_token())).map_err(
+                |_| {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        "Invalid OAuth authorization header".into(),
+                    )
+                },
+            )?,
+        );
+        if account.provider() == "codex" {
+            if let Some(id) = account
+                .document
+                .get("account_id")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            {
+                headers.insert(
+                    "chatgpt-account-id",
+                    HttpHeaderValue::from_str(id).map_err(|_| {
+                        (StatusCode::BAD_GATEWAY, "Invalid OAuth account ID".into())
+                    })?,
+                );
+            }
+            headers.insert(
+                "openai-beta",
+                HttpHeaderValue::from_static("responses=experimental"),
+            );
+        } else if account.provider() == "antigravity" {
+            headers.insert(
+                http::header::USER_AGENT,
+                HttpHeaderValue::from_static("antigravity/hub/2.9.1 darwin/arm64"),
+            );
+        } else {
+            headers.insert(
+                "anthropic-beta",
+                HttpHeaderValue::from_static("oauth-2025-04-20"),
+            );
+            headers.insert(
+                "anthropic-version",
+                HttpHeaderValue::from_static("2023-06-01"),
+            );
+        }
+    }
+    headers.remove(http::header::HOST);
+    // The agent path forwards a fully buffered body that may have been
+    // rewritten (LLM translation, MCP alias/cursor pages); make the framing
+    // headers describe the bytes actually sent.
+    headers.remove(http::header::TRANSFER_ENCODING);
+    if !out_body.is_empty() || headers.contains_key(http::header::CONTENT_LENGTH) {
+        headers.insert(
+            http::header::CONTENT_LENGTH,
+            HttpHeaderValue::from(out_body.len()),
+        );
+    }
+    inject_trace_context(&mut headers);
+
+    // Agent upstreams are reached over the HTTP/1.1 client pool; echoing the
+    // downstream version would break h2c callers of a buffered agent route.
+    let mut builder = Request::builder()
+        .method(parts.method.clone())
+        .uri(uri)
+        .version(Version::HTTP_11);
+    *builder.headers_mut().unwrap() = headers;
+    let request = builder.body(Body::from(out_body)).map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("build upstream request: {e}"),
+        )
+    })?;
+
+    let account_request = account
+        .as_ref()
+        .map(|a| crate::accounts::AccountRequest::new(server.state.clone(), a.id.clone()));
+    let fut = server.clients.request_web(request);
+    let response = if let Some(timeout) = policy_runtime.timeout {
+        time::timeout(timeout, fut).await.map_err(|_| {
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                format!("backend {} timed out", backend.name),
+            )
+        })??
+    } else {
+        fut.await?
+    };
+
+    match exchange {
+        Some(exchange) => {
+            let observation = crate::llm_timing::Observation::new(started);
+            let (trace_id, span_id) = trace_and_span_ids(&parts.headers);
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let sink = usage_sink(
+                server,
+                route,
+                backend,
+                &exchange.model,
+                policy_runtime,
+                (trace_id, span_id),
+                latency_ms,
+            );
+            let sink = observation.sink(sink);
+            let mut response = finalize_llm_response(server, response, exchange, sink).await?;
+            if !response.status().is_success() {
+                return Ok(response);
+            }
+            let streaming = is_event_stream(response.headers());
+            response.headers_mut().remove(http::header::CONTENT_LENGTH);
+            let (parts, body) = response.into_parts();
+            let body = crate::llm_timing::observe(
+                body,
+                streaming,
+                backend.name.clone(),
+                server.state.llm_timings().clone(),
+                observation,
+            );
+            let body = match account_request {
+                Some(guard) => guard.body(body, streaming),
+                None => body,
+            };
+            Ok(Response::from_parts(parts, body))
+        }
+        None => Ok(response),
+    }
+}
+
+fn oauth_supports_model(state: &ProxyState, backend: &Backend, model: Option<&str>) -> bool {
+    let accounts = state.llm_accounts().for_backend(&backend.name);
+    if accounts.is_empty() {
+        return backend.supports_model(model);
+    }
+    accounts.iter().any(|a| {
+        !a.disabled()
+            && model.is_none_or(|m| {
+                a.resolve_model(m)
+                    .is_some_and(|(resolved, _)| backend.supports_model(Some(resolved)))
+            })
+    })
+}
+
+// Caps how many pages of one backend's list a single federated call drains,
+// bounding fan-out amplification from a misbehaving cursor loop.
+const MCP_FEDERATION_MAX_PAGES: usize = 32;
+
+// Fans a JSON-RPC list call out to every eligible backend (route-declared
+// order), draining each backend's pagination, and returns the merged result.
+// The merged list carries no cursor, so clients never page the aggregate.
+#[allow(clippy::too_many_arguments)]
+async fn federate_mcp_list(
+    server: &ProxyServer,
+    snapshot: &ConfigSnapshot,
+    route: &AgentRoute,
+    ordered: &[WeightedBackend],
+    parts: &http::request::Parts,
+    body: &Bytes,
+    context: &AgentRequestContext,
+    policy_runtime: &PolicyRuntime,
+    spec: &mcp::ListSpec,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    let request_json = serde_json::from_slice::<Value>(body).ok();
+    let mut merged = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut failures = Vec::new();
+
+    for weighted in ordered {
+        let Some(backend) = snapshot.backend(&weighted.name) else {
+            continue;
+        };
+        let mut cursor: Option<String> = None;
+        for _ in 0..MCP_FEDERATION_MAX_PAGES {
+            let page_body = match (&cursor, &request_json) {
+                (Some(cursor), Some(json)) => {
+                    Bytes::from(mcp::with_cursor(json, cursor).to_string())
+                }
+                _ => body.clone(),
+            };
+            let started = Instant::now();
+            let upstream_span = tracing::info_span!(
+                "transit.agent.upstream",
+                protocol = protocol_name(context.protocol),
+                route = %route.name,
+                backend = %backend.name,
+                http.status_code = tracing::field::Empty
+            );
+            let outcome = request_agent_backend(
+                server,
+                snapshot,
+                route,
+                backend,
+                parts,
+                &page_body,
+                context,
+                policy_runtime,
+            )
+            .instrument(upstream_span.clone())
+            .await;
+            let response = match outcome {
+                Ok(response) => response,
+                Err(err) => {
+                    upstream_span.record("http.status_code", err.0.as_u16());
+                    server.state.record_agent_request(
+                        protocol_name(context.protocol),
+                        &route.name,
+                        &backend.name,
+                        err.0.as_u16(),
+                        started.elapsed().as_millis() as u64,
+                    );
+                    failures.push(format!("{}: {}", backend.name, err.1));
+                    break;
+                }
+            };
+            let status = response.status();
+            upstream_span.record("http.status_code", status.as_u16());
+            server.state.record_agent_request(
+                protocol_name(context.protocol),
+                &route.name,
+                &backend.name,
+                status.as_u16(),
+                started.elapsed().as_millis() as u64,
+            );
+            let (response_parts, response_body) = response.into_parts();
+            let bytes = match read_body_limited(
+                &response_parts.headers,
+                response_body,
+                server.max_body_bytes,
+            )
+            .await
+            {
+                Ok(bytes) => bytes,
+                Err((_, message)) => {
+                    failures.push(format!("{}: {message}", backend.name));
+                    break;
+                }
+            };
+            if !status.is_success() {
+                failures.push(format!("{} returned {}", backend.name, status));
+                break;
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+                failures.push(format!("{}: response is not JSON", backend.name));
+                break;
+            };
+            if let Some(items) = value
+                .pointer(&format!("/result/{}", spec.result_key))
+                .and_then(Value::as_array)
+            {
+                mcp::merge_list_items(&mut merged, &mut seen, items, spec, &backend.name);
+            }
+            match mcp::next_cursor(&value) {
+                // Paging rewrites the request body, which requires it to be JSON.
+                Some(next) if request_json.is_some() => cursor = Some(next),
+                _ => break,
+            }
+        }
+    }
+
+    if merged.is_empty() && !failures.is_empty() {
+        return Err((StatusCode::BAD_GATEWAY, failures.join("; ")));
+    }
+
+    let id = request_json
+        .as_ref()
+        .and_then(|value| value.get("id").cloned())
+        .unwrap_or(Value::Null);
+    let mut result = serde_json::Map::new();
+    result.insert(spec.result_key.to_string(), Value::Array(merged));
+    let mut response = Response::builder()
+        .status(StatusCode::OK)
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": Value::Object(result)
+            })
+            .to_string(),
+        ))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("build MCP federation response: {e}"),
+            )
+        })?;
+    apply_response_headers(response.headers_mut(), &policy_runtime.response_headers);
+    Ok(response)
+}
+
+// Buffers a successful initialize response and fills in the capability keys
+// that federation makes true at the gateway level.
+async fn augment_initialize_response(
+    server: &ProxyServer,
+    response: Response<Body>,
+) -> Result<Response<Body>, (StatusCode, String)> {
+    if !response.status().is_success() || is_event_stream(response.headers()) {
+        return Ok(response);
+    }
+    let (mut parts, body) = response.into_parts();
+    let bytes = read_body_limited(&parts.headers, body, server.max_body_bytes)
+        .await
+        .map_err(|(_, message)| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("read MCP initialize response: {message}"),
+            )
+        })?;
+    let Ok(mut value) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(Response::from_parts(parts, Body::from(bytes)));
+    };
+    if !mcp::augment_initialize_capabilities(&mut value) {
+        return Ok(Response::from_parts(parts, Body::from(bytes)));
+    }
+    let body = value.to_string();
+    parts.headers.insert(
+        http::header::CONTENT_LENGTH,
+        HttpHeaderValue::from(body.len()),
+    );
+    Ok(Response::from_parts(parts, Body::from(body)))
+}
+
+fn a2a_task_bound_backend(
+    server: &ProxyServer,
+    context: &AgentRequestContext,
+    eligible: &[WeightedBackend],
+) -> Option<WeightedBackend> {
+    if context.protocol != AgentProtocol::A2a {
+        return None;
+    }
+    let backend_name = context
+        .a2a_task_id
+        .as_deref()
+        .and_then(|task_id| server.state.a2a_task_backend(task_id))?;
+    eligible
+        .iter()
+        .find(|weighted| weighted.name == backend_name)
+        .cloned()
+}
+
+fn mcp_session_backend(
+    server: &ProxyServer,
+    context: &AgentRequestContext,
+    eligible: &[WeightedBackend],
+) -> Option<WeightedBackend> {
+    if context.protocol != AgentProtocol::Mcp {
+        return None;
+    }
+    let backend_name = context
+        .mcp_session_id
+        .as_deref()
+        .and_then(|session_id| server.state.mcp_session_backend(session_id))?;
+    eligible
+        .iter()
+        .find(|weighted| weighted.name == backend_name)
+        .cloned()
+}
+
+fn update_mcp_session(
+    state: &ProxyState,
+    backend: &Backend,
+    context: &AgentRequestContext,
+    headers: &HeaderMap,
+    status: StatusCode,
+) {
+    if context.protocol != AgentProtocol::Mcp || !status.is_success() {
+        return;
+    }
+    if let Some(session_id) = headers
+        .get(MCP_SESSION_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+    {
+        state.bind_mcp_session(session_id, backend.name.clone());
+    } else if context.method == Method::DELETE {
+        if let Some(session_id) = &context.mcp_session_id {
+            state.remove_mcp_session(session_id);
+        }
+    }
+}
+
+fn header_value<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(header, _)| header.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn backend_supports_llm_request(
+    snapshot: &ConfigSnapshot,
+    backend: &Backend,
+    context: &AgentRequestContext,
+) -> bool {
+    if context.protocol != AgentProtocol::Llm {
+        return true;
+    }
+    let Some(provider) = backend_provider(snapshot, backend) else {
+        return true;
+    };
+    match llm::dialect_for(provider.kind) {
+        LlmDialect::OpenAi => true,
+        // Native dialects are only translated for chat completions.
+        _ => context.path == llm::OPENAI_CHAT_COMPLETIONS_PATH,
+    }
+}
+
+fn emit_http_access_log(server: &ProxyServer, observation: &HttpObservation<'_>) {
+    let (trace_id, span_id) = current_trace_ids();
+    let event = AccessLogEvent {
+        namespace: &server.metrics_identity.namespace,
+        gateway: &server.metrics_identity.gateway,
+        route: observation.route,
+        cluster: observation.cluster,
+        protocol: "http",
+        backend: observation.cluster,
+        method: observation.method,
+        host: observation.host,
+        path: observation.path,
+        status_code: observation.status_code,
+        latency_ms: observation.latency_ms,
+        upstream: observation.upstream,
+        trace_id: &trace_id,
+        span_id: &span_id,
+    };
+    emit_access_log(server, &event);
+}
+
+fn emit_access_log(server: &ProxyServer, event: &AccessLogEvent<'_>) {
+    if !server.access_log.allows(event) {
+        return;
+    }
+    let line = access_log_line(server.access_log.format, event, &server.access_log.tags);
+    info!(target: "transit.access", "{}", line);
+    if let Some(exporter) = &server.otel_access_log {
+        exporter.emit(event, &server.access_log.tags);
+    }
+}
+
+fn current_trace_ids() -> (String, String) {
+    let context = tracing::Span::current().context();
+    let span_context = context.span().span_context().clone();
+    if span_context.is_valid() {
+        (
+            span_context.trace_id().to_string(),
+            span_context.span_id().to_string(),
+        )
+    } else {
+        (String::new(), String::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::access_log::AccessLogFormat;
+    use super::upstream::{
+        mtls_cache_key, peer_identities, DynamicMtlsClientPool, GrpcBootstrap, MtlsClientPool,
+    };
+    use super::*;
+    use hyper::body;
+    use rcgen::{
+        BasicConstraints, Certificate as RcgenCertificate, CertificateParams, DistinguishedName,
+        DnType, IsCa, SanType,
+    };
+    use rustls::{Certificate, PrivateKey, RootCertStore};
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio_rustls::TlsAcceptor;
+    use transit_core::{
+        ConfigDelta, ConfigStore, SourceId, TlsSecret, UpstreamTls, UpstreamTlsMode,
+    };
+
+    #[test]
+    fn max_body_bytes_parses_env_values() {
+        assert_eq!(parse_max_body_bytes(None), DEFAULT_MAX_BODY_BYTES);
+        assert_eq!(parse_max_body_bytes(Some("")), DEFAULT_MAX_BODY_BYTES);
+        assert_eq!(parse_max_body_bytes(Some("0")), DEFAULT_MAX_BODY_BYTES);
+        assert_eq!(parse_max_body_bytes(Some("abc")), DEFAULT_MAX_BODY_BYTES);
+        assert_eq!(parse_max_body_bytes(Some(" 4096 ")), 4096);
+    }
+
+    #[tokio::test]
+    async fn read_body_limited_rejects_oversized_content_length() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::CONTENT_LENGTH,
+            HttpHeaderValue::from_static("32"),
+        );
+
+        let (status, _) = read_body_limited(&headers, Body::from("ignored"), 16)
+            .await
+            .unwrap_err();
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn read_body_limited_rejects_oversized_stream_without_content_length() {
+        let (mut sender, body) = Body::channel();
+        let writer = tokio::spawn(async move {
+            for _ in 0..4 {
+                if sender.send_data(Bytes::from(vec![0u8; 8])).await.is_err() {
+                    return;
+                }
+            }
+        });
+
+        let (status, _) = read_body_limited(&HeaderMap::new(), body, 16)
+            .await
+            .unwrap_err();
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_body_limited_passes_body_within_limit() {
+        let bytes = read_body_limited(&HeaderMap::new(), Body::from("hello"), 16)
+            .await
+            .unwrap();
+        assert_eq!(&bytes[..], b"hello");
+    }
+
+    #[test]
+    fn parses_grpc_xds_bootstrap_file_watcher_provider() {
+        let bootstrap = serde_json::from_str::<GrpcBootstrap>(
+            r#"{
+              "certificate_providers": {
+                "default": {
+                  "plugin_name": "file_watcher",
+                  "config": {
+                    "certificate_file": "/etc/dubbo/proxy/cert-chain.pem",
+                    "private_key_file": "/etc/dubbo/proxy/key.pem",
+                    "ca_certificate_file": "/etc/dubbo/proxy/root-cert.pem"
+                  }
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+
+        let provider = bootstrap.provider("default").unwrap();
+        assert_eq!(
+            provider
+                .required_path("certificate_file", "default")
+                .unwrap(),
+            Path::new("/etc/dubbo/proxy/cert-chain.pem")
+        );
+        assert_eq!(
+            provider
+                .required_path("private_key_file", "default")
+                .unwrap(),
+            Path::new("/etc/dubbo/proxy/key.pem")
+        );
+        assert_eq!(
+            provider
+                .required_path("ca_certificate_file", "default")
+                .unwrap(),
+            Path::new("/etc/dubbo/proxy/root-cert.pem")
+        );
+    }
+
+    #[tokio::test]
+    async fn mtls_client_connects_with_bootstrap_certificate() {
+        let ca = test_ca();
+        let server_cert = signed_cert("nginx.app.svc.cluster.local");
+        let client_cert = signed_cert("transit.default.svc.cluster.local");
+        let dir = temp_dir("transit-mtls");
+        fs::create_dir_all(&dir).unwrap();
+
+        let cert_chain = dir.join("cert-chain.pem");
+        let key = dir.join("key.pem");
+        let root = dir.join("root-cert.pem");
+        let bootstrap = dir.join("grpc-bootstrap.json");
+        fs::write(
+            &cert_chain,
+            client_cert.serialize_pem_with_signer(&ca).unwrap(),
+        )
+        .unwrap();
+        fs::write(&key, client_cert.serialize_private_key_pem()).unwrap();
+        fs::write(&root, ca.serialize_pem().unwrap()).unwrap();
+        fs::write(
+            &bootstrap,
+            serde_json::json!({
+                "certificate_providers": {
+                    "default": {
+                        "plugin_name": "file_watcher",
+                        "config": {
+                            "certificate_file": cert_chain,
+                            "private_key_file": key,
+                            "ca_certificate_file": root
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let acceptor = TlsAcceptor::from(Arc::new(server_config(&ca, &server_cert)));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = acceptor.accept(stream).await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut buf = [0; 256];
+                let n = stream.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..n]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+                .await
+                .unwrap();
+        });
+
+        let pool = MtlsClientPool::from_bootstrap(bootstrap.to_str().unwrap()).unwrap();
+        let client = pool
+            .client_for(
+                &UpstreamTls {
+                    mode: UpstreamTlsMode::DubboMutual,
+                    sni: Some("nginx.app.svc.cluster.local".into()),
+                    certificate_provider: None,
+                    validation_provider: None,
+                    certificate_secret: None,
+                    validation_secret: None,
+                    alpn_protocols: vec!["h2".into()],
+                    subject_alt_names: vec![],
+                },
+                false,
+            )
+            .unwrap();
+        let uri = format!("https://127.0.0.1:{}/", addr.port())
+            .parse()
+            .unwrap();
+        let response = client.get(uri).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = body::to_bytes(response.into_body()).await.unwrap();
+        assert_eq!(&bytes[..], b"ok");
+
+        server.await.unwrap();
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn mtls_cache_key_tracks_provider_and_alpn() {
+        let tls = UpstreamTls {
+            mode: UpstreamTlsMode::DubboMutual,
+            sni: Some("nginx.app.svc.cluster.local".into()),
+            certificate_provider: Some("workload".into()),
+            validation_provider: Some("roots".into()),
+            certificate_secret: None,
+            validation_secret: None,
+            alpn_protocols: vec!["h2".into(), "http/1.1".into()],
+            subject_alt_names: vec!["spiffe://cluster.local/ns/app/sa/nginx".into()],
+        };
+
+        assert_eq!(
+            mtls_cache_key(&tls),
+            "nginx.app.svc.cluster.local|workload|roots|h2,http/1.1|spiffe://cluster.local/ns/app/sa/nginx"
+        );
+    }
+
+    #[test]
+    fn upstream_request_mode_uses_simple_tls_without_mtls_bootstrap() {
+        let simple = UpstreamTls {
+            mode: UpstreamTlsMode::Simple,
+            sni: Some("httpbin.org".into()),
+            certificate_provider: None,
+            validation_provider: None,
+            certificate_secret: None,
+            validation_secret: None,
+            alpn_protocols: vec![],
+            subject_alt_names: vec![],
+        };
+        let mutual = UpstreamTls {
+            mode: UpstreamTlsMode::DubboMutual,
+            sni: Some("nginx.app.svc.cluster.local".into()),
+            certificate_provider: None,
+            validation_provider: None,
+            certificate_secret: None,
+            validation_secret: None,
+            alpn_protocols: vec![],
+            subject_alt_names: vec![],
+        };
+
+        assert_eq!(upstream_request_mode(None), UpstreamRequestMode::PlainHttp);
+        assert_eq!(
+            upstream_request_mode(Some(&simple)),
+            UpstreamRequestMode::SimpleTls
+        );
+        assert_eq!(
+            upstream_request_mode(Some(&mutual)),
+            UpstreamRequestMode::DubboMutual
+        );
+    }
+
+    #[test]
+    fn extracts_traceparent_from_headers() {
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "traceparent",
+            HttpHeaderValue::from_static("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"),
+        );
+
+        let context = extract_trace_context(&headers);
+        let span_context = context.span().span_context().clone();
+
+        assert!(span_context.is_valid());
+        assert_eq!(
+            span_context.trace_id().to_string(),
+            "4bf92f3577b34da6a3ce929d0e0e4736"
+        );
+        assert_eq!(span_context.span_id().to_string(), "00f067aa0ba902b7");
+    }
+
+    #[test]
+    fn access_log_config_parses_defaults_and_overrides() {
+        let default = AccessLogConfig::from_options(None, None, None, None, None, None);
+        assert!(default.enabled);
+        assert_eq!(default.format, AccessLogFormat::Text);
+
+        let disabled =
+            AccessLogConfig::from_options(Some("false"), Some("json"), None, None, None, None);
+        assert!(!disabled.enabled);
+        assert_eq!(disabled.format, AccessLogFormat::Json);
+
+        let invalid_format =
+            AccessLogConfig::from_options(Some("true"), Some("yaml"), None, None, None, None);
+        assert!(invalid_format.enabled);
+        assert_eq!(invalid_format.format, AccessLogFormat::Text);
+    }
+
+    #[test]
+    fn access_log_line_formats_text_and_json() {
+        let event = AccessLogEvent {
+            namespace: "default",
+            gateway: "edge",
+            route: "httpbin",
+            cluster: "httpbin-v1",
+            protocol: "http",
+            backend: "httpbin-v1",
+            method: "GET",
+            host: "httpbin.example",
+            path: "/status/502",
+            status_code: 502,
+            latency_ms: 17,
+            upstream: "httpbin.org:443",
+            trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
+            span_id: "00f067aa0ba902b7",
+        };
+
+        let tags = std::collections::BTreeMap::new();
+        let text = access_log_line(AccessLogFormat::Text, &event, &tags);
+        assert!(text.contains("route=httpbin"));
+        assert!(text.contains("status_code=502"));
+        assert!(text.contains("trace_id=4bf92f3577b34da6a3ce929d0e0e4736"));
+
+        let json = access_log_line(AccessLogFormat::Json, &event, &tags);
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["namespace"], "default");
+        assert_eq!(value["gateway"], "edge");
+        assert_eq!(value["status_code"], 502);
+        assert_eq!(value["latency_ms"], 17);
+        assert_eq!(value["trace_id"], "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(value["span_id"], "00f067aa0ba902b7");
+    }
+
+    fn test_ca() -> RcgenCertificate {
+        let mut params = CertificateParams::new(vec!["dubbo.test".into()]);
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.distinguished_name = DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(DnType::CommonName, "dubbo test ca");
+        RcgenCertificate::from_params(params).unwrap()
+    }
+
+    fn signed_cert(dns_name: &str) -> RcgenCertificate {
+        let mut params = CertificateParams::new(vec![dns_name.into()]);
+        params.distinguished_name = DistinguishedName::new();
+        params.distinguished_name.push(DnType::CommonName, dns_name);
+        RcgenCertificate::from_params(params).unwrap()
+    }
+
+    /// A workload cert shaped like the ones a SPIFFE control plane issues: a URI SAN
+    /// carrying the identity and no DNS SAN, so SNI matching cannot succeed.
+    fn spiffe_cert(uri: &str) -> RcgenCertificate {
+        let mut params = CertificateParams::default();
+        params.subject_alt_names = vec![SanType::URI(uri.into())];
+        params.distinguished_name = DistinguishedName::new();
+        params.distinguished_name.push(DnType::CommonName, "spiffe");
+        RcgenCertificate::from_params(params).unwrap()
+    }
+
+    /// Writes the gRPC xDS bootstrap the mTLS pool reads, returning its path.
+    fn write_bootstrap(dir: &Path, ca: &RcgenCertificate, client: &RcgenCertificate) -> PathBuf {
+        fs::create_dir_all(dir).unwrap();
+        let cert_chain = dir.join("cert-chain.pem");
+        let key = dir.join("key.pem");
+        let root = dir.join("root-cert.pem");
+        let bootstrap = dir.join("grpc-bootstrap.json");
+        fs::write(&cert_chain, client.serialize_pem_with_signer(ca).unwrap()).unwrap();
+        fs::write(&key, client.serialize_private_key_pem()).unwrap();
+        fs::write(&root, ca.serialize_pem().unwrap()).unwrap();
+        fs::write(
+            &bootstrap,
+            serde_json::json!({
+                "certificate_providers": {
+                    "default": {
+                        "plugin_name": "file_watcher",
+                        "config": {
+                            "certificate_file": cert_chain,
+                            "private_key_file": key,
+                            "ca_certificate_file": root
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        bootstrap
+    }
+
+    /// Accepts exactly one TLS connection and answers any request with 200 "ok".
+    async fn spawn_tls_server(ca: &RcgenCertificate, cert: &RcgenCertificate) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let acceptor = TlsAcceptor::from(Arc::new(server_config(ca, cert)));
+        tokio::spawn(async move {
+            let Ok((stream, _)) = listener.accept().await else {
+                return;
+            };
+            // A rejected peer aborts the handshake; that is the assertion, not a failure.
+            let Ok(mut stream) = acceptor.accept(stream).await else {
+                return;
+            };
+            let mut request = Vec::new();
+            loop {
+                let mut buf = [0; 256];
+                let Ok(n) = stream.read(&mut buf).await else {
+                    return;
+                };
+                if n == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..n]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let _ = stream
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+                .await;
+        });
+        addr
+    }
+
+    async fn spawn_tls_server_capturing_client(
+        ca: &RcgenCertificate,
+        cert: &RcgenCertificate,
+    ) -> (SocketAddr, tokio::task::JoinHandle<Vec<u8>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let acceptor = TlsAcceptor::from(Arc::new(server_config(ca, cert)));
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = acceptor.accept(stream).await.unwrap();
+            let peer = stream
+                .get_ref()
+                .1
+                .peer_certificates()
+                .unwrap()
+                .first()
+                .unwrap()
+                .0
+                .clone();
+            let mut request = Vec::new();
+            loop {
+                let mut buf = [0; 256];
+                let count = stream.read(&mut buf).await.unwrap();
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..count]);
+                if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\nok")
+                .await
+                .unwrap();
+            peer
+        });
+        (addr, task)
+    }
+
+    fn sds_delta(version: &str, ca: &RcgenCertificate, client: &RcgenCertificate) -> ConfigDelta {
+        ConfigDelta::default()
+            .with_version(version)
+            .with_secrets(vec![
+                TlsSecret {
+                    name: "default".into(),
+                    certificate_chain_pem: client.serialize_pem_with_signer(ca).unwrap(),
+                    private_key_pem: client.serialize_private_key_pem(),
+                    trusted_ca_pem: None,
+                },
+                TlsSecret {
+                    name: "ROOTCA".into(),
+                    certificate_chain_pem: String::new(),
+                    private_key_pem: String::new(),
+                    trusted_ca_pem: Some(ca.serialize_pem().unwrap()),
+                },
+            ])
+    }
+
+    fn spiffe_tls(subject_alt_names: Vec<String>) -> UpstreamTls {
+        UpstreamTls {
+            mode: UpstreamTlsMode::DubboMutual,
+            sni: Some("nginx.app.svc.cluster.local".into()),
+            certificate_provider: None,
+            validation_provider: None,
+            certificate_secret: None,
+            validation_secret: None,
+            alpn_protocols: vec![],
+            subject_alt_names,
+        }
+    }
+
+    #[tokio::test]
+    async fn dynamic_sds_mtls_rotates_the_client_certificate() {
+        let ca = test_ca();
+        let first_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/transit-one");
+        let second_client = spiffe_cert("spiffe://cluster.local/ns/default/sa/transit-two");
+        let upstream = signed_cert("nginx.app.svc.cluster.local");
+        let store = ConfigStore::new();
+        let mut pool = DynamicMtlsClientPool::default();
+        let mut tls = spiffe_tls(vec![]);
+        tls.certificate_secret = Some("default".into());
+        tls.validation_secret = Some("ROOTCA".into());
+
+        store.apply(SourceId::Xds, sds_delta("sds-1", &ca, &first_client));
+        let first_snapshot = store.snapshot();
+        let first = pool.client_for(&first_snapshot, &tls, false).unwrap();
+        let (first_addr, first_peer) = spawn_tls_server_capturing_client(&ca, &upstream).await;
+        let first_response = first
+            .get(format!("https://{first_addr}/").parse().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(first_response.status(), StatusCode::OK);
+        assert_eq!(
+            peer_identities(&first_peer.await.unwrap()).unwrap(),
+            ["spiffe://cluster.local/ns/default/sa/transit-one"]
+        );
+
+        store.apply(SourceId::Xds, sds_delta("sds-2", &ca, &second_client));
+        let second_snapshot = store.snapshot();
+        assert!(second_snapshot.revision() > first_snapshot.revision());
+        let second = pool.client_for(&second_snapshot, &tls, false).unwrap();
+        let (second_addr, second_peer) = spawn_tls_server_capturing_client(&ca, &upstream).await;
+        let second_response = second
+            .get(format!("https://{second_addr}/").parse().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(second_response.status(), StatusCode::OK);
+        assert_eq!(
+            peer_identities(&second_peer.await.unwrap()).unwrap(),
+            ["spiffe://cluster.local/ns/default/sa/transit-two"]
+        );
+    }
+
+    #[tokio::test]
+    async fn mtls_accepts_upstream_matching_configured_spiffe_identity() {
+        let ca = test_ca();
+        let dir = temp_dir("transit-mtls-san-ok");
+        let bootstrap = write_bootstrap(
+            &dir,
+            &ca,
+            &spiffe_cert("spiffe://cluster.local/ns/default/sa/transit"),
+        );
+        let addr =
+            spawn_tls_server(&ca, &spiffe_cert("spiffe://cluster.local/ns/app/sa/orders")).await;
+
+        let pool = MtlsClientPool::from_bootstrap(bootstrap.to_str().unwrap()).unwrap();
+        let client = pool
+            .client_for(
+                &spiffe_tls(vec!["spiffe://cluster.local/ns/app/sa/orders".into()]),
+                false,
+            )
+            .unwrap();
+        let uri = format!("https://127.0.0.1:{}/", addr.port())
+            .parse()
+            .unwrap();
+
+        let response = client.get(uri).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn mtls_rejects_upstream_whose_spiffe_identity_is_not_allowed() {
+        let ca = test_ca();
+        let dir = temp_dir("transit-mtls-san-bad");
+        let bootstrap = write_bootstrap(
+            &dir,
+            &ca,
+            &spiffe_cert("spiffe://cluster.local/ns/default/sa/transit"),
+        );
+        // The upstream holds a valid cert from the same CA, just not the identity the
+        // route pinned. Chain verification alone would have accepted it.
+        let addr = spawn_tls_server(
+            &ca,
+            &spiffe_cert("spiffe://cluster.local/ns/app/sa/attacker"),
+        )
+        .await;
+
+        let pool = MtlsClientPool::from_bootstrap(bootstrap.to_str().unwrap()).unwrap();
+        let client = pool
+            .client_for(
+                &spiffe_tls(vec!["spiffe://cluster.local/ns/app/sa/orders".into()]),
+                false,
+            )
+            .unwrap();
+        let uri = format!("https://127.0.0.1:{}/", addr.port())
+            .parse()
+            .unwrap();
+
+        assert!(
+            client.get(uri).await.is_err(),
+            "handshake must fail when the peer's SPIFFE identity is not in subject_alt_names"
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    fn server_config(
+        ca: &RcgenCertificate,
+        server_cert: &RcgenCertificate,
+    ) -> rustls::ServerConfig {
+        let mut client_roots = RootCertStore::empty();
+        client_roots
+            .add(&Certificate(ca.serialize_der().unwrap()))
+            .unwrap();
+        let client_verifier = Arc::new(rustls::server::AllowAnyAuthenticatedClient::new(
+            client_roots,
+        ));
+        rustls::ServerConfig::builder()
+            .with_safe_defaults()
+            .with_client_cert_verifier(client_verifier)
+            .with_single_cert(
+                vec![Certificate(
+                    server_cert.serialize_der_with_signer(ca).unwrap(),
+                )],
+                PrivateKey(server_cert.serialize_private_key_der()),
+            )
+            .unwrap()
+    }
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nanos}"))
+    }
+}

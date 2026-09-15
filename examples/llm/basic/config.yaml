@@ -1,0 +1,13 @@
+ports:
+  default: 6021
+
+ui:
+  port: default
+
+llm:
+  port: default
+  models: []
+  providers:
+    - name: openai-1
+      provider: openai
+  modelRoutes: []

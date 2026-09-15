@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./logo/transit-logo.svg" alt="transit logo" width="260">
+  <img src="logo/logo.svg" alt="transit logo" width="260">
 </p>
 
 <p align="center">
@@ -7,8 +7,6 @@
   <img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="license">
   <img src="https://img.shields.io/badge/Rust-1.88%2B-orange.svg?style=flat" alt="Rust: 1.88+">
 </p>
-
-Transit is a new type of gateway that supports both standalone and Kubernetes operation modes. It also serves as the proxy gateway data plane for [Apache Dubbo Kubernetes](https://github.com/apache/dubbo-kubernetes), retrieving configuration from an explicitly configured dubbod xDS server.
 
 ## License
 

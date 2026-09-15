@@ -1,0 +1,14 @@
+gateways:
+  default:
+    port: 6021
+ui:
+  gateways: default
+mcp:
+  gateways: default
+  targets:
+    - name: tour
+      mcp:
+        host: http://localhost:8080/mcp
+  sessionMode: stateful
+  prefixPolicy: always
+  failurePolicy: failOpen
