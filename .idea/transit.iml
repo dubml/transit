@@ -10,6 +10,10 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/transit_proxy/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/transit_proxy/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/transit_xds/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/codegen/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/transit/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/core/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/xds/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

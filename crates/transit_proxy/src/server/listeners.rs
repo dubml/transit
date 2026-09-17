@@ -3,7 +3,7 @@ use axum::{routing::any, Router};
 use futures_util::StreamExt;
 use std::{collections::BTreeMap, io, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{sync::watch, task::JoinSet};
-use transit_core::{ConfigConflict, ConfigSnapshot, ListenerProtocol, TlsSecret};
+use transit::{ConfigConflict, ConfigSnapshot, ListenerProtocol, TlsSecret};
 
 #[derive(Clone, PartialEq, Eq)]
 enum Transport {

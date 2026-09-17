@@ -1,13 +1,10 @@
-mod cel;
 mod schema;
 
 use std::env::args;
-
 use anyhow::{Context, Result, bail};
 
 enum Codegen {
 	Schema,
-	Cel,
 }
 
 fn get_task() -> Result<Codegen> {
@@ -15,7 +12,6 @@ fn get_task() -> Result<Codegen> {
 	let arg = args().nth(1).context(message)?;
 	match arg.as_str() {
 		"schema" => Ok(Codegen::Schema),
-		"cel" => Ok(Codegen::Cel),
 		arg => bail!("unknown task: {}", arg),
 	}
 }
@@ -23,6 +19,5 @@ fn get_task() -> Result<Codegen> {
 fn main() -> Result<()> {
 	match get_task()? {
 		Codegen::Schema => schema::generate_schema(),
-		Codegen::Cel => cel::evaluate_command(),
 	}
 }

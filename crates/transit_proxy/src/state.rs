@@ -1,21 +1,15 @@
-use crate::activation::Activator;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use transit_core::{
-    format_credit_micros, format_usd_nanos, A2aEfficiencyRow, ApplyOutcome, AttributionMode,
-    CacheTierBreakdown, Cluster, ConfigConflict, ConfigDelta, ConfigSnapshot, ConfigStore,
-    CostEvent, DataQuality, EfficiencyLedgerSummary, Endpoint, McpEfficiencyRow,
-    OptimizationLedgerSummary, OptimizationOpportunity, OutlierDetectionConfig, PricingStatus,
-    RateLimitPolicy, Result, RuntimeConfig, SecretKeyReference, SecurityDecision, SourceId,
-    SourceState, SpendAccountRow, SpendLedgerSummary, SpendModelRow, TokenBreakdown, TokenCounts,
-    TokenLedgerSummary, TokenLimitPolicy, TransitError, WeightedBackend, WeightedCluster,
+use std::time::{Duration, Instant};
+use transit::{
+    ApplyOutcome, Cluster, ConfigConflict, ConfigDelta, ConfigSnapshot, ConfigStore,
+    Endpoint, OutlierDetectionConfig, RateLimitPolicy, Result, RuntimeConfig,
+    SecretKeyReference, SecurityDecision, SourceId, SourceState, TokenLimitPolicy,
+    TransitError, WeightedBackend, WeightedCluster,
 };
 
-const COST_TICK_CAP: usize = 512;
-const COST_EVENT_CAP: usize = 1024;
 const SECURITY_DECISION_CAP: usize = 512;
 
 const LATENCY_BUCKETS_MS: [u64; 7] = [5, 10, 25, 50, 100, 250, 1000];
@@ -125,7 +119,6 @@ struct Inner {
     listener_readiness: RwLock<Option<(Option<u64>, Vec<ConfigConflict>)>>,
     llm_accounts: crate::LlmAccounts,
     access_settings: crate::access_settings::AccessSettings,
-    llm_timings: Arc<crate::LlmTimings>,
     /// Shared with every configuration source. Sources write deltas into it
     /// directly; the proxy only ever reads published snapshots.
     store: Arc<ConfigStore>,
@@ -147,15 +140,9 @@ struct Inner {
     token_usage: Mutex<HashMap<String, TokenBucket>>,
     circuit_breakers: Mutex<HashMap<String, CircuitBreakerBucket>>,
     outliers: Mutex<HashMap<String, OutlierBucket>>,
-    mcp_sessions: Mutex<BindingMap>,
-    a2a_tasks: Mutex<BindingMap>,
     credentials: RwLock<HashMap<SecretKeyReference, String>>,
     security_decisions: Mutex<VecDeque<SecurityDecision>>,
     metrics: Mutex<MetricsStore>,
-    /// Holds requests for scaled-to-zero targets. Lives here rather than on
-    /// the server because endpoint selection — the only thing that can tell a
-    /// cold target from a dead one — lives here too.
-    activation: Activator,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -172,10 +159,6 @@ pub struct Readiness {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProxyMetrics {
-    /// Requests parked waiting for a scaled-to-zero target to come up.
-    /// Separated from in-flight requests so a cold start is not read as the
-    /// gateway being slow.
-    pub held_activation_requests: u64,
     pub total_requests: u64,
     pub agent_requests: u64,
     pub policy_denied: u64,
@@ -184,102 +167,6 @@ pub struct ProxyMetrics {
     pub http_route_concurrency: Vec<HttpRouteConcurrencyMetric>,
     pub http_routes: Vec<HttpRouteMetric>,
     pub routes: Vec<RouteMetric>,
-    pub llm_usage: Vec<LlmUsageMetric>,
-    pub mcp_tools: Vec<McpToolMetric>,
-    pub a2a_methods: Vec<A2aMethodMetric>,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct LlmUsageMetric {
-    pub route: String,
-    pub backend: String,
-    pub model: String,
-    pub requests: u64,
-    pub prompt_tokens: u64,
-    pub cached_prompt_tokens: u64,
-    pub completion_tokens: u64,
-    pub cache_write_tokens: u64,
-    pub reasoning_tokens: u64,
-    pub priced_requests: u64,
-    pub estimated_usd_nanos: u128,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct McpToolMetric {
-    pub route: String,
-    pub backend: String,
-    pub tool: String,
-    pub calls: u64,
-    pub failures: u64,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct A2aMethodMetric {
-    pub route: String,
-    pub backend: String,
-    pub method: String,
-    pub calls: u64,
-    pub failures: u64,
-}
-
-// Affinity bindings (MCP session -> backend, A2A task -> backend) are bounded
-// so abandoned keys cannot grow proxy memory without limit; last_used
-// refreshes on every routed request.
-const BINDING_TTL: Duration = Duration::from_secs(60 * 60);
-const BINDING_CAP: usize = 10_000;
-
-#[derive(Debug)]
-struct Binding {
-    backend: String,
-    last_used: Instant,
-}
-
-#[derive(Debug, Default)]
-struct BindingMap {
-    entries: HashMap<String, Binding>,
-}
-
-impl BindingMap {
-    fn bind(&mut self, key: String, backend: String) {
-        // The O(n) sweeps only run once the map is actually full.
-        if self.entries.len() >= BINDING_CAP {
-            self.entries
-                .retain(|_, binding| binding.last_used.elapsed() < BINDING_TTL);
-        }
-        if self.entries.len() >= BINDING_CAP {
-            // Bindings are an affinity optimization; dropping the idlest one
-            // only costs that key its stickiness, not correctness.
-            if let Some(oldest) = self
-                .entries
-                .iter()
-                .min_by_key(|(_, binding)| binding.last_used)
-                .map(|(key, _)| key.clone())
-            {
-                self.entries.remove(&oldest);
-            }
-        }
-        self.entries.insert(
-            key,
-            Binding {
-                backend,
-                last_used: Instant::now(),
-            },
-        );
-    }
-
-    fn lookup(&mut self, key: &str) -> Option<String> {
-        let binding = self.entries.get_mut(key)?;
-        if binding.last_used.elapsed() >= BINDING_TTL {
-            self.entries.remove(key);
-            return None;
-        }
-        binding.last_used = Instant::now();
-        Some(binding.backend.clone())
-    }
-
-    fn remove(&mut self, key: &str) {
-        self.entries.remove(key);
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -332,20 +219,6 @@ struct MetricsStore {
     http_routes: HashMap<String, HttpRouteMetricCounter>,
     http_route_in_flight: HashMap<String, HttpRouteConcurrencyCounter>,
     routes: HashMap<String, RouteMetricCounter>,
-    llm_usage: HashMap<String, LlmUsageMetric>,
-    cost_ticks: VecDeque<CostTick>,
-    cost_events: VecDeque<CostEvent>,
-    mcp_tools: HashMap<String, McpToolMetric>,
-    a2a_methods: HashMap<String, A2aMethodMetric>,
-}
-
-/// One quoted LLM call. Cost Control tape / flame chart plots these.
-#[derive(Debug, Clone, Serialize)]
-pub struct CostTick {
-    pub t_ms: u64,
-    pub model: String,
-    pub usd: f64,
-    pub credits: f64,
 }
 
 /// Per-route concurrency is keyed without method or status code: both are
@@ -506,19 +379,11 @@ impl ProxyState {
 
     /// A proxy over a store shared with the configuration sources.
     pub fn with_store(store: Arc<ConfigStore>) -> Self {
-        Self::with_activator(store, Activator::from_env())
-    }
-
-    /// A proxy whose activator is supplied rather than read from the
-    /// environment, so a test can exercise activation without setting process
-    /// state that every other test in the binary would then share.
-    pub fn with_activator(store: Arc<ConfigStore>, activation: Activator) -> Self {
         Self {
             inner: Arc::new(Inner {
                 listener_readiness: RwLock::new(None),
                 llm_accounts: crate::LlmAccounts::default(),
                 access_settings: crate::access_settings::AccessSettings::default(),
-                llm_timings: Arc::new(crate::LlmTimings::default()),
                 store,
                 pruned_revision: AtomicU64::new(0),
                 document_sources: Mutex::new(BTreeMap::new()),
@@ -528,12 +393,9 @@ impl ProxyState {
                 token_usage: Mutex::new(HashMap::new()),
                 circuit_breakers: Mutex::new(HashMap::new()),
                 outliers: Mutex::new(HashMap::new()),
-                mcp_sessions: Mutex::new(BindingMap::default()),
-                a2a_tasks: Mutex::new(BindingMap::default()),
                 credentials: RwLock::new(HashMap::new()),
                 security_decisions: Mutex::new(VecDeque::new()),
                 metrics: Mutex::new(MetricsStore::default()),
-                activation,
             }),
         }
     }
@@ -549,10 +411,6 @@ impl ProxyState {
 
     pub fn access_settings(&self) -> &crate::access_settings::AccessSettings {
         &self.inner.access_settings
-    }
-
-    pub fn llm_timings(&self) -> &Arc<crate::LlmTimings> {
-        &self.inner.llm_timings
     }
 
     /// The current published configuration. One atomic refcount bump: nothing
@@ -592,11 +450,9 @@ impl ProxyState {
         outcome
     }
 
-    /// Publishes a whole control-plane document for tests and single-shot
-    /// bootstrapping. Production updates use the same xDS owner and apply deltas
-    /// directly to the store.
+    /// Publishes a whole configuration document for bootstrapping.
     pub fn apply_config(&self, cfg: RuntimeConfig) -> std::result::Result<(), Vec<ConfigConflict>> {
-        self.apply_config_from(SourceId::Xds, cfg)
+        self.apply_config_from(SourceId::Static, cfg)
     }
 
     pub fn apply_config_from(
@@ -1059,557 +915,6 @@ impl ProxyState {
         }
     }
 
-    pub fn record_llm_usage(
-        &self,
-        route: &str,
-        backend: &str,
-        model: &str,
-        prompt_tokens: u64,
-        cached_prompt_tokens: u64,
-        completion_tokens: u64,
-    ) {
-        self.record_llm_usage_full(
-            route,
-            backend,
-            model,
-            prompt_tokens,
-            cached_prompt_tokens,
-            0,
-            completion_tokens,
-            0,
-            None,
-            None,
-            0,
-            200,
-        );
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_llm_usage_full(
-        &self,
-        route: &str,
-        backend: &str,
-        model: &str,
-        prompt_tokens: u64,
-        cached_prompt_tokens: u64,
-        cache_write_tokens: u64,
-        completion_tokens: u64,
-        reasoning_tokens: u64,
-        trace_id: Option<String>,
-        span_id: Option<String>,
-        latency_ms: u64,
-        status_code: u16,
-    ) {
-        let (token_breakdown, quality) = TokenBreakdown::new(
-            prompt_tokens,
-            cached_prompt_tokens,
-            cache_write_tokens,
-            completion_tokens,
-            reasoning_tokens,
-        );
-
-        let t_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-
-        let quote_res = transit_core::quote_tokens(
-            model,
-            transit_core::TokenCounts {
-                prompt_tokens,
-                cached_prompt_tokens: token_breakdown.cache_read,
-                cache_write_tokens,
-                completion_tokens,
-            },
-            transit_core::ServiceTier::Standard,
-            transit_core::ContextBand::Short,
-        );
-
-        let mut metrics = self.inner.metrics.lock().unwrap();
-        let key = format!("{route}|{backend}|{model}");
-        {
-            let counter = metrics
-                .llm_usage
-                .entry(key)
-                .or_insert_with(|| LlmUsageMetric {
-                    route: route.to_string(),
-                    backend: backend.to_string(),
-                    model: model.to_string(),
-                    ..LlmUsageMetric::default()
-                });
-            counter.requests += 1;
-            counter.prompt_tokens += prompt_tokens;
-            counter.cached_prompt_tokens += token_breakdown.cache_read;
-            counter.completion_tokens += completion_tokens;
-            counter.cache_write_tokens += cache_write_tokens;
-            counter.reasoning_tokens += token_breakdown.reasoning;
-            if let Ok(quote) = &quote_res {
-                counter.priced_requests += 1;
-                counter.estimated_usd_nanos += quote.api_usd_nanos;
-            }
-        }
-
-        let (
-            pricing_status,
-            api_usd_nanos,
-            api_usd,
-            chatgpt_credit_micros,
-            chatgpt_credits,
-            vendor,
-        ) = match &quote_res {
-            Ok(q) => {
-                if metrics.cost_ticks.len() >= COST_TICK_CAP {
-                    metrics.cost_ticks.pop_front();
-                }
-                metrics.cost_ticks.push_back(CostTick {
-                    t_ms,
-                    model: model.to_string(),
-                    usd: q.api_usd_nanos as f64 / 1_000_000_000.0,
-                    credits: q.chatgpt_credit_micros as f64 / 1_000_000.0,
-                });
-                (
-                    PricingStatus::Exact,
-                    Some(q.api_usd_nanos),
-                    Some(q.api_usd()),
-                    Some(q.chatgpt_credit_micros),
-                    Some(q.chatgpt_credits()),
-                    q.vendor.to_string(),
-                )
-            }
-            Err(_) => {
-                let v = if model.starts_with("claude") {
-                    "anthropic"
-                } else if model.starts_with("gpt-") {
-                    "openai"
-                } else {
-                    "unknown"
-                };
-                (
-                    PricingStatus::Unpriced,
-                    None,
-                    None,
-                    None,
-                    None,
-                    v.to_string(),
-                )
-            }
-        };
-
-        let trace_id = trace_id.unwrap_or_else(|| format!("{t_ms:032x}"));
-        let span_id = span_id.unwrap_or_else(|| format!("{:016x}", t_ms));
-        let event_id = format!("evt_{:x}", t_ms % 0xffffff);
-
-        let event = CostEvent {
-            event_id,
-            trace_id,
-            span_id,
-            parent_span_id: None,
-            timestamp_ms: t_ms,
-            route: route.to_string(),
-            backend: backend.to_string(),
-            model: model.to_string(),
-            provider: vendor,
-            account: backend.to_string(),
-            protocol: "llm".to_string(),
-            operation: "chat.completion".to_string(),
-            token_breakdown,
-            latency_ms,
-            ttft_ms: None,
-            status_code,
-            data_quality: quality,
-            pricing_status,
-            api_usd_nanos,
-            api_usd,
-            chatgpt_credit_micros,
-            chatgpt_credits,
-            attribution_mode: AttributionMode::Direct,
-            io_bytes: (prompt_tokens + completion_tokens) * 4,
-            retries: 0,
-        };
-
-        if metrics.cost_events.len() >= COST_EVENT_CAP {
-            metrics.cost_events.pop_front();
-        }
-        metrics.cost_events.push_back(event);
-    }
-
-    pub fn record_cost_event(&self, event: CostEvent) {
-        let mut metrics = self.inner.metrics.lock().unwrap();
-        if metrics.cost_events.len() >= COST_EVENT_CAP {
-            metrics.cost_events.pop_front();
-        }
-        metrics.cost_events.push_back(event);
-    }
-
-    pub fn cost_events(&self) -> Vec<CostEvent> {
-        let metrics = self.inner.metrics.lock().unwrap();
-        metrics.cost_events.iter().cloned().collect()
-    }
-
-    pub fn cost_ticks(&self) -> Vec<CostTick> {
-        self.inner
-            .metrics
-            .lock()
-            .unwrap()
-            .cost_ticks
-            .iter()
-            .cloned()
-            .collect()
-    }
-
-    pub fn spend_ledger_summary(&self) -> SpendLedgerSummary {
-        let metrics = self.inner.metrics.lock().unwrap();
-        let mut total_api_usd_nanos: u128 = 0;
-        let mut total_chatgpt_credit_micros: u128 = 0;
-        let mut priced_requests: u64 = 0;
-        let mut unpriced_requests: u64 = 0;
-
-        let mut model_map: HashMap<String, SpendModelRow> = HashMap::new();
-        let mut account_map: HashMap<String, SpendAccountRow> = HashMap::new();
-
-        for event in &metrics.cost_events {
-            if event.protocol == "llm" {
-                if event.pricing_status == PricingStatus::Exact {
-                    priced_requests += 1;
-                    if let Some(nanos) = event.api_usd_nanos {
-                        total_api_usd_nanos += nanos;
-                    }
-                    if let Some(credits) = event.chatgpt_credit_micros {
-                        total_chatgpt_credit_micros += credits;
-                    }
-                } else {
-                    unpriced_requests += 1;
-                }
-
-                let row = model_map
-                    .entry(event.model.clone())
-                    .or_insert_with(|| SpendModelRow {
-                        model: event.model.clone(),
-                        provider: event.provider.clone(),
-                        pricing_status: event.pricing_status,
-                        ..SpendModelRow::default()
-                    });
-                row.requests += 1;
-                row.uncached_input_tokens += event.token_breakdown.input_uncached;
-                row.cached_input_tokens += event.token_breakdown.cache_read;
-                row.output_tokens += event.token_breakdown.total_output();
-
-                let acct =
-                    account_map
-                        .entry(event.account.clone())
-                        .or_insert_with(|| SpendAccountRow {
-                            account: event.account.clone(),
-                            provider: event.provider.clone(),
-                            requests: 0,
-                            api_usd: "$0".to_string(),
-                            chatgpt_credits: "0".to_string(),
-                        });
-                acct.requests += 1;
-            }
-        }
-
-        if metrics.cost_events.is_empty() {
-            for metric in metrics.llm_usage.values() {
-                match transit_core::quote_tokens(
-                    &metric.model,
-                    TokenCounts {
-                        prompt_tokens: metric.prompt_tokens,
-                        cached_prompt_tokens: metric.cached_prompt_tokens,
-                        cache_write_tokens: 0,
-                        completion_tokens: metric.completion_tokens,
-                    },
-                    transit_core::ServiceTier::Standard,
-                    transit_core::ContextBand::Short,
-                ) {
-                    Ok(q) => {
-                        priced_requests += metric.requests;
-                        total_api_usd_nanos += q.api_usd_nanos;
-                        total_chatgpt_credit_micros += q.chatgpt_credit_micros;
-                        model_map.insert(
-                            metric.model.clone(),
-                            SpendModelRow {
-                                model: metric.model.clone(),
-                                provider: q.vendor.to_string(),
-                                requests: metric.requests,
-                                uncached_input_tokens: metric
-                                    .prompt_tokens
-                                    .saturating_sub(metric.cached_prompt_tokens),
-                                cached_input_tokens: metric.cached_prompt_tokens,
-                                output_tokens: metric.completion_tokens,
-                                api_usd: q.api_usd(),
-                                chatgpt_credits: q.chatgpt_credits(),
-                                pricing_status: PricingStatus::Exact,
-                            },
-                        );
-                    }
-                    Err(_) => {
-                        unpriced_requests += metric.requests;
-                        model_map.insert(
-                            metric.model.clone(),
-                            SpendModelRow {
-                                model: metric.model.clone(),
-                                provider: "unknown".to_string(),
-                                requests: metric.requests,
-                                uncached_input_tokens: metric
-                                    .prompt_tokens
-                                    .saturating_sub(metric.cached_prompt_tokens),
-                                cached_input_tokens: metric.cached_prompt_tokens,
-                                output_tokens: metric.completion_tokens,
-                                api_usd: "-".to_string(),
-                                chatgpt_credits: "-".to_string(),
-                                pricing_status: PricingStatus::Unpriced,
-                            },
-                        );
-                    }
-                }
-            }
-        } else {
-            for row in model_map.values_mut() {
-                if let Ok(q) = transit_core::quote_tokens(
-                    &row.model,
-                    TokenCounts {
-                        prompt_tokens: row.uncached_input_tokens + row.cached_input_tokens,
-                        cached_prompt_tokens: row.cached_input_tokens,
-                        cache_write_tokens: 0,
-                        completion_tokens: row.output_tokens,
-                    },
-                    transit_core::ServiceTier::Standard,
-                    transit_core::ContextBand::Short,
-                ) {
-                    row.api_usd = q.api_usd();
-                    row.chatgpt_credits = q.chatgpt_credits();
-                } else {
-                    row.api_usd = "-".to_string();
-                    row.chatgpt_credits = "-".to_string();
-                }
-            }
-        }
-
-        let mut models: Vec<SpendModelRow> = model_map.into_values().collect();
-        models.sort_by(|a, b| a.model.cmp(&b.model));
-
-        let mut accounts: Vec<SpendAccountRow> = account_map.into_values().collect();
-        accounts.sort_by(|a, b| a.account.cmp(&b.account));
-
-        SpendLedgerSummary {
-            total_api_usd_nanos,
-            total_api_usd: format_usd_nanos(total_api_usd_nanos),
-            total_chatgpt_credit_micros,
-            total_chatgpt_credits: format_credit_micros(total_chatgpt_credit_micros),
-            priced_requests,
-            unpriced_requests,
-            models,
-            accounts,
-        }
-    }
-
-    pub fn token_ledger_summary(&self) -> TokenLedgerSummary {
-        let metrics = self.inner.metrics.lock().unwrap();
-        let mut total_input_uncached: u64 = 0;
-        let mut total_cache_read: u64 = 0;
-        let mut total_cache_write: u64 = 0;
-        let mut total_output_non_reasoning: u64 = 0;
-        let mut total_reasoning: u64 = 0;
-        let mut total_unclassified: u64 = 0;
-        let mut complete_events: u64 = 0;
-        let mut inconsistent_events: u64 = 0;
-
-        for event in &metrics.cost_events {
-            if event.protocol == "llm" {
-                total_input_uncached += event.token_breakdown.input_uncached;
-                total_cache_read += event.token_breakdown.cache_read;
-                total_cache_write += event.token_breakdown.cache_write;
-                total_output_non_reasoning += event.token_breakdown.output_non_reasoning;
-                total_reasoning += event.token_breakdown.reasoning;
-                total_unclassified += event.token_breakdown.unclassified;
-                match event.data_quality {
-                    DataQuality::Complete => complete_events += 1,
-                    DataQuality::Inconsistent => inconsistent_events += 1,
-                    DataQuality::Unclassified => {}
-                }
-            }
-        }
-
-        if metrics.cost_events.is_empty() {
-            for metric in metrics.llm_usage.values() {
-                let uncached = metric
-                    .prompt_tokens
-                    .saturating_sub(metric.cached_prompt_tokens);
-                total_input_uncached += uncached;
-                total_cache_read += metric.cached_prompt_tokens;
-                total_output_non_reasoning += metric.completion_tokens;
-                complete_events += metric.requests;
-            }
-        }
-
-        let total_input = total_input_uncached + total_cache_read;
-        let total_tokens =
-            total_input + total_output_non_reasoning + total_reasoning + total_unclassified;
-        let cache_hit_rate_pct = if total_input > 0 {
-            (total_cache_read as f64 / total_input as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        TokenLedgerSummary {
-            total_input_uncached,
-            total_cache_read,
-            total_cache_write,
-            total_output_non_reasoning,
-            total_reasoning,
-            total_unclassified,
-            total_tokens,
-            cache_hit_rate_pct,
-            context_saved_tokens: total_cache_read,
-            complete_events,
-            inconsistent_events,
-            tiers: CacheTierBreakdown {
-                provider_cache_read_tokens: total_cache_read,
-                provider_cache_write_tokens: total_cache_write,
-                gateway_prefix_cache_tokens: 0,
-                agent_context_tokens_reduced: 0,
-            },
-        }
-    }
-
-    pub fn efficiency_ledger_summary(&self) -> EfficiencyLedgerSummary {
-        let metrics = self.inner.metrics.lock().unwrap();
-        let mut mcp_calls: u64 = 0;
-        let mut mcp_failures: u64 = 0;
-        let mut mcp_io_bytes: u64 = 0;
-        let mut a2a_calls: u64 = 0;
-        let mut a2a_failures: u64 = 0;
-        let mut a2a_io_bytes: u64 = 0;
-        let mut total_retries: u64 = 0;
-        let mut retry_overhead_tokens: u64 = 0;
-
-        for event in &metrics.cost_events {
-            total_retries += event.retries as u64;
-            if event.retries > 0 {
-                retry_overhead_tokens += event.token_breakdown.total() * (event.retries as u64);
-            }
-            match event.protocol.as_str() {
-                "mcp" => {
-                    mcp_calls += 1;
-                    if event.status_code >= 400 {
-                        mcp_failures += 1;
-                    }
-                    mcp_io_bytes += event.io_bytes;
-                }
-                "a2a" => {
-                    a2a_calls += 1;
-                    if event.status_code >= 400 {
-                        a2a_failures += 1;
-                    }
-                    a2a_io_bytes += event.io_bytes;
-                }
-                _ => {}
-            }
-        }
-
-        let mut mcp_tools: Vec<McpEfficiencyRow> = metrics
-            .mcp_tools
-            .values()
-            .map(|m| {
-                mcp_calls = mcp_calls.max(m.calls);
-                mcp_failures = mcp_failures.max(m.failures);
-                McpEfficiencyRow {
-                    tool: m.tool.clone(),
-                    backend: m.backend.clone(),
-                    calls: m.calls,
-                    failures: m.failures,
-                    io_bytes: 0,
-                    avg_latency_ms: 0,
-                }
-            })
-            .collect();
-        mcp_tools.sort_by(|a, b| a.tool.cmp(&b.tool));
-
-        let mut a2a_methods: Vec<A2aEfficiencyRow> = metrics
-            .a2a_methods
-            .values()
-            .map(|a| {
-                a2a_calls = a2a_calls.max(a.calls);
-                a2a_failures = a2a_failures.max(a.failures);
-                A2aEfficiencyRow {
-                    method: a.method.clone(),
-                    backend: a.backend.clone(),
-                    calls: a.calls,
-                    failures: a.failures,
-                    io_bytes: 0,
-                    avg_latency_ms: 0,
-                    direct_calls: a.calls,
-                    rollup_calls: 0,
-                }
-            })
-            .collect();
-        a2a_methods.sort_by(|a, b| a.method.cmp(&b.method));
-
-        EfficiencyLedgerSummary {
-            mcp_calls,
-            mcp_failures,
-            mcp_io_bytes,
-            a2a_calls,
-            a2a_failures,
-            a2a_io_bytes,
-            total_retries,
-            retry_overhead_tokens,
-            mcp_tools,
-            a2a_methods,
-        }
-    }
-
-    pub fn optimization_ledger_summary(&self) -> OptimizationLedgerSummary {
-        let token_summary = self.token_ledger_summary();
-        let efficiency = self.efficiency_ledger_summary();
-
-        let mut opportunities = Vec::new();
-        if token_summary.total_cache_read > 0 {
-            opportunities.push(OptimizationOpportunity {
-                category: "Prompt Caching".to_string(),
-                description:
-                    "Provider prompt caching reused previously loaded system instructions."
-                        .to_string(),
-                evidence: format!(
-                    "{} cache read tokens observed (hit rate {:.1}%)",
-                    token_summary.total_cache_read, token_summary.cache_hit_rate_pct
-                ),
-                potential_tokens_saved: token_summary.total_cache_read,
-                potential_usd_saved: None,
-                realized: true,
-            });
-        } else if token_summary.total_input_uncached > 10_000 {
-            opportunities.push(OptimizationOpportunity {
-                category: "Prompt Caching".to_string(),
-                description: "Enable prompt caching on static system prompts to reduce repetitive input billing.".to_string(),
-                evidence: format!("{} uncached input tokens with 0% cache hit", token_summary.total_input_uncached),
-                potential_tokens_saved: token_summary.total_input_uncached / 2,
-                potential_usd_saved: None,
-                realized: false,
-            });
-        }
-
-        if efficiency.total_retries > 0 {
-            opportunities.push(OptimizationOpportunity {
-                category: "Retry Amplification".to_string(),
-                description: "Exponential backoff or circuit breaking can prevent runaway duplicate request charges.".to_string(),
-                evidence: format!("{} retries generated ~{} overhead tokens", efficiency.total_retries, efficiency.retry_overhead_tokens),
-                potential_tokens_saved: efficiency.retry_overhead_tokens,
-                potential_usd_saved: None,
-                realized: false,
-            });
-        }
-
-        let tokens_saved_cache = token_summary.total_cache_read;
-        OptimizationLedgerSummary {
-            tokens_saved_cache,
-            tokens_saved_rtk: 0,
-            tokens_saved_condense: 0,
-            gross_potential_tokens: tokens_saved_cache,
-            opportunities,
-        }
-    }
-
     pub fn record_policy_denied(&self) {
         let mut metrics = self.inner.metrics.lock().unwrap();
         metrics.total_requests += 1;
@@ -1627,74 +932,6 @@ impl ProxyState {
     pub fn security_decisions(&self) -> Vec<SecurityDecision> {
         let decisions = self.inner.security_decisions.lock().unwrap();
         decisions.iter().cloned().collect()
-    }
-
-    pub fn bind_mcp_session(&self, session_id: impl Into<String>, backend: impl Into<String>) {
-        self.inner
-            .mcp_sessions
-            .lock()
-            .unwrap()
-            .bind(session_id.into(), backend.into());
-    }
-
-    pub fn mcp_session_backend(&self, session_id: &str) -> Option<String> {
-        self.inner.mcp_sessions.lock().unwrap().lookup(session_id)
-    }
-
-    pub fn remove_mcp_session(&self, session_id: &str) {
-        self.inner.mcp_sessions.lock().unwrap().remove(session_id);
-    }
-
-    pub fn bind_a2a_task(&self, task_id: impl Into<String>, backend: impl Into<String>) {
-        self.inner
-            .a2a_tasks
-            .lock()
-            .unwrap()
-            .bind(task_id.into(), backend.into());
-    }
-
-    pub fn a2a_task_backend(&self, task_id: &str) -> Option<String> {
-        self.inner.a2a_tasks.lock().unwrap().lookup(task_id)
-    }
-
-    pub fn record_a2a_method_call(&self, route: &str, backend: &str, method: &str, success: bool) {
-        let mut metrics = self.inner.metrics.lock().unwrap();
-        let key = format!("{route}|{backend}|{method}");
-        let counter = metrics
-            .a2a_methods
-            .entry(key)
-            .or_insert_with(|| A2aMethodMetric {
-                route: route.to_string(),
-                backend: backend.to_string(),
-                method: method.to_string(),
-                ..A2aMethodMetric::default()
-            });
-        counter.calls += 1;
-        if !success {
-            counter.failures += 1;
-        }
-    }
-
-    pub fn record_mcp_tool_call(&self, route: &str, backend: &str, tool: &str, success: bool) {
-        let mut metrics = self.inner.metrics.lock().unwrap();
-        let key = format!("{route}|{backend}|{tool}");
-        let counter = metrics
-            .mcp_tools
-            .entry(key)
-            .or_insert_with(|| McpToolMetric {
-                route: route.to_string(),
-                backend: backend.to_string(),
-                tool: tool.to_string(),
-                ..McpToolMetric::default()
-            });
-        counter.calls += 1;
-        if !success {
-            counter.failures += 1;
-        }
-    }
-
-    pub fn activation(&self) -> &Activator {
-        &self.inner.activation
     }
 
     pub fn metrics(&self) -> ProxyMetrics {
@@ -1781,29 +1018,7 @@ impl ProxyState {
                 .then_with(|| a.route.cmp(&b.route))
                 .then_with(|| a.backend.cmp(&b.backend))
         });
-        let mut llm_usage = metrics.llm_usage.values().cloned().collect::<Vec<_>>();
-        llm_usage.sort_by(|a, b| {
-            a.route
-                .cmp(&b.route)
-                .then_with(|| a.backend.cmp(&b.backend))
-                .then_with(|| a.model.cmp(&b.model))
-        });
-        let mut mcp_tools = metrics.mcp_tools.values().cloned().collect::<Vec<_>>();
-        mcp_tools.sort_by(|a, b| {
-            a.route
-                .cmp(&b.route)
-                .then_with(|| a.backend.cmp(&b.backend))
-                .then_with(|| a.tool.cmp(&b.tool))
-        });
-        let mut a2a_methods = metrics.a2a_methods.values().cloned().collect::<Vec<_>>();
-        a2a_methods.sort_by(|a, b| {
-            a.route
-                .cmp(&b.route)
-                .then_with(|| a.backend.cmp(&b.backend))
-                .then_with(|| a.method.cmp(&b.method))
-        });
         ProxyMetrics {
-            held_activation_requests: self.inner.activation.held_requests(),
             total_requests: metrics.total_requests,
             agent_requests: metrics.agent_requests,
             policy_denied: metrics.policy_denied,
@@ -1812,9 +1027,6 @@ impl ProxyState {
             http_route_concurrency,
             http_routes,
             routes,
-            llm_usage,
-            mcp_tools,
-            a2a_methods,
         }
     }
 }
@@ -1822,7 +1034,7 @@ impl ProxyState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use transit_core::{
+    use transit::{
         Cluster, Listener, ListenerProtocol, PathMatch, Route, RouteMatch, VirtualHost,
     };
 
@@ -1964,49 +1176,6 @@ mod tests {
         assert_eq!(state.metrics().concurrency.seconds_total, after_drop);
     }
 
-    #[test]
-    fn mcp_session_bindings_are_capped() {
-        let state = ProxyState::new();
-        for i in 0..=BINDING_CAP {
-            state.bind_mcp_session(format!("session-{i}"), "backend");
-        }
-        // The idlest binding (the first inserted) was evicted to stay at cap.
-        assert_eq!(state.mcp_session_backend("session-0"), None);
-        assert_eq!(
-            state.mcp_session_backend(&format!("session-{BINDING_CAP}")),
-            Some("backend".to_string())
-        );
-    }
-
-    #[test]
-    fn a2a_task_bindings_round_trip() {
-        let state = ProxyState::new();
-        state.bind_a2a_task("task-1", "planner");
-        assert_eq!(
-            state.a2a_task_backend("task-1"),
-            Some("planner".to_string())
-        );
-        assert_eq!(state.a2a_task_backend("task-2"), None);
-    }
-
-    #[test]
-    fn mcp_tool_calls_aggregate_per_tool() {
-        let state = ProxyState::new();
-        state.record_mcp_tool_call("mcp", "mcp-a", "search", true);
-        state.record_mcp_tool_call("mcp", "mcp-a", "search", false);
-        state.record_mcp_tool_call("mcp", "mcp-b", "calendar", true);
-
-        let metrics = state.metrics();
-        assert_eq!(metrics.mcp_tools.len(), 2);
-        let search = metrics
-            .mcp_tools
-            .iter()
-            .find(|tool| tool.tool == "search")
-            .unwrap();
-        assert_eq!(search.calls, 2);
-        assert_eq!(search.failures, 1);
-    }
-
     #[tokio::test]
     async fn apply_config_updates_readiness_and_conflicts() {
         let state = ProxyState::new();
@@ -2014,7 +1183,7 @@ mod tests {
 
         let readiness = state.readiness();
         assert!(readiness.ready);
-        assert_eq!(readiness.version, "xds=ok");
+        assert_eq!(readiness.version, "static=ok");
         assert!(readiness.conflicts.is_empty());
 
         let mut invalid = valid_config("bad");
@@ -2064,7 +1233,7 @@ mod tests {
             endpoints: vec![],
             http2: false,
             tls: None,
-            circuit_breaker: Some(transit_core::CircuitBreakerConfig {
+            circuit_breaker: Some(transit::CircuitBreakerConfig {
                 max_connections: None,
                 http1_max_pending_requests: None,
                 http2_max_requests: Some(1),

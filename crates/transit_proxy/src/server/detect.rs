@@ -3,12 +3,14 @@
 
 use super::headers::header_contains;
 use axum::http::HeaderMap;
-use transit_core::AgentProtocol;
+use transit::AgentProtocol;
 
+#[allow(dead_code)]
 pub(super) fn is_event_stream(headers: &HeaderMap) -> bool {
     header_contains(headers, http::header::CONTENT_TYPE, "text/event-stream")
 }
 
+#[allow(dead_code)]
 pub(super) fn declared_content_length(headers: &HeaderMap) -> Option<usize> {
     headers
         .get(http::header::CONTENT_LENGTH)
@@ -37,23 +39,6 @@ pub(super) fn is_grpc_request(headers: &HeaderMap) -> bool {
         || content_type.starts_with("application/triple+")
 }
 
-const LLM_API_PATHS: [&str; 5] = [
-    "/v1/chat/completions",
-    "/v1/completions",
-    "/v1/embeddings",
-    "/v1/models",
-    "/v1/responses",
-];
-
-pub(super) fn detect_agent_protocol(path: &str) -> Option<AgentProtocol> {
-    if LLM_API_PATHS.contains(&path) || path.starts_with("/v1/models/") {
-        Some(AgentProtocol::Llm)
-    } else if path == "/mcp" || path.starts_with("/mcp/") {
-        Some(AgentProtocol::Mcp)
-    } else if path == "/.well-known/agent-card.json" || path == "/a2a" || path.starts_with("/a2a/")
-    {
-        Some(AgentProtocol::A2a)
-    } else {
-        None
-    }
+pub(super) fn detect_agent_protocol(_path: &str) -> Option<AgentProtocol> {
+    Some(AgentProtocol::Http)
 }

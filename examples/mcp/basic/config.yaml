@@ -6,7 +6,7 @@ ui:
 mcp:
   gateways: default
   targets:
-    - name: tour
+    - name: weather
       mcp:
         host: http://localhost:8080/mcp
   sessionMode: stateful

@@ -3,7 +3,7 @@
 //! depend only on config types and `HeaderMap`, not on server state.
 
 use axum::http::{HeaderMap, StatusCode, Uri};
-use transit_core::{
+use transit::{
     AgentProtocol, Backend, BackendKind, ConfigSnapshot, Endpoint, Provider, UpstreamTls,
     UpstreamTlsMode,
 };
@@ -24,9 +24,6 @@ pub(super) fn backend_matches_protocol(backend: &Backend, protocol: AgentProtoco
     matches!(
         (&backend.kind, protocol),
         (BackendKind::Http { .. }, AgentProtocol::Http)
-            | (BackendKind::Llm { .. }, AgentProtocol::Llm)
-            | (BackendKind::Mcp { .. }, AgentProtocol::Mcp)
-            | (BackendKind::A2a { .. }, AgentProtocol::A2a)
     )
 }
 
@@ -49,46 +46,10 @@ pub(super) fn compose_upstream_uri(
 }
 
 pub(super) fn compose_backend_uri(
-    protocol: AgentProtocol,
+    _protocol: AgentProtocol,
     endpoint: &str,
     path_and_query: &str,
 ) -> Result<Uri, (StatusCode, String)> {
-    let target = endpoint
-        .parse::<Uri>()
-        .map_err(|_| (StatusCode::BAD_GATEWAY, "invalid backend endpoint".into()))?;
-    // MCP/A2A targets with an explicit path identify the RPC endpoint. The
-    // public route path may be different and must not be appended a second time.
-    if matches!(protocol, AgentProtocol::Mcp | AgentProtocol::A2a)
-        && !(protocol == AgentProtocol::A2a
-            && path_and_query.split('?').next() == Some(crate::a2a::AGENT_CARD_PATH))
-    {
-        let mut path = if target.path().is_empty() || target.path() == "/" {
-            path_and_query.split('?').next().unwrap_or("/").to_string()
-        } else {
-            target.path().to_string()
-        };
-        let query: Vec<&str> = [
-            target.query(),
-            path_and_query.split_once('?').map(|(_, query)| query),
-        ]
-        .into_iter()
-        .flatten()
-        .filter(|value| !value.is_empty())
-        .collect();
-        if !query.is_empty() {
-            path.push('?');
-            path.push_str(&query.join("&"));
-        }
-        let mut parts = target.into_parts();
-        parts.path_and_query = Some(path.parse().map_err(|_| {
-            (
-                StatusCode::BAD_GATEWAY,
-                "invalid backend path or query".into(),
-            )
-        })?);
-        return Uri::from_parts(parts)
-            .map_err(|_| (StatusCode::BAD_GATEWAY, "invalid backend endpoint".into()));
-    }
     compose_upstream_uri(endpoint, path_and_query)
 }
 
@@ -99,32 +60,6 @@ mod endpoint_tests {
     #[test]
     fn rpc_endpoint_paths_replace_public_paths_and_preserve_queries() {
         assert_eq!(
-            compose_backend_uri(
-                AgentProtocol::Mcp,
-                "https://backend/mcp?tenant=one",
-                "/public/tools?cursor=two"
-            )
-            .unwrap(),
-            "https://backend/mcp?tenant=one&cursor=two"
-        );
-        assert_eq!(
-            compose_backend_uri(AgentProtocol::A2a, "https://backend/rpc", "/agent").unwrap(),
-            "https://backend/rpc"
-        );
-        assert_eq!(
-            compose_backend_uri(AgentProtocol::Mcp, "https://backend", "/mcp").unwrap(),
-            "https://backend/mcp"
-        );
-        assert_eq!(
-            compose_backend_uri(
-                AgentProtocol::Mcp,
-                "https://backend/?tenant=one",
-                "/mcp?cursor=two"
-            )
-            .unwrap(),
-            "https://backend/mcp?tenant=one&cursor=two"
-        );
-        assert_eq!(
             compose_backend_uri(AgentProtocol::Http, "https://backend/base", "/public").unwrap(),
             "https://backend/base/public"
         );
@@ -134,9 +69,6 @@ mod endpoint_tests {
 pub(super) fn protocol_name(protocol: AgentProtocol) -> &'static str {
     match protocol {
         AgentProtocol::Http => "http",
-        AgentProtocol::Llm => "llm",
-        AgentProtocol::Mcp => "mcp",
-        AgentProtocol::A2a => "a2a",
     }
 }
 

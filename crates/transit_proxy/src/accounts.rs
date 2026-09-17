@@ -11,6 +11,7 @@ mod login;
 pub use login::OAuthLogin;
 #[path = "account_management.rs"]
 mod management;
+#[allow(unused_imports)]
 pub(crate) use management::AccountRequest;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -380,7 +381,7 @@ impl LlmAccounts {
 
     pub fn select(
         &self,
-        backend: &transit_core::Backend,
+        backend: &transit::Backend,
         model: Option<&str>,
     ) -> Option<OAuthAccount> {
         let mut data = self.data.write().unwrap();

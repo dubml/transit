@@ -1,5 +1,5 @@
 .PHONY: gen
-gen: generate-apis generate-schema format
+gen: generate-schema
 	@:
 
 .PHONY: generate-schema
