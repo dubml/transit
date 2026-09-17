@@ -5,7 +5,7 @@ version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-transit = { path = "../core" }
+transit = { path = "../transit" }
 anyhow = "1"
 fs-err = "2.11"
 serde_json.workspace = true

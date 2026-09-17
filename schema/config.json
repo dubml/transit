@@ -3,1197 +3,134 @@
   "title": "RuntimeConfig",
   "type": "object",
   "properties": {
-    "backends": {
+    "ports": {
       "type": "array",
       "default": [],
       "items": {
-        "$ref": "#/$defs/Backend"
-      }
-    },
-    "clusters": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "$ref": "#/$defs/Cluster"
-      }
-    },
-    "listeners": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "$ref": "#/$defs/Listener"
-      }
-    },
-    "policies": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "$ref": "#/$defs/Policy"
-      }
-    },
-    "providers": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "$ref": "#/$defs/Provider"
-      }
-    },
-    "routes": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "$ref": "#/$defs/AgentRoute"
-      }
-    },
-    "secrets": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "$ref": "#/$defs/TlsSecret"
+        "$ref": "#/$defs/PortConfig"
       }
     },
     "version": {
-      "type": "string"
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
-  "additionalProperties": false,
-  "required": [
-    "version"
-  ],
   "$defs": {
-    "AgentProtocol": {
-      "type": "string",
-      "enum": [
-        "http"
-      ]
-    },
-    "AgentRoute": {
-      "type": "object",
-      "properties": {
-        "listener_ports": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "format": "uint16",
-            "maximum": 65535,
-            "minimum": 0
-          }
-        },
-        "matches": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/AgentRouteMatch"
-          }
-        },
-        "name": {
-          "type": "string"
-        },
-        "policies": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "protocol": {
-          "$ref": "#/$defs/AgentProtocol"
-        },
-        "replace_prefix_match": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "weighted_backends": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/WeightedBackend"
-          }
-        }
-      },
-      "required": [
-        "name",
-        "protocol"
-      ]
-    },
-    "AgentRouteMatch": {
-      "type": "object",
-      "properties": {
-        "agent": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "headers": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/HeaderMatch"
-          }
-        },
-        "host": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "method": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "model": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "path": {
-          "$ref": "#/$defs/PathMatch",
-          "default": {
-            "type": "prefix",
-            "value": "/"
-          }
-        },
-        "tool": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "AuthPolicy": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "header": {
-              "type": "string",
-              "default": "authorization"
-            },
-            "secret_ref": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/SecretKeyReference"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": {
-              "type": "string",
-              "const": "api-key"
-            },
-            "value_env": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "values": {
-              "type": "array",
-              "default": [],
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "required": [
-            "type"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "audiences": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "header": {
-              "type": "string",
-              "default": "authorization"
-            },
-            "hmac_secret_env": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "issuer": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "type": "string",
-              "const": "jwt"
-            }
-          },
-          "required": [
-            "type"
-          ]
-        }
-      ]
-    },
-    "AuthorizationAction": {
-      "type": "string",
-      "enum": [
-        "allow",
-        "deny"
-      ]
-    },
-    "AuthorizationCondition": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string"
-        },
-        "not_values": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "values": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "required": [
-        "key"
-      ]
-    },
-    "AuthorizationPolicy": {
-      "type": "object",
-      "properties": {
-        "action": {
-          "$ref": "#/$defs/AuthorizationAction"
-        },
-        "rules": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/AuthorizationRule"
-          }
-        }
-      },
-      "required": [
-        "action"
-      ]
-    },
-    "AuthorizationRule": {
-      "type": "object",
-      "properties": {
-        "sources": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/AuthorizationSource"
-          }
-        },
-        "when": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/AuthorizationCondition"
-          }
-        }
-      }
-    },
-    "AuthorizationSource": {
-      "type": "object",
-      "properties": {
-        "principals": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "request_principals": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "Backend": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "policies": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "endpoint": {
-              "type": "string"
-            },
-            "type": {
-              "type": "string",
-              "const": "http"
-            }
-          },
-          "required": [
-            "type",
-            "endpoint"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "account_type": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "credential_ref": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/SecretKeyReference"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "endpoint": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "max_concurrency": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "uint32",
-              "minimum": 0
-            },
-            "model_rewrites": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
-            },
-            "models": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "provider": {
-              "type": "string",
-              "default": ""
-            },
-            "quota_state": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/QuotaState"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "type": {
-              "type": "string",
-              "const": "llm"
-            }
-          },
-          "required": [
-            "type"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "endpoint": {
-              "type": "string"
-            },
-            "tools": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "type": {
-              "type": "string",
-              "const": "mcp"
-            }
-          },
-          "required": [
-            "type",
-            "endpoint"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "agent": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "endpoint": {
-              "type": "string"
-            },
-            "type": {
-              "type": "string",
-              "const": "a2a"
-            }
-          },
-          "required": [
-            "type",
-            "endpoint"
-          ]
-        }
-      ],
-      "required": [
-        "name"
-      ]
-    },
-    "CircuitBreakerConfig": {
-      "type": "object",
-      "properties": {
-        "http1_max_pending_requests": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        },
-        "http2_max_requests": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        },
-        "max_connections": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        },
-        "max_requests_per_connection": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        },
-        "max_retries": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        }
-      }
-    },
-    "Cluster": {
-      "type": "object",
-      "properties": {
-        "circuit_breaker": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CircuitBreakerConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "endpoints": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/Endpoint"
-          }
-        },
-        "http2": {
-          "type": "boolean"
-        },
-        "name": {
-          "type": "string"
-        },
-        "outlier_detection": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/OutlierDetectionConfig"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "tls": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/UpstreamTls"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "name"
-      ]
-    },
-    "Endpoint": {
-      "type": "object",
-      "properties": {
-        "address": {
-          "type": "string"
-        },
-        "healthy": {
-          "type": "boolean",
-          "default": true
-        },
-        "node_name": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "port": {
-          "type": "integer",
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0
-        }
-      },
-      "required": [
-        "address",
-        "port"
-      ]
-    },
     "HeaderMatch": {
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
+        "exact": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
-        "value": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "value"
-      ]
-    },
-    "HeaderTransform": {
-      "type": "object",
-      "properties": {
-        "add": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/HeaderValue"
-          }
-        },
-        "remove": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "HeaderValue": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "value": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "value"
-      ]
-    },
-    "JwtHeader": {
-      "type": "object",
-      "properties": {
         "name": {
           "type": "string"
         },
         "prefix": {
-          "type": "string",
-          "default": ""
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "present": {
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
         "name"
       ]
     },
-    "JwtProvider": {
+    "ListenerConfig": {
       "type": "object",
       "properties": {
-        "audiences": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "from_headers": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/JwtHeader"
-          }
-        },
-        "from_params": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "issuer": {
-          "type": "string"
-        },
-        "jwks": {
-          "type": "string",
-          "default": ""
-        },
-        "jwks_uri": {
-          "type": "string",
-          "default": ""
-        }
-      },
-      "required": [
-        "issuer"
-      ]
-    },
-    "Listener": {
-      "type": "object",
-      "properties": {
-        "bind": {
-          "type": "string"
-        },
         "name": {
           "type": "string"
         },
         "protocol": {
-          "$ref": "#/$defs/ListenerProtocol"
+          "$ref": "#/$defs/ListenerProtocol",
+          "default": "http"
         },
-        "security": {
-          "$ref": "#/$defs/ListenerSecurity",
-          "default": {
-            "authorization": [],
-            "jwt_providers": []
-          }
-        },
-        "tls_secret": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null
-        },
-        "virtual_hosts": {
+        "routes": {
           "type": "array",
           "default": [],
           "items": {
-            "$ref": "#/$defs/VirtualHost"
+            "$ref": "#/$defs/RouteConfig"
           }
         }
       },
       "required": [
-        "name",
-        "bind",
-        "protocol"
+        "name"
       ]
     },
     "ListenerProtocol": {
       "type": "string",
       "enum": [
         "http",
-        "https"
+        "https",
+        "tcp",
+        "tls",
+        "grpc"
       ]
-    },
-    "ListenerSecurity": {
-      "type": "object",
-      "properties": {
-        "authorization": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/AuthorizationPolicy"
-          }
-        },
-        "jwt_providers": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/JwtProvider"
-          }
-        }
-      }
-    },
-    "OutlierDetectionConfig": {
-      "type": "object",
-      "properties": {
-        "base_ejection_time": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "consecutive_5xx_errors": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        },
-        "interval": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "max_ejection_percent": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        },
-        "min_health_percent": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        }
-      }
     },
     "PathMatch": {
-      "oneOf": [
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "prefix"
-            },
-            "value": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "type",
-            "value"
-          ]
-        },
-        {
-          "type": "object",
-          "properties": {
-            "type": {
-              "type": "string",
-              "const": "exact"
-            },
-            "value": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "type",
-            "value"
-          ]
-        }
-      ]
-    },
-    "Policy": {
       "type": "object",
       "properties": {
-        "action": {
-          "$ref": "#/$defs/PolicyAction",
-          "default": "allow"
-        },
-        "auth": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AuthPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "matches": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PolicyMatch"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "max_body_bytes": {
+        "exact": {
           "type": [
-            "integer",
+            "string",
             "null"
-          ],
-          "format": "uint",
-          "minimum": 0
-        },
-        "name": {
-          "type": "string"
-        },
-        "rate_limit": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RateLimitPolicy"
-            },
-            {
-              "type": "null"
-            }
           ]
         },
-        "request_headers": {
-          "$ref": "#/$defs/HeaderTransform",
-          "default": {
-            "add": [],
-            "remove": []
-          }
-        },
-        "response_headers": {
-          "$ref": "#/$defs/HeaderTransform",
-          "default": {
-            "add": [],
-            "remove": []
-          }
-        },
-        "retry": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RetryPolicy"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "timeout_ms": {
+        "prefix": {
           "type": [
-            "integer",
+            "string",
             "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
+          ]
         },
-        "token_limit": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TokenLimitPolicy"
-            },
-            {
-              "type": "null"
-            }
+        "regex": {
+          "type": [
+            "string",
+            "null"
           ]
         }
-      },
-      "required": [
-        "name"
-      ]
+      }
     },
-    "PolicyAction": {
-      "type": "string",
-      "enum": [
-        "allow",
-        "deny"
-      ]
-    },
-    "PolicyMatch": {
+    "PortConfig": {
       "type": "object",
       "properties": {
-        "agents": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
+        "defaultPort": {
+          "type": "integer",
+          "format": "uint16",
+          "default": 6010,
+          "maximum": 65535,
+          "minimum": 0
         },
-        "headers": {
+        "listeners": {
           "type": "array",
           "default": [],
           "items": {
-            "$ref": "#/$defs/HeaderMatch"
-          }
-        },
-        "methods": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "models": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "paths": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/PathMatch"
-          }
-        },
-        "protocols": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/AgentProtocol"
-          }
-        },
-        "tools": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
+            "$ref": "#/$defs/ListenerConfig"
           }
         }
       }
     },
-    "Provider": {
+    "RouteConfig": {
       "type": "object",
       "properties": {
-        "api_key_env": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "base_url": {
-          "type": "string",
-          "default": ""
-        },
-        "credential_ref": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SecretKeyReference"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "kind": {
-          "$ref": "#/$defs/ProviderKind",
-          "default": "open-ai-compatible"
-        },
-        "name": {
-          "type": "string"
-        },
-        "request_headers": {
+        "endpoints": {
           "type": "array",
+          "default": [],
           "items": {
-            "$ref": "#/$defs/HeaderValue"
+            "type": "string"
           }
-        }
-      },
-      "required": [
-        "name"
-      ]
-    },
-    "ProviderKind": {
-      "type": "string",
-      "enum": [
-        "open-ai-compatible",
-        "open-ai",
-        "anthropic",
-        "gemini",
-        "deep-seek"
-      ]
-    },
-    "QuotaState": {
-      "type": "object",
-      "properties": {
-        "cooling_until": {
-          "type": [
-            "string",
-            "null"
-          ]
         },
-        "observed_at": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "reset_cards": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint32",
-          "minimum": 0
-        },
-        "status": {
-          "type": "string",
-          "default": ""
-        },
-        "windows": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/QuotaWindow"
-          }
-        }
-      }
-    },
-    "QuotaWindow": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "reset_after_seconds": {
-          "type": [
-            "integer",
-            "null"
-          ],
-          "format": "uint64",
-          "minimum": 0
-        },
-        "reset_at": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "source": {
-          "type": "string",
-          "default": ""
-        },
-        "used_percent": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
-        },
-        "window": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "window",
-        "used_percent"
-      ]
-    },
-    "RateLimitKey": {
-      "type": "string",
-      "enum": [
-        "route",
-        "backend",
-        "header"
-      ]
-    },
-    "RateLimitPolicy": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "$ref": "#/$defs/RateLimitKey",
-          "default": "route"
-        },
-        "requests": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
-        },
-        "window_seconds": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "requests",
-        "window_seconds"
-      ]
-    },
-    "RetryPolicy": {
-      "type": "object",
-      "properties": {
-        "attempts": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
-        },
-        "statuses": {
-          "type": "array",
-          "default": [
-            502,
-            503,
-            504
-          ],
-          "items": {
-            "type": "integer",
-            "format": "uint16",
-            "maximum": 65535,
-            "minimum": 0
-          }
-        }
-      },
-      "required": [
-        "attempts"
-      ]
-    },
-    "Route": {
-      "type": "object",
-      "properties": {
         "matches": {
           "type": "array",
           "default": [],
@@ -1204,12 +141,10 @@
         "name": {
           "type": "string"
         },
-        "weighted_clusters": {
+        "policies": {
           "type": "array",
           "default": [],
-          "items": {
-            "$ref": "#/$defs/WeightedCluster"
-          }
+          "items": true
         }
       },
       "required": [
@@ -1220,216 +155,34 @@
       "type": "object",
       "properties": {
         "headers": {
-          "type": "array",
-          "default": [],
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "$ref": "#/$defs/HeaderMatch"
           }
         },
-        "path": {
-          "$ref": "#/$defs/PathMatch",
-          "default": {
-            "type": "prefix",
-            "value": "/"
-          }
-        }
-      }
-    },
-    "SecretKeyReference": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "namespace": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "namespace",
-        "name",
-        "key"
-      ]
-    },
-    "TlsSecret": {
-      "type": "object",
-      "properties": {
-        "certificate_chain_pem": {
-          "description": "Empty for a validation-context-only SDS Secret.",
-          "type": "string",
-          "default": ""
-        },
-        "name": {
-          "type": "string"
-        },
-        "private_key_pem": {
-          "description": "Empty for a validation-context-only SDS Secret.",
-          "type": "string",
-          "default": ""
-        },
-        "trusted_ca_pem": {
-          "description": "PEM trust bundle from an SDS CertificateValidationContext. This remains\nseparate from the workload certificate: the two rotate independently.",
+        "methods": {
           "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "name"
-      ]
-    },
-    "TokenLimitPolicy": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "$ref": "#/$defs/RateLimitKey",
-          "default": "route"
-        },
-        "tokens": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        },
-        "window_seconds": {
-          "type": "integer",
-          "format": "uint64",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "tokens",
-        "window_seconds"
-      ]
-    },
-    "UpstreamTls": {
-      "type": "object",
-      "properties": {
-        "alpn_protocols": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "certificate_provider": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "certificate_secret": {
-          "description": "The SDS resource containing this gateway's client certificate and key.\n\nThe provider identifies the certificate-provider implementation; the\ncertificate name identifies the concrete dynamic material that it\nsupplies. Keeping those two xDS concepts distinct lets file-watcher\nbootstraps remain compatible while an ADS-delivered Secret takes\nprecedence when it is present.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "mode": {
-          "$ref": "#/$defs/UpstreamTlsMode"
-        },
-        "sni": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "subject_alt_names": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "validation_provider": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "validation_secret": {
-          "description": "The SDS resource containing the trust bundle used to validate the\nupstream peer.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
-    "UpstreamTlsMode": {
-      "type": "string",
-      "enum": [
-        "simple",
-        "dubbo_mutual"
-      ]
-    },
-    "VirtualHost": {
-      "type": "object",
-      "properties": {
-        "domains": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "name": {
-          "type": "string"
-        },
-        "routes": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/Route"
-          }
-        }
-      },
-      "required": [
-        "name"
-      ]
-    },
-    "WeightedBackend": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "priority": {
-          "type": [
-            "integer",
+            "array",
             "null"
           ],
-          "format": "uint32",
-          "minimum": 0
+          "items": {
+            "type": "string"
+          }
         },
-        "weight": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
+        "path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PathMatch"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
-      },
-      "required": [
-        "name",
-        "weight"
-      ]
-    },
-    "WeightedCluster": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "weight": {
-          "type": "integer",
-          "format": "uint32",
-          "minimum": 0
-        }
-      },
-      "required": [
-        "name",
-        "weight"
-      ]
+      }
     }
   }
 }

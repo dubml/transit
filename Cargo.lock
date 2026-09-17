@@ -2416,19 +2416,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tonic-health"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2cef6e24bc96871001a7e48e820ab240b3de2201e59b517cf52835df2f1d2350"
-dependencies = [
- "async-stream",
- "prost",
- "tokio",
- "tokio-stream",
- "tonic",
-]
-
-[[package]]
 name = "tower"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2579,43 +2566,6 @@ dependencies = [
 name = "transit"
 version = "0.1.0"
 dependencies = [
- "http 0.2.12",
- "proptest",
- "schemars",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "transit_app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "http 0.2.12",
- "hyper 0.14.32",
- "k8s-openapi",
- "kube",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "rustls 0.23.43",
- "serde_json",
- "serde_yaml",
- "tokio",
- "tracing",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "transit",
- "transit_proxy",
-]
-
-[[package]]
-name = "transit_proxy"
-version = "0.1.0"
-dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
@@ -2627,24 +2577,49 @@ dependencies = [
  "jsonwebtoken",
  "opentelemetry",
  "opentelemetry-otlp",
- "opentelemetry-proto",
  "opentelemetry_sdk",
+ "proptest",
  "rcgen",
  "regex",
  "ring",
  "rustls 0.21.12",
  "rustls-pemfile",
+ "schemars",
  "serde",
  "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-rustls 0.24.1",
  "tokio-stream",
  "tonic",
- "tonic-health",
  "tracing",
  "tracing-opentelemetry",
- "transit",
  "x509-parser",
+]
+
+[[package]]
+name = "transit-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "http 0.2.12",
+ "hyper 0.14.32",
+ "k8s-openapi",
+ "kube",
+ "libc",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "rustls 0.23.43",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "transit",
 ]
 
 [[package]]
