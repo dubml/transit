@@ -1,9 +1,8 @@
 [workspace]
 members = [
     "crates/codegen",
-    "crates/transit_app",
-    "crates/core",
-    "crates/transit_proxy",
+    "crates/transit-app",
+    "crates/transit",
 ]
 resolver = "2"
 
