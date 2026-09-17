@@ -10,6 +10,7 @@ fn now() -> DateTime<Utc> {
     std::time::SystemTime::now().into()
 }
 
+#[allow(dead_code)]
 pub(crate) struct AccountRequest {
     state: crate::ProxyState,
     id: String,
@@ -22,6 +23,7 @@ impl Drop for AccountRequest {
             .record_account_result(&self.id, self.result.unwrap_or(false));
     }
 }
+#[allow(dead_code)]
 impl AccountRequest {
     pub(crate) fn new(state: crate::ProxyState, id: String) -> Self {
         Self {
@@ -62,11 +64,13 @@ impl AccountRequest {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 struct HealthLines {
     bytes: Vec<u8>,
     skipping: bool,
 }
+#[allow(dead_code)]
 impl HealthLines {
     fn push(&mut self, chunk: &[u8]) -> Vec<String> {
         let mut lines = Vec::new();
@@ -1170,7 +1174,7 @@ mod tests {
             .configure(&directory.0, "test-management-token-long-enough".into())
             .unwrap();
         store.save(account()).await.unwrap();
-        let backend: transit_core::Backend = serde_json::from_value(
+        let backend: transit::Backend = serde_json::from_value(
             json!({"name":"oauth","type":"llm","provider":"openai","models":[]}),
         )
         .unwrap();

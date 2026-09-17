@@ -7,6 +7,7 @@ use ring::{
 };
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 const LIFETIME: Duration = Duration::from_secs(600);
@@ -14,8 +15,8 @@ const LIFETIME: Duration = Duration::from_secs(600);
 struct Provider {
     authorize: &'static str,
     token: &'static str,
-    client: &'static str,
-    client_secret: Option<&'static str>,
+    client: Cow<'static, str>,
+    client_secret: Option<Cow<'static, str>>,
     redirect: &'static str,
     scope: &'static str,
     pkce: bool,
@@ -24,36 +25,38 @@ struct Provider {
 fn provider(name: &str) -> Result<Provider, String> {
     match name {
         "codex" => Ok(Provider {
-            authorize: "https://auth.openai.com/oauth/authorize".into(),
-            token: "https://auth.openai.com/oauth/token".into(),
-            client: "app_EMoamEEZ73f0CkXaXp7hrann".into(),
+            authorize: "https://auth.openai.com/oauth/authorize",
+            token: "https://auth.openai.com/oauth/token",
+            client: Cow::Borrowed("app_EMoamEEZ73f0CkXaXp7hrann"),
             client_secret: None,
-            redirect: "http://localhost:1455/auth/callback".into(),
-            scope: "openid email profile offline_access".into(),
+            redirect: "http://localhost:1455/auth/callback",
+            scope: "openid email profile offline_access",
             pkce: true,
         }),
 
         "claude" => Ok(Provider {
-            authorize: "https://claude.ai/oauth/authorize".into(),
-            token: "https://platform.claude.com/v1/oauth/token".into(),
-            client: "9d1c250a-e61b-44d9-88ed-5944d1962f5e".into(),
+            authorize: "https://claude.ai/oauth/authorize",
+            token: "https://platform.claude.com/v1/oauth/token",
+            client: Cow::Borrowed("9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
             client_secret: None,
-            redirect: "http://localhost:54545/callback".into(),
-            scope: "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload".into(),
+            redirect: "http://localhost:54545/callback",
+            scope: "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
             pkce: true,
         }),
 
         "antigravity" => Ok(Provider {
-            authorize: "https://accounts.google.com/o/oauth2/v2/auth".into(),
-            token: "https://oauth2.googleapis.com/token".into(),
-            client: std::env::var("GOOGLE_OAUTH_CLIENT_ID")
-                .map_err(|_| "GOOGLE_OAUTH_CLIENT_ID is not set")?,
-            client_secret: Some(
+            authorize: "https://accounts.google.com/o/oauth2/v2/auth",
+            token: "https://oauth2.googleapis.com/token",
+            client: Cow::Owned(
+                std::env::var("GOOGLE_OAUTH_CLIENT_ID")
+                    .map_err(|_| "GOOGLE_OAUTH_CLIENT_ID is not set")?,
+            ),
+            client_secret: Some(Cow::Owned(
                 std::env::var("GOOGLE_OAUTH_CLIENT_SECRET")
                     .map_err(|_| "GOOGLE_OAUTH_CLIENT_SECRET is not set")?,
-            ),
-            redirect: "http://localhost:51121/oauth-callback".into(),
-            scope: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs".into(),
+            )),
+            redirect: "http://localhost:51121/oauth-callback",
+            scope: "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs",
             pkce: false,
         }),
 
@@ -111,7 +114,7 @@ impl LlmAccounts {
         };
         let mut query = form_urlencoded::Serializer::new(String::new());
         query.extend_pairs([
-            ("client_id", config.client),
+            ("client_id", config.client.as_ref()),
             ("response_type", "code"),
             ("redirect_uri", redirect.as_str()),
             ("scope", config.scope),
@@ -254,20 +257,20 @@ impl LlmAccounts {
             let mut body = form_urlencoded::Serializer::new(String::new());
             body.extend_pairs([
                 ("grant_type", "authorization_code"),
-                ("client_id", config.client),
+                ("client_id", config.client.as_ref()),
                 ("code", code.as_str()),
                 ("redirect_uri", login.redirect.as_str()),
             ]);
             if config.pkce {
                 body.append_pair("code_verifier", &login.verifier);
             }
-            if let Some(secret) = config.client_secret {
-                body.append_pair("client_secret", secret);
+            if let Some(secret) = &config.client_secret {
+                body.append_pair("client_secret", secret.as_ref());
             }
             (body.finish(), "application/x-www-form-urlencoded")
         } else {
             (
-                json!({"grant_type":"authorization_code","client_id":config.client,"code":code,
+                json!({"grant_type":"authorization_code","client_id":config.client.as_ref(),"code":code,
                 "redirect_uri":login.redirect,"code_verifier":login.verifier,"state":login.state})
                 .to_string(),
                 "application/json",

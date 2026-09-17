@@ -14,7 +14,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-pub use transit_core::{
+pub use transit::{
     HTTPS_LISTENER_PORT as DEFAULT_HTTPS_PORT, HTTP_LISTENER_PORT as DEFAULT_HTTP_PORT,
 };
 

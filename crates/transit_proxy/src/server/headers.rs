@@ -4,7 +4,7 @@
 
 use axum::http::{HeaderMap, HeaderName, HeaderValue as HttpHeaderValue};
 use std::env;
-use transit_core::{HeaderTransform, Provider, ProviderKind};
+use transit::{HeaderTransform, Provider, ProviderKind};
 
 pub(super) fn remove_connection_headers(headers: &mut HeaderMap) {
     let named: Vec<String> = headers
@@ -33,6 +33,7 @@ pub(super) fn remove_connection_headers(headers: &mut HeaderMap) {
     headers.remove(HeaderName::from_static("http2-settings"));
 }
 
+#[allow(dead_code)]
 pub(super) fn header_contains(headers: &HeaderMap, name: HeaderName, needle: &str) -> bool {
     headers
         .get(name)
@@ -41,19 +42,23 @@ pub(super) fn header_contains(headers: &HeaderMap, name: HeaderName, needle: &st
         .unwrap_or(false)
 }
 
+#[allow(dead_code)]
 pub(super) fn merge_header_transform(target: &mut HeaderTransform, next: &HeaderTransform) {
     target.add.extend(next.add.clone());
     target.remove.extend(next.remove.clone());
 }
 
+#[allow(dead_code)]
 pub(super) fn apply_request_headers(headers: &mut HeaderMap, transform: &HeaderTransform) {
     apply_header_transform(headers, transform);
 }
 
+#[allow(dead_code)]
 pub(super) fn apply_response_headers(headers: &mut HeaderMap, transform: &HeaderTransform) {
     apply_header_transform(headers, transform);
 }
 
+#[allow(dead_code)]
 fn apply_header_transform(headers: &mut HeaderMap, transform: &HeaderTransform) {
     for name in &transform.remove {
         if let Ok(name) = HeaderName::try_from(name.as_str()) {

@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once};
 use std::time::SystemTime;
 use tracing::{info, warn};
-use transit_core::{Cluster, ConfigSnapshot, TlsSecret, UpstreamTls};
+use transit::{Cluster, ConfigSnapshot, TlsSecret, UpstreamTls};
 use x509_parser::extensions::GeneralName;
 use x509_parser::prelude::{FromDer, X509Certificate};
 

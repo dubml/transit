@@ -1,13 +1,12 @@
 [package]
 publish = false
-name = "transit-codegen"
-version = "0.0.0"
+name = "codegen"
+version = "0.1.0"
 edition.workspace = true
 
 [dependencies]
-agentgateway = {workspace = true, features = ["schema"]}
-anyhow.workspace = true
-cel.workspace = true
-fs-err.workspace = true
+transit = { path = "../core" }
+anyhow = "1"
+fs-err = "2.11"
 serde_json.workspace = true
-schemars.workspace = true
+schemars = "1"
