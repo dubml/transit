@@ -131,6 +131,40 @@ fn desired_listeners(
     let mut desired = BTreeMap::new();
     let mut invalid = std::collections::BTreeSet::new();
     let mut errors = Vec::new();
+
+    if let Some(llm) = &config.llm {
+        let addr = SocketAddr::from(([0, 0, 0, 0], llm.default_port));
+        if llm.default_port == 0 {
+            invalid.insert(addr);
+            errors.push(ConfigConflict::new(
+                "llm-port-config",
+                "LLM defaultPort requires a nonzero port number",
+            ));
+        } else {
+            desired.insert(addr, Transport::Http);
+        }
+    }
+
+    if let Some(mcp) = &config.mcp {
+        let addr = SocketAddr::from(([0, 0, 0, 0], mcp.default_port));
+        if mcp.default_port == 0 {
+            invalid.insert(addr);
+            errors.push(ConfigConflict::new(
+                "mcp-port-config",
+                "MCP defaultPort requires a nonzero port number",
+            ));
+        } else if desired
+            .insert(addr, Transport::Http)
+            .is_some_and(|old| old != Transport::Http)
+        {
+            invalid.insert(addr);
+            errors.push(ConfigConflict::new(
+                "mcp-bind-conflict",
+                format!("MCP port at {} conflicts with existing listener", addr),
+            ));
+        }
+    }
+
     for port_cfg in &config.ports {
         let addr = SocketAddr::from(([0, 0, 0, 0], port_cfg.default_port));
         if port_cfg.default_port == 0 {
@@ -229,6 +263,8 @@ mod tests {
     fn test_desired_listeners_parses_port_listeners() {
         let config = RuntimeConfig {
             version: Some("v1".into()),
+            llm: None,
+            mcp: None,
             ports: vec![PortConfig {
                 default_port: 6010,
                 listeners: vec![ListenerConfig {
@@ -242,6 +278,47 @@ mod tests {
         assert_eq!(desired.len(), 1);
         assert!(errors.is_empty());
         let addr = SocketAddr::from(([0, 0, 0, 0], 6010));
+        assert!(desired.contains_key(&addr));
+    }
+
+    #[test]
+    fn test_desired_listeners_parses_llm_port() {
+        let config = RuntimeConfig {
+            version: Some("v1".into()),
+            llm: Some(crate::LlmConfig {
+                default_port: 6020,
+                providers: vec![],
+                models: vec![],
+            }),
+            mcp: None,
+            ports: vec![],
+        };
+        let (desired, errors) = desired_listeners(&config);
+        assert_eq!(desired.len(), 1);
+        assert!(errors.is_empty());
+        let addr = SocketAddr::from(([0, 0, 0, 0], 6020));
+        assert!(desired.contains_key(&addr));
+    }
+
+    #[test]
+    fn test_desired_listeners_parses_mcp_port() {
+        let config = RuntimeConfig {
+            version: Some("v1".into()),
+            llm: None,
+            mcp: Some(crate::McpConfig {
+                default_port: 6030,
+                session_mode: crate::McpSessionMode::Stateful,
+                prefix_policy: crate::McpPrefixPolicy::Always,
+                failure_policy: crate::McpFailurePolicy::FailOpen,
+                policies: vec![],
+                targets: vec![],
+            }),
+            ports: vec![],
+        };
+        let (desired, errors) = desired_listeners(&config);
+        assert_eq!(desired.len(), 1);
+        assert!(errors.is_empty());
+        let addr = SocketAddr::from(([0, 0, 0, 0], 6030));
         assert!(desired.contains_key(&addr));
     }
 }
