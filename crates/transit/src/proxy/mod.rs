@@ -200,8 +200,9 @@ async fn forward_http(
     let route_name = route.name.clone();
     record_http_span(&server, &route_name, "none", "none", 0, 0);
 
-    let endpoint_raw = match route.endpoints.first() {
-        Some(ep) => ep.clone(),
+    let target_hosts = route.target_hosts();
+    let endpoint_raw = match target_hosts.first() {
+        Some(ep) => (*ep).to_string(),
         None => {
             record_http_observation(
                 &server,
@@ -218,7 +219,7 @@ async fn forward_http(
             );
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
-                "route has no endpoints".to_string(),
+                "route has no endpoints or backends".to_string(),
             ));
         }
     };
