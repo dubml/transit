@@ -14,9 +14,6 @@ path = "src/main.rs"
 [dependencies]
 transit = { path = "../transit" }
 clap.workspace = true
-opentelemetry.workspace = true
-opentelemetry-otlp.workspace = true
-opentelemetry_sdk.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
 k8s-openapi.workspace = true
@@ -24,7 +21,6 @@ kube.workspace = true
 rustls-kube = { package = "rustls", version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 tokio = { workspace = true, features = ["io-util", "full"] }
 tracing.workspace = true
-tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 anyhow = "1.0.104"
 libc = "0.2"

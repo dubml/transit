@@ -27,7 +27,7 @@ fn test_validate_stdin_config() {
         .spawn()
         .expect("failed to spawn transit");
 
-    let valid_yaml = "version: v1\nlisteners: []\nclusters: []\n";
+    let valid_yaml = "version: v1\nroutes: []\n";
     child.stdin.as_mut().unwrap().write_all(valid_yaml.as_bytes()).unwrap();
 
     let output = child.wait_with_output().expect("failed to wait on child");

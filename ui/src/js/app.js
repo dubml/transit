@@ -7,9 +7,15 @@
         setup: 'Setup',
         configuration: 'Configuration',
         mcp: 'MCP',
+        gatewayGroup: 'GATEWAY',
         a2a: 'A2A',
         resources: 'Resources',
         services: 'APIs',
+        routes: 'Routes',
+        subscription: 'Subscription',
+        provider: 'Provider',
+        model: 'Model',
+        server: 'Server',
         search: 'Search',
         themeLight: 'Light',
         themeDark: 'Dark',
@@ -19,6 +25,7 @@
         llmProviders: 'LLM providers',
         overviewSubtitle: 'Monitor your gateway\'s configuration, gateway assets, and runtime status',
         viewServices: 'View APIs',
+        viewRoutes: 'View Routes',
         manageMcp: 'Manage MCP',
         agentRegistryLink: 'Agent registry',
         llmRouting: 'LLM routing',
@@ -82,17 +89,10 @@
         apiService: 'API service',
         mcpPlugin: 'MCP plugin',
         llmProvider: 'LLM provider',
-        operations: 'Operations',
-        observability: 'Observability',
-        security: 'Security',
-        'cost-control': 'Efficiency',
         auth: 'Auth',
         rate: 'Rate',
         tokens: 'Tokens',
         apiUsd: 'API USD',
-        chatgptCredits: 'OpenAI credits',
-        usage: 'Usage',
-        rateCard: 'Rate card',
         model: 'Model',
         tier: 'Tier',
         context: 'Context',
@@ -240,33 +240,7 @@
         identities: 'Identities',
         delegation: 'Delegation',
         metadata: 'Metadata',
-        payload: 'Payload',
-        observabilityTitle: 'Observability',
-        obsSubtitle: 'Trace, metrics, and logs for requests across the gateway',
-        distributedTrace: 'Distributed Trace',
-        recentTraces: 'Recent Traces',
-        refresh: 'Refresh',
-        securityControl: 'Security Control',
-        secSubtitle: 'Monitor security posture, policies, and risk events across the gateway',
-        blockedRequests: 'Blocked Requests',
-        authFailures: 'Auth Failures',
-        policyDenials: 'Policy Denials',
-        highRiskToolCalls: 'High-risk Tool Calls',
-        credExposureEvents: 'Credential Exposure Events',
-        topRiskTypes: 'Top Risk Types',
-        securityDecisionChain: 'Security Decision Chain',
-        securityEvents: 'Security Events',
-        'cost-control': 'Efficiency',
-        costControlTitle: 'Efficiency',
-        costSubtitle: 'Real-time spend, token & prompt cache accounting, tool efficiency, and optimization evidence',
-        costBreakdown: 'Cost Breakdown',
-        totalSpend: 'Total Spend (Actual)',
-        costPerReq: 'Cost per Request',
-        tokenCost: 'Token Cost',
-        mcpCost: 'MCP / API Cost',
-        networkCost: 'Network Cost',
-        projectedSpend: 'Projected Spend (7d)',
-        budgetStatus: 'Budget & Quota Status'
+        payload: 'Payload'
       },
       zh: {
         overview: '总览',
@@ -276,9 +250,16 @@
         setup: 'Setup',
         configuration: '配置',
         mcp: 'MCP',
+        gatewayGroup: 'GATEWAY',
+        llm: 'LLM',
         a2a: 'A2A',
         resources: '资源',
         services: 'APIs',
+        routes: '路由',
+        subscription: '订阅',
+        provider: '供应商',
+        model: '模型',
+        server: '服务器',
         search: '搜索',
         themeLight: '亮色',
         themeDark: '暗色',
@@ -288,6 +269,7 @@
         llmProviders: 'LLM 供应商',
         overviewSubtitle: '监控网关配置、网关资产与实时运行状态',
         viewServices: '查看 APIs',
+        viewRoutes: '查看路由',
         manageMcp: '管理 MCP',
         agentRegistryLink: '智能体注册表',
         llmRouting: '模型路由',
@@ -351,10 +333,6 @@
         apiService: 'API 服务',
         mcpPlugin: 'MCP 插件',
         llmProvider: 'LLM 供应商',
-        operations: '运维',
-        observability: '可观测性',
-        security: '安全',
-        'cost-control': '效率',
         auth: '鉴权',
         rate: '限流',
         tokens: 'Token',
@@ -509,33 +487,7 @@
         identities: '身份认证',
         delegation: '凭证委托',
         metadata: '元数据',
-        payload: '报文负载',
-        observabilityTitle: '可观测性治理',
-        obsSubtitle: '全网关请求链路追踪、指标监控与日志洞察',
-        distributedTrace: '全链路分布式追踪',
-        recentTraces: '近期调用链路',
-        refresh: '刷新',
-        securityControl: '安全防控治理',
-        secSubtitle: '全网关安全态势感知、策略执行与风险事件监控',
-        blockedRequests: '已拦截请求',
-        authFailures: '认证失败数',
-        policyDenials: '策略阻断数',
-        highRiskToolCalls: '高危工具调用',
-        credExposureEvents: '凭证暴露事件',
-        topRiskTypes: '高危风险分布',
-        securityDecisionChain: '安全决策链路',
-        securityEvents: '安全风险事件',
-        'cost-control': '效率',
-        costControlTitle: '效率',
-        costSubtitle: '实时费用、Token与缓存账本、执行效率与优化节省证据',
-        costBreakdown: '成本分摊明细',
-        totalSpend: '总支出 (实际)',
-        costPerReq: '单次请求均成本',
-        tokenCost: 'Token 消耗成本',
-        mcpCost: 'MCP / API 成本',
-        networkCost: '网络传输成本',
-        projectedSpend: '预估 7 日支出',
-        budgetStatus: '预算与配额状态'
+        payload: '报文负载'
       }
     };
 
@@ -552,11 +504,6 @@
       endpointErrors: {},
       syncedAt: {},
       config: { clusters: [], backends: [], providers: [] },
-      cost: { rate_card: [], usage: [], api_usd: '$0', chatgpt_credits: '0' },
-      costLedgerTab: 'spend',
-      costRoute: 'all-routes',
-      costModelFilter: 'all-models',
-      costSelectedEventId: null,
       country: localStorage.getItem('transit-country') || 'United States',
       model: localStorage.getItem('transit-model') || 'all',
       billing: localStorage.getItem('transit-billing') || 'subscription',
@@ -618,17 +565,19 @@
         llm: ['', ''],
         mcp: ['', ''],
         a2a: ['', ''],
-        observability: ['Filter gateway requests and inspect the available decision evidence.', '筛选网关请求，查看可用的决策记录与关联信息。'],
-        security: ['Audit decisions first. Expand policies and identities when needed.', '优先查看安全决策，需要时展开策略与身份目录。'],
-        'cost-control': ['Inspect spend, token usage and execution efficiency in separate ledgers.', '分别查看费用、Token 消耗与执行效率账本。'],
         configuration: ['', '']
       };
       const pair = descriptions[state.tab] || descriptions.overview;
       $('page-description').textContent = uiText(...pair);
-      if (state.tab !== 'llm' && $('page-actions')) {
+      const isLlmTab = ['llm', 'subscription', 'provider', 'model'].includes(state.tab);
+      const isMcpTab = ['mcp', 'server'].includes(state.tab);
+      const isA2aTab = state.tab === 'a2a';
+      const aiPage = isMcpTab || isA2aTab;
+      if (isLlmTab) {
+        // preserve LLM actions
+      } else if ($('page-actions')) {
         $('page-actions').innerHTML = '';
       }
-      const aiPage = ['mcp', 'a2a'].includes(state.tab);
       if ($('examples-toggle')) {
         $('examples-toggle').classList.toggle('hidden', !aiPage);
         $('examples-toggle').textContent = uiText('Example data', '示例数据');
@@ -642,7 +591,15 @@
         $('reload-data').textContent = uiText('Sync now', '立即同步');
         $('reload-data').disabled = state.loading;
       }
-      const scopes = { llm: ['/debug/llm'], services: ['/debug/services'], observability: ['/debug/observability'], security: ['/debug/security/posture', '/debug/security/events', '/debug/security/identities'], 'cost-control': ['/debug/cost'] };
+      const scopes = {
+        llm: ['/debug/llm'],
+        subscription: ['/debug/llm'],
+        provider: ['/debug/llm'],
+        model: ['/debug/llm'],
+        mcp: [],
+        server: [],
+        services: ['/debug/services']
+      };
       const relevant = ['/debug/config', ...(scopes[state.tab] || [])];
       const failures = relevant.filter(url => state.endpointErrors[url]).map(url => state.endpointErrors[url]);
       const syncText = state.loading ? uiText('Syncing…', '同步中…') : failures.length ? uiText('Update incomplete', '更新不完整') : state.paused ? uiText('Updates paused', '自动更新已暂停') : state.syncedAt[state.tab] ? uiText('Synced ', '已同步 ') + state.syncedAt[state.tab] : uiText('Awaiting data', '等待数据');
@@ -650,17 +607,19 @@
       $('error').textContent = failures.length ? uiText('Some data could not be updated. Retaining the last available values. ', '部分数据更新失败，保留上次可用结果。') + failures.join(' · ') : '';
       $('error').classList.toggle('hidden', !failures.length);
       const notice = $('data-notice');
-      notice.classList.toggle('hidden', state.tab === 'mcp' || (!aiPage && state.tab !== 'observability'));
+      notice.classList.toggle('hidden', !aiPage);
       notice.dataset.kind = 'config';
-      notice.textContent = aiPage
-        ? uiText('Configuration view · Unreported metrics are shown as “—”. Runtime controls are not connected.', '配置视图 · 未上报的指标显示为「—」，运行控制尚未接入。')
-        : uiText('Decision-derived view · The displayed spans are estimated from security decisions, not measured distributed traces.', '决策记录视图 · 当前 Span 由安全决策耗时估算，并非实测的分布式追踪。');
+      notice.textContent = uiText('Configuration view · Unreported metrics are shown as “—”. Runtime controls are not connected.', '配置视图 · 未上报的指标显示为「—」，运行控制尚未接入。');
     }
 
     function applyPageFilter() {
-      const page = $('tab-' + state.tab);
+      let page = $('tab-' + state.tab);
+      if (!page) {
+        if (['subscription', 'provider', 'model'].includes(state.tab)) page = $('tab-llm');
+        else if (state.tab === 'server') page = $('tab-mcp');
+      }
       if (!page) return;
-      const selector = state.tab === 'llm' ? '.llm-account-card' : state.tab === 'overview' ? '.ov-kpi-card' : '.table-wrap tbody tr';
+      const selector = ['llm', 'subscription', 'provider', 'model'].includes(state.tab) ? '.llm-account-card' : state.tab === 'overview' ? '.ov-kpi-card' : '.table-wrap tbody tr';
       const items = Array.from(page.querySelectorAll(selector)).filter(el =>
         !el.closest('.svc-drawer, .obs-trace-drawer, .sec-drawer, [style*="display:none"], [style*="display: none"]') && !el.querySelector('.ui-empty'));
       const q = state.query.trim().toLowerCase();
@@ -1398,7 +1357,7 @@
                 p95_ms: 0,
                 error_rate_pct: 0.0
               },
-              policies: (listener.security && listener.security.authorization) ? listener.security.authorization.map(a => 'authz:' + (a.action || 'allow')) : [],
+              policies: [],
               replace_prefix_match: null,
               health_ratio: routeTotalEps > 0 ? (routeHealthyEps + '/' + routeTotalEps) : '1/1',
               status: status
@@ -1407,32 +1366,111 @@
         });
       });
 
-      // 2. Agent HTTP routes
-      (config.routes || []).forEach((route) => {
-        if (route.protocol === 'http') {
-          domainsSet.add('agent-mesh.local');
-          const id = 'agent:http:' + route.name;
+      // 2. Routes from config.routes (listeners with targets or flat route items)
+      let rawRouteItems = [];
+      let ambientHostname = null;
+
+      if (config.routes) {
+        if (Array.isArray(config.routes)) {
+          rawRouteItems = config.routes;
+        } else if (Array.isArray(config.routes.listeners)) {
+          rawRouteItems = config.routes.listeners;
+        } else if (typeof config.routes.listeners === 'object') {
+          rawRouteItems = Object.values(config.routes.listeners);
+        }
+      } else if (Array.isArray(config.listeners)) {
+        rawRouteItems = config.listeners;
+      }
+
+      // First pass: extract ambient hostname if present
+      rawRouteItems.forEach(item => {
+        if (item && typeof item === 'object' && item.hostname && !item.name && !item.matches && !item.backends && !item.targets && !item.rules && !item.port) {
+          ambientHostname = item.hostname;
+        }
+      });
+
+      rawRouteItems.forEach((listenerOrRoute, lIdx) => {
+        if (!listenerOrRoute || typeof listenerOrRoute !== 'object') return;
+        if (listenerOrRoute.hostname && !listenerOrRoute.name && !listenerOrRoute.matches && !listenerOrRoute.backends && !listenerOrRoute.targets && !listenerOrRoute.rules && !listenerOrRoute.port) {
+          return; // Skip ambient hostname entry
+        }
+
+        const port = listenerOrRoute.port || 6010;
+        const protocol = (listenerOrRoute.protocol || 'http').toUpperCase();
+        const listenerName = listenerOrRoute.name || ('listener-' + port);
+        const listenerStr = listenerName + ':' + port;
+        const domain = listenerOrRoute.hostname || ambientHostname || 'mesh.local';
+        domainsSet.add(domain);
+
+        const targets = listenerOrRoute.targets || listenerOrRoute.rules || [listenerOrRoute];
+        targets.forEach((target, tIdx) => {
+          const targetName = target.name || ('target-' + (tIdx + 1));
+          const id = 'route:' + listenerName + ':' + targetName;
           let pathStr = '/';
           let matchType = 'prefix';
-          if (route.matches && route.matches[0] && route.matches[0].path) {
-            const p = route.matches[0].path;
-            matchType = p.type || 'prefix';
-            pathStr = p.value || p;
+
+          let matchObj = null;
+          if (Array.isArray(target.matches) && target.matches.length > 0) {
+            matchObj = target.matches[0];
+          } else if (target.matches && typeof target.matches === 'object') {
+            matchObj = target.matches;
+          } else if (typeof target.matches === 'string') {
+            pathStr = target.matches;
           }
 
+          if (matchObj) {
+            if (matchObj.pathPrefix || matchObj.path_prefix || matchObj.prefix) {
+              pathStr = matchObj.pathPrefix || matchObj.path_prefix || matchObj.prefix;
+              matchType = 'prefix';
+            } else if (matchObj.pathExact || matchObj.path_exact || matchObj.exact) {
+              pathStr = matchObj.pathExact || matchObj.path_exact || matchObj.exact;
+              matchType = 'exact';
+            } else if (matchObj.pathRegex || matchObj.path_regex || matchObj.regex) {
+              pathStr = matchObj.pathRegex || matchObj.path_regex || matchObj.regex;
+              matchType = 'regex';
+            } else if (matchObj.path) {
+              if (typeof matchObj.path === 'string') {
+                pathStr = matchObj.path;
+              } else if (matchObj.path.prefix) {
+                pathStr = matchObj.path.prefix;
+                matchType = 'prefix';
+              } else if (matchObj.path.exact) {
+                pathStr = matchObj.path.exact;
+                matchType = 'exact';
+              } else if (matchObj.path.regex) {
+                pathStr = matchObj.path.regex;
+                matchType = 'regex';
+              }
+            }
+          }
+
+          const methods = target.methods || (target.method ? [target.method] : ['*']);
+
           const clusterItems = [];
-          (route.weighted_backends || []).forEach((wb) => {
+          const rawBackends = target.backends || target.endpoints || target.weighted_backends || [];
+          rawBackends.forEach((wb, bIdx) => {
+            let addr = '127.0.0.1:8080';
+            let weight = 100;
+            let bName = 'backend-' + (bIdx + 1);
+            if (typeof wb === 'string') {
+              addr = wb;
+              bName = wb;
+            } else if (wb && typeof wb === 'object') {
+              addr = wb.address || wb.endpoint || wb.name || '127.0.0.1:8080';
+              weight = wb.weight || 100;
+              bName = wb.name || addr;
+            }
             clusterItems.push({
-              name: wb.name,
-              weight: wb.weight || 100,
+              name: bName,
+              weight: weight,
               percent: 100,
-              http2: false,
-              tls_mode: 'plaintext',
+              http2: protocol.includes('H2') || protocol.includes('GRPC'),
+              tls_mode: listenerOrRoute.tls ? 'tls' : 'plaintext',
               circuit_breaker: null,
               outlier_detection: null,
               endpoints: [{
-                address: '127.0.0.1:8080',
-                weight: wb.weight || 1,
+                address: addr,
+                weight: weight,
                 health_status: 'healthy'
               }]
             });
@@ -1440,27 +1478,39 @@
             totalAllEps++;
           });
 
+          const policiesList = [];
+          if (target.policies) {
+            if (Array.isArray(target.policies)) {
+              policiesList.push(...target.policies);
+            } else if (typeof target.policies === 'object') {
+              Object.keys(target.policies).forEach(k => policiesList.push(k));
+            }
+          }
+          if (target.a2a) {
+            policiesList.push('a2a');
+          }
+
           unified.push({
             id: id,
-            name: route.name,
-            source: 'agent_http',
-            listener: 'agent-ingress:8080',
-            listener_port: 8080,
-            domain: 'agent-mesh.local',
+            name: targetName,
+            source: target.a2a || (target.policies && target.policies.a2a) ? 'a2a' : 'route',
+            listener: listenerStr,
+            listener_port: port,
+            domain: domain,
             path: pathStr,
             match_type: matchType,
-            methods: ['*'],
+            methods: methods,
             headers: [],
-            protocol: 'HTTP/1.1',
-            tls_mode: 'plaintext',
+            protocol: protocol.startsWith('HTTP') ? protocol : 'HTTP/1.1',
+            tls_mode: listenerOrRoute.tls ? 'tls' : 'plaintext',
             clusters: clusterItems,
             metrics: { requests: 0, failures: 0, in_flight: 0, p95_ms: 0, error_rate_pct: 0.0 },
-            policies: route.policies || [],
-            replace_prefix_match: route.replace_prefix_match || null,
+            policies: policiesList,
+            replace_prefix_match: target.replace_prefix_match || null,
             health_ratio: '1/1',
             status: 'healthy'
           });
-        }
+        });
       });
 
       return {
@@ -1822,7 +1872,7 @@
       const polList = $('svc-policies-list');
       if (polList) {
         if (!svc.policies || svc.policies.length === 0) {
-          polList.innerHTML = '<div style="color:var(--muted);font-size:11.5px;padding:8px">No security/routing policies attached</div>';
+          polList.innerHTML = '<div style="color:var(--muted);font-size:11.5px;padding:8px">No policies attached</div>';
         } else {
           polList.innerHTML = svc.policies.map(p =>
             '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--soft);padding:6px 10px;border-radius:4px;border:1px solid var(--line)">' +
@@ -1874,15 +1924,6 @@
         cfgCopyBtn.onclick = () => {
           if ($('svc-config-json')) {
             copyText($('svc-config-json').textContent);
-          }
-        };
-      }
-
-      const traceBtn = $('svc-act-open-trace');
-      if (traceBtn) {
-        traceBtn.onclick = () => {
-          if (window.jumpToTrace) {
-            window.jumpToTrace(svc.name);
           }
         };
       }
@@ -1942,7 +1983,18 @@
     }
 
     function render() {
-      const renderers = { services: renderServices, llm: renderLlm, mcp: renderMcp, a2a: renderA2a, observability: renderObservability, security: renderSecurity, 'cost-control': renderCost, configuration: renderConfiguration };
+      const renderers = {
+        routes: renderServices,
+        services: renderServices,
+        llm: renderLlm,
+        subscription: renderLlm,
+        provider: renderLlm,
+        model: renderLlm,
+        mcp: renderMcp,
+        server: renderMcp,
+        a2a: renderA2a,
+        configuration: renderConfiguration
+      };
       if (renderers[state.tab]) {
         renderers[state.tab]();
         updatePageChrome();
@@ -2404,1568 +2456,6 @@
       }
     }
 
-    function renderObservability() {
-      const config = state.config || {};
-      const routes = config.routes || [];
-
-      // Initial defaults
-      if (typeof state.obsSelectedTraceIdx !== 'number') {
-        state.obsSelectedTraceIdx = 0;
-      }
-      if (!state.obsStatusFilter) {
-        state.obsStatusFilter = 'all';
-      }
-      if (!state.obsProtocolFilter) {
-        state.obsProtocolFilter = 'all';
-      }
-      if (!state.obsRouteFilter) {
-        state.obsRouteFilter = 'all';
-      }
-      if (!state.obsServiceFilter) {
-        state.obsServiceFilter = 'all';
-      }
-      if (typeof state.obsQuery !== 'string') {
-        state.obsQuery = '';
-      }
-      if (typeof state.obsDrawerOpen !== 'boolean') {
-        state.obsDrawerOpen = false;
-      }
-      if (typeof state.obsFlowExpanded !== 'boolean') {
-        state.obsFlowExpanded = false;
-      }
-      if (!state.obsSelectedTab) {
-        state.obsSelectedTab = 'overview';
-      }
-
-      const obsData = state.obsData || {};
-      const telemetry = obsData.telemetry || {
-        metrics_enabled: true,
-        otlp_endpoint: null,
-        otlp_sampling: '100%',
-        access_log_format: 'text',
-        access_log_mode: 'server',
-        last_update: 'just now'
-      };
-      const kpis = obsData.kpis || {
-        total_requests: 0,
-        in_flight: 0,
-        p95_latency_ms: 0,
-        error_rate_pct: 0,
-        upstream_failures: 0,
-        policy_denied: 0
-      };
-      const traces = Array.isArray(obsData.traces) ? obsData.traces : [];
-
-      // 1. Telemetry Status Bar
-      const syncBtn = $('obs-sync-btn');
-      if (syncBtn && !syncBtn.dataset.ready) {
-        syncBtn.dataset.ready = '1';
-        syncBtn.addEventListener('click', () => {
-          load();
-        });
-      }
-      if ($('obs-telemetry-metrics')) {
-        $('obs-telemetry-metrics').textContent = telemetry.metrics_enabled ? 'Prometheus Active' : 'Prometheus Disabled';
-        $('obs-telemetry-metrics').className = telemetry.metrics_enabled ? 'status-badge healthy' : 'status-badge throttled';
-      }
-      if ($('obs-telemetry-otlp')) {
-        $('obs-telemetry-otlp').textContent = telemetry.otlp_endpoint || 'Disabled (Local Buffer)';
-      }
-      if ($('obs-telemetry-logs')) {
-        $('obs-telemetry-logs').textContent = (telemetry.access_log_mode || 'server') + ' · ' + (telemetry.access_log_format || 'text').toUpperCase();
-      }
-      if ($('obs-telemetry-time')) {
-        $('obs-telemetry-time').textContent = telemetry.last_update || 'just now';
-      }
-
-      // 2. KPI Metrics Bar
-      if ($('obs-kpi-requests')) $('obs-kpi-requests').textContent = num(kpis.total_requests);
-      if ($('obs-kpi-in-flight')) $('obs-kpi-in-flight').textContent = num(kpis.in_flight);
-      if ($('obs-kpi-p95')) $('obs-kpi-p95').textContent = kpis.p95_latency_ms + ' ms';
-      if ($('obs-kpi-error-rate')) $('obs-kpi-error-rate').textContent = (kpis.error_rate_pct || 0).toFixed(2) + '%';
-      if ($('obs-kpi-failures-sub')) {
-        $('obs-kpi-failures-sub').textContent = (kpis.upstream_failures || 0) + ' failures · ' + (kpis.policy_denied || 0) + ' denied';
-      }
-
-      // 3. Dynamic Route and Service Dropdowns
-      const routeFilter = $('obs-route-filter');
-      if (routeFilter) {
-        const availableRoutes = ['all', ...routes.map(r => r.name)];
-        const key = availableRoutes.join('|');
-        if (routeFilter.dataset.key !== key) {
-          routeFilter.innerHTML = '<option value="all">Route: All Routes</option>' +
-            routes.map(r => '<option value="' + esc(r.name) + '">' + esc(r.name) + ' (' + esc(r.protocol || 'http') + ')</option>').join('');
-          routeFilter.dataset.key = key;
-        }
-        routeFilter.value = state.obsRouteFilter;
-        if (!routeFilter.dataset.ready) {
-          routeFilter.dataset.ready = '1';
-          routeFilter.addEventListener('change', () => {
-            state.obsRouteFilter = routeFilter.value;
-            state.obsSelectedTraceIdx = 0;
-            renderObservability();
-          });
-        }
-      }
-
-      const serviceFilter = $('obs-service-filter');
-      if (serviceFilter) {
-        const svcSet = new Set();
-        traces.forEach(t => { if (t.service) svcSet.add(t.service); });
-        const availableSvcs = Array.from(svcSet);
-        const key = availableSvcs.join('|');
-        if (serviceFilter.dataset.key !== key) {
-          serviceFilter.innerHTML = '<option value="all">Service: All</option>' +
-            availableSvcs.map(s => '<option value="' + esc(s) + '">' + esc(s) + '</option>').join('');
-          serviceFilter.dataset.key = key;
-        }
-        serviceFilter.value = state.obsServiceFilter;
-        if (!serviceFilter.dataset.ready) {
-          serviceFilter.dataset.ready = '1';
-          serviceFilter.addEventListener('change', () => {
-            state.obsServiceFilter = serviceFilter.value;
-            state.obsSelectedTraceIdx = 0;
-            renderObservability();
-          });
-        }
-      }
-
-      // Toolbar Filter Handlers
-      const statusFilter = $('obs-status-filter');
-      if (statusFilter && !statusFilter.dataset.ready) {
-        statusFilter.dataset.ready = '1';
-        statusFilter.value = state.obsStatusFilter;
-        statusFilter.addEventListener('change', () => {
-          state.obsStatusFilter = statusFilter.value;
-          state.obsSelectedTraceIdx = 0;
-          renderObservability();
-        });
-      }
-
-      const protoFilter = $('obs-protocol-filter');
-      if (protoFilter && !protoFilter.dataset.ready) {
-        protoFilter.dataset.ready = '1';
-        protoFilter.value = state.obsProtocolFilter;
-        protoFilter.addEventListener('change', () => {
-          state.obsProtocolFilter = protoFilter.value;
-          state.obsSelectedTraceIdx = 0;
-          renderObservability();
-        });
-      }
-
-      const searchInput = $('obs-search-input');
-      if (searchInput && !searchInput.dataset.ready) {
-        searchInput.dataset.ready = '1';
-        searchInput.value = state.obsQuery;
-        searchInput.addEventListener('input', () => {
-          state.obsQuery = searchInput.value;
-          state.obsSelectedTraceIdx = 0;
-          renderObservability();
-        });
-      }
-
-      const resetBtn = $('obs-reset-btn');
-      if (resetBtn && !resetBtn.dataset.ready) {
-        resetBtn.dataset.ready = '1';
-        resetBtn.addEventListener('click', () => {
-          state.obsStatusFilter = 'all';
-          state.obsProtocolFilter = 'all';
-          state.obsRouteFilter = 'all';
-          state.obsServiceFilter = 'all';
-          state.obsQuery = '';
-          if (statusFilter) statusFilter.value = 'all';
-          if (protoFilter) protoFilter.value = 'all';
-          if (routeFilter) routeFilter.value = 'all';
-          if (serviceFilter) serviceFilter.value = 'all';
-          if (searchInput) searchInput.value = '';
-          state.obsSelectedTraceIdx = 0;
-          renderObservability();
-        });
-      }
-
-      // Filter Traces
-      const q = (state.obsQuery || '').trim().toLowerCase();
-      const visibleTraces = traces.filter(tr => {
-        const st = (tr.status || '').toLowerCase();
-        if (state.obsStatusFilter !== 'all' && st !== state.obsStatusFilter.toLowerCase()) return false;
-        if (state.obsProtocolFilter !== 'all' && (tr.protocol || '').toLowerCase() !== state.obsProtocolFilter.toLowerCase()) return false;
-        if (state.obsRouteFilter !== 'all' && tr.route !== state.obsRouteFilter) return false;
-        if (state.obsServiceFilter !== 'all' && tr.service !== state.obsServiceFilter) return false;
-        if (q) {
-          const hay = [tr.trace_id, tr.req_id, tr.route, tr.backend, tr.service, tr.protocol, tr.path, tr.error, tr.status].join(' ').toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
-      });
-
-      if (state.obsSelectedTraceIdx >= visibleTraces.length) {
-        state.obsSelectedTraceIdx = 0;
-      }
-      const activeTrace = visibleTraces.length > 0 ? visibleTraces[state.obsSelectedTraceIdx] : null;
-
-      // 4. Render Primary Table (obs-traces-table)
-      if ($('obs-traces-count-badge')) $('obs-traces-count-badge').textContent = visibleTraces.length + ' Traces';
-      if ($('obs-traces-pg-info')) {
-        $('obs-traces-pg-info').textContent = 'Showing ' + visibleTraces.length + ' trace entries (Total ' + traces.length + ')';
-      }
-
-      const tracesTable = $('obs-traces-table');
-      if (tracesTable) {
-        const cols = ['Time', 'Protocol', 'Route', 'Backend', 'Status', 'Duration', 'Trace ID (W3C)'];
-        const head = '<thead><tr>' + cols.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead>';
-        let body = '<tbody>';
-        if (visibleTraces.length === 0) {
-          body += '<tr><td colspan="' + cols.length + '" class="muted" style="text-align:center;padding:24px">Trace backend 未配置或暂无实时请求记录 (Waiting for runtime traffic or OTLP collector)</td></tr>';
-        } else {
-          visibleTraces.forEach((tr, idx) => {
-            const isSelected = activeTrace && tr.trace_id === activeTrace.trace_id;
-            const timeStr = tr.timestamp ? (tr.timestamp.includes('T') ? tr.timestamp.substring(11, 19) : tr.timestamp) : '—';
-            const isSuccess = (tr.status || '').toLowerCase() === 'success';
-            const badge = isSuccess
-              ? '<span class="status-badge healthy">Success</span>'
-              : (tr.status === 'Denied' ? '<span class="status-badge throttled">Denied</span>' : '<span class="status-badge degraded">' + esc(tr.status || 'Error') + '</span>');
-            const traceShort = tr.trace_id ? (tr.trace_id.substring(0, 8) + '...' + tr.trace_id.substring(tr.trace_id.length - 4)) : '—';
-
-            body += '<tr class="' + (isSelected ? 'active-row' : '') + '" data-trace-idx="' + idx + '">' +
-              '<td class="code muted">' + esc(timeStr) + '</td>' +
-              '<td><span class="cap-tag">' + esc((tr.protocol || 'http').toUpperCase()) + '</span></td>' +
-              '<td class="code bold">' + esc(tr.route || '—') + '</td>' +
-              '<td class="code muted">' + esc(tr.backend || '—') + '</td>' +
-              '<td>' + badge + '</td>' +
-              '<td class="code bold">' + esc(tr.duration_ms || 0) + ' ms</td>' +
-              '<td class="code bold" title="' + esc(tr.trace_id) + '">' + esc(traceShort) + '</td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        tracesTable.innerHTML = head + body;
-
-        tracesTable.querySelectorAll('tbody tr[data-trace-idx]').forEach(tr => {
-          tr.addEventListener('click', () => {
-            state.obsSelectedTraceIdx = parseInt(tr.dataset.traceIdx, 10);
-            state.obsDrawerOpen = true;
-            renderObservability();
-          });
-        });
-      }
-
-      // 5. Selected Trace Details (Waterfall & Flow Map)
-      const selectedPanel = $('obs-selected-panel');
-      if (selectedPanel) {
-        if (!activeTrace) {
-          selectedPanel.style.display = 'none';
-        } else {
-          selectedPanel.style.display = 'block';
-
-          // Metadata pills
-          const isSuccess = (activeTrace.status || '').toLowerCase() === 'success';
-          const badgeEl = $('obs-trace-status-badge');
-          if (badgeEl) {
-            badgeEl.className = 'status-badge ' + (isSuccess ? 'healthy' : (activeTrace.status === 'Denied' ? 'throttled' : 'degraded'));
-            badgeEl.textContent = activeTrace.status || 'Success';
-          }
-          if ($('obs-selected-trace-summary')) {
-            $('obs-selected-trace-summary').textContent = (activeTrace.route || '') + ' → ' + (activeTrace.backend || '') + ' (' + (activeTrace.duration_ms || 0) + 'ms)';
-          }
-          if ($('obs-meta-trace-id')) $('obs-meta-trace-id').textContent = activeTrace.trace_id || '—';
-          if ($('obs-meta-req-id')) $('obs-meta-req-id').textContent = activeTrace.req_id || '—';
-          if ($('obs-meta-start-time')) $('obs-meta-start-time').textContent = activeTrace.timestamp || '—';
-          if ($('obs-meta-duration')) $('obs-meta-duration').textContent = (activeTrace.duration_ms || 0) + ' ms';
-          if ($('obs-meta-proto')) $('obs-meta-proto').textContent = (activeTrace.protocol || 'http').toUpperCase();
-          if ($('obs-meta-route')) $('obs-meta-route').textContent = activeTrace.route || '—';
-          if ($('obs-meta-backend')) $('obs-meta-backend').textContent = activeTrace.backend || '—';
-
-          // Flow Map Toggle
-          const flowToggleBtn = $('obs-flow-toggle-btn');
-          const flowMapEl = $('obs-flow-map');
-          if (flowToggleBtn && !flowToggleBtn.dataset.ready) {
-            flowToggleBtn.dataset.ready = '1';
-            flowToggleBtn.addEventListener('click', () => {
-              state.obsFlowExpanded = !state.obsFlowExpanded;
-              renderObservability();
-            });
-          }
-          if (flowMapEl) {
-            flowMapEl.style.display = state.obsFlowExpanded ? 'flex' : 'none';
-            if ($('flow-node-client')) $('flow-node-client').textContent = activeTrace.service || 'Client Ingress';
-            if ($('flow-node-gw-sub')) $('flow-node-gw-sub').textContent = 'route: ' + (activeTrace.route || '—');
-            if ($('flow-node-policy')) $('flow-node-policy').textContent = activeTrace.status === 'Denied' ? 'PEP Denied' : 'PEP Admitted';
-            if ($('flow-node-target')) $('flow-node-target').textContent = activeTrace.backend || '—';
-            if ($('flow-node-target-sub')) $('flow-node-target-sub').textContent = 'HTTP ' + (activeTrace.status_code || 200);
-          }
-
-          // Span Waterfall Table
-          const spansTable = $('obs-spans-table');
-          if (spansTable) {
-            const spans = Array.isArray(activeTrace.spans) ? activeTrace.spans : [];
-            const maxDuration = Math.max(activeTrace.duration_ms || 1, 1);
-            let spBody = '<thead><tr><th>#</th><th>Span / Operation</th><th>Service</th><th>Duration</th><th>Timeline (Gantt)</th></tr></thead><tbody>';
-            if (spans.length === 0) {
-              spBody += '<tr><td colspan="5" class="muted" style="text-align:center;padding:12px">No spans available for this trace</td></tr>';
-            } else {
-              spans.forEach((sp, idx) => {
-                const leftPct = ((sp.offset_ms || 0) / maxDuration * 100).toFixed(1);
-                const widthPct = Math.max(((sp.duration_ms || 1) / maxDuration * 100), 2).toFixed(1);
-                const isSpErr = (sp.status || '').toLowerCase() === 'error' || (sp.status || '').toLowerCase() === 'denied';
-
-                spBody += '<tr>' +
-                  '<td class="code muted">' + (idx + 1) + '</td>' +
-                  '<td class="code bold">' + esc(sp.name) + '</td>' +
-                  '<td class="code muted">' + esc(sp.service) + '</td>' +
-                  '<td class="code">' + esc(sp.duration_ms) + ' ms</td>' +
-                  '<td>' +
-                    '<div class="gantt-track">' +
-                      '<div class="gantt-bar ' + (isSpErr ? 'err' : '') + '" style="left:' + leftPct + '%;width:' + widthPct + '%"></div>' +
-                    '</div>' +
-                  '</td>' +
-                  '</tr>';
-              });
-            }
-            spBody += '</tbody>';
-            spansTable.innerHTML = spBody;
-          }
-        }
-      }
-
-      // 6. Slide-out Drawer Overlay
-      const drawerElem = $('obs-trace-drawer');
-      const backdropElem = $('obs-drawer-backdrop');
-      const drawerCloseBtn = $('obs-drawer-close-btn');
-
-      if (drawerCloseBtn && !drawerCloseBtn.dataset.ready) {
-        drawerCloseBtn.dataset.ready = '1';
-        drawerCloseBtn.addEventListener('click', () => {
-          state.obsDrawerOpen = false;
-          renderObservability();
-        });
-      }
-      if (backdropElem && !backdropElem.dataset.ready) {
-        backdropElem.dataset.ready = '1';
-        backdropElem.addEventListener('click', () => {
-          state.obsDrawerOpen = false;
-          renderObservability();
-        });
-      }
-
-      // Drawer Tab switcher
-      document.querySelectorAll('.obs-drawer-tabs .obs-tab-btn').forEach(btn => {
-        if (!btn.dataset.ready) {
-          btn.dataset.ready = '1';
-          btn.addEventListener('click', () => {
-            state.obsSelectedTab = btn.dataset.obsTab;
-            renderObservability();
-          });
-        }
-        btn.classList.toggle('active', btn.dataset.obsTab === state.obsSelectedTab);
-      });
-
-      ['overview', 'logs', 'events', 'attributes'].forEach(tabName => {
-        const el = $('obs-view-' + tabName);
-        if (el) el.classList.toggle('hidden', state.obsSelectedTab !== tabName);
-      });
-
-      if (drawerElem && backdropElem) {
-        drawerElem.classList.toggle('open', !!state.obsDrawerOpen);
-        backdropElem.classList.toggle('open', !!state.obsDrawerOpen);
-      }
-
-      // Populate Drawer Details if activeTrace
-      if (activeTrace) {
-        if ($('obs-drawer-title')) $('obs-drawer-title').textContent = (activeTrace.route || 'Trace') + ' (' + (activeTrace.duration_ms || 0) + 'ms)';
-        if ($('obs-drawer-subtitle')) $('obs-drawer-subtitle').textContent = activeTrace.trace_id;
-        if ($('drawer-trace-id')) $('drawer-trace-id').textContent = activeTrace.trace_id;
-        if ($('drawer-req-id')) $('drawer-req-id').textContent = activeTrace.req_id || '—';
-        if ($('drawer-proto')) $('drawer-proto').textContent = (activeTrace.protocol || 'http').toUpperCase();
-        if ($('drawer-route')) $('drawer-route').textContent = activeTrace.route || '—';
-        if ($('drawer-backend')) $('drawer-backend').textContent = activeTrace.backend || '—';
-
-        const failBox = $('drawer-failure-box');
-        const failText = $('drawer-failure-text');
-        if (failBox && failText) {
-          if (activeTrace.status_code >= 400 || activeTrace.status === 'Denied') {
-            failBox.style.background = 'rgba(239,68,68,0.1)';
-            failBox.style.color = '#ef4444';
-            failText.textContent = 'Failure Detected: HTTP ' + activeTrace.status_code + ' (' + (activeTrace.error || 'Request Failed') + ')';
-          } else {
-            failBox.style.background = 'rgba(16,185,129,0.1)';
-            failBox.style.color = '#10b981';
-            failText.textContent = 'No failures detected in this trace (HTTP ' + (activeTrace.status_code || 200) + ')';
-          }
-        }
-
-        // Security Decision Jump Link
-        const jumpSecBtn = $('drawer-jump-sec-btn');
-        if (jumpSecBtn && !jumpSecBtn.dataset.ready) {
-          jumpSecBtn.dataset.ready = '1';
-          jumpSecBtn.addEventListener('click', () => {
-            const trId = activeTrace ? activeTrace.trace_id : '';
-            state.secQuery = trId;
-            state.secDrawerOpen = true;
-            const secNavBtn = document.querySelector('button[data-tab="security"]');
-            if (secNavBtn) secNavBtn.click();
-            else if (typeof switchTab === 'function') switchTab('security');
-          });
-        }
-
-        // Quick Actions
-        const viewLogsBtn = $('act-view-logs');
-        if (viewLogsBtn && !viewLogsBtn.dataset.ready) {
-          viewLogsBtn.dataset.ready = '1';
-          viewLogsBtn.addEventListener('click', () => {
-            state.obsSelectedTab = 'logs';
-            renderObservability();
-          });
-        }
-        const copyTraceBtn = $('act-copy-trace-id');
-        if (copyTraceBtn) {
-          copyTraceBtn.onclick = () => {
-            if (activeTrace && activeTrace.trace_id) {
-              copyText(activeTrace.trace_id);
-            }
-          };
-        }
-
-        // Logs
-        const logsContainer = $('obs-logs-list');
-        if (logsContainer) {
-          logsContainer.innerHTML = '<div style="padding:6px 8px;background:var(--soft);border-radius:4px;color:var(--muted)">' +
-            '<span style="color:#10b981">[' + esc(activeTrace.timestamp) + ']</span> ' +
-            '<span>HTTP ' + esc(activeTrace.method) + ' ' + esc(activeTrace.path) + ' → ' + esc(activeTrace.status_code) + ' (' + esc(activeTrace.duration_ms) + 'ms)</span>' +
-            '</div>';
-        }
-        if ($('obs-drawer-logs-count')) $('obs-drawer-logs-count').textContent = '1';
-
-        // Events
-        const eventsContainer = $('obs-events-list');
-        if (eventsContainer) {
-          const spans = Array.isArray(activeTrace.spans) ? activeTrace.spans : [];
-          eventsContainer.innerHTML = spans.map(s =>
-            '<div style="padding:4px 8px;border-left:2px solid #38bdf8;background:var(--soft);margin-bottom:4px">' +
-            '<strong>' + esc(s.name) + '</strong> (' + esc(s.service) + ') · <span>' + esc(s.duration_ms) + 'ms</span>' +
-            '</div>'
-          ).join('');
-        }
-        if ($('obs-drawer-events-count')) $('obs-drawer-events-count').textContent = (activeTrace.spans || []).length;
-
-        // Attributes JSON
-        if ($('obs-attributes-json')) {
-          $('obs-attributes-json').textContent = JSON.stringify({
-            "trace.id": activeTrace.trace_id,
-            "http.method": activeTrace.method,
-            "http.route": activeTrace.route,
-            "http.target": activeTrace.backend,
-            "http.status_code": activeTrace.status_code,
-            "http.duration_ms": activeTrace.duration_ms,
-            "protocol": activeTrace.protocol,
-            "error": activeTrace.error
-          }, null, 2);
-        }
-      }
-    }
-
-    function jumpToTrace(traceId) {
-      if (!traceId) return;
-      const obsNav = document.querySelector('.nav-item[data-tab="observability"]');
-      if (obsNav) {
-        obsNav.click();
-      } else {
-        showTab('observability');
-      }
-      setTimeout(() => {
-        const searchInput = $('obs-search-input');
-        if (searchInput) {
-          searchInput.value = traceId;
-          searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-      }, 120);
-    }
-    window.jumpToTrace = jumpToTrace;
-
-    function filterSecurityIdentity(category) {
-      state.secControlsExpanded = true;
-      state.secSubTab = 'identities';
-      state.secIdKindFilter = category;
-      renderSecurity();
-    }
-    window.filterSecurityIdentity = filterSecurityIdentity;
-
-    function renderDynamicChain(ev) {
-      const container = $('sec-drawer-dynamic-chain');
-      if (!container) return;
-      if (!ev) {
-        container.innerHTML = '<div class="muted" style="font-size:11px;padding:8px;text-align:center">Select an audit decision to view check path</div>';
-        return;
-      }
-      const isAllowed = (ev.decision || '').toLowerCase() === 'allowed';
-      const badgeClass = isAllowed ? 'status-badge healthy' : 'status-badge throttled';
-      const statusBadge = isAllowed ? 'allowed' : 'denied';
-
-      container.innerHTML = '<div class="sec-chain-step">' +
-        '<div class="sec-chain-step-idx">1</div>' +
-        '<div class="sec-chain-step-content">' +
-          '<div class="sec-chain-step-title">Inbound Caller</div>' +
-          '<div class="sec-chain-step-sub"><strong style="color:var(--ink)">' + esc(ev.actor || ev.principal || 'unknown') + '</strong> (' + esc(ev.authn_method || 'direct') + ')</div>' +
-          '<div class="code muted" style="font-size:10px">' + esc(ev.principal || 'anonymous') + '</div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="sec-chain-connector">↓ [PEP Enforcement]</div>' +
-      '<div class="sec-chain-step" style="border-color:' + (isAllowed ? 'color-mix(in srgb, #10b981 30%, transparent)' : 'color-mix(in srgb, #ef4444 30%, transparent)') + '">' +
-        '<div class="sec-chain-step-idx" style="color:' + (isAllowed ? '#10b981' : '#ef4444') + '">2</div>' +
-        '<div class="sec-chain-step-content">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center">' +
-            '<div class="sec-chain-step-title">' + esc(ev.enforcement_point || 'PEP: Enforcement') + '</div>' +
-            '<span class="' + badgeClass + '">' + esc(statusBadge) + '</span>' +
-          '</div>' +
-          '<div class="sec-chain-step-sub">Policy: <strong class="code">' + esc(ev.policy_id || 'default') + '</strong> · Reason: <span class="code ' + (isAllowed ? 'muted' : 'denied') + '">' + esc(ev.reason_code || '—') + '</span></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="sec-chain-connector">↓ [' + (isAllowed ? 'Target Forwarding' : 'Blocked') + ']</div>' +
-      '<div class="sec-chain-step" style="opacity:' + (isAllowed ? '1' : '0.65') + '">' +
-        '<div class="sec-chain-step-idx">3</div>' +
-        '<div class="sec-chain-step-content">' +
-          '<div class="sec-chain-step-title">' + (isAllowed ? 'Upstream Target' : 'Enforcement Response') + '</div>' +
-          '<div class="sec-chain-step-sub"><span class="cap-tag">' + esc((ev.protocol || 'http').toUpperCase()) + '</span> <span class="code bold">' + esc(ev.route || ev.backend || ev.resource_id || '—') + '</span></div>' +
-          '<div class="code muted" style="font-size:10px">HTTP ' + esc(ev.status_code || (isAllowed ? 200 : 403)) + ' · ' + esc(ev.latency_ms || 0) + 'ms</div>' +
-        '</div>' +
-      '</div>';
-    }
-
-    function renderSecurity() {
-      const config = state.config || {};
-      const routes = config.routes || [];
-
-      // Initial defaults
-      if (typeof state.secSelectedDecisionIdx !== 'number') {
-        state.secSelectedDecisionIdx = 0;
-      }
-      if (!state.secFilterChip) {
-        state.secFilterChip = 'all';
-      }
-      if (!state.secIdKindFilter) {
-        state.secIdKindFilter = 'all';
-      }
-      if (typeof state.secQuery !== 'string') {
-        state.secQuery = '';
-      }
-      if (typeof state.secIdQuery !== 'string') {
-        state.secIdQuery = '';
-      }
-      if (typeof state.secPolicyQuery !== 'string') {
-        state.secPolicyQuery = '';
-      }
-      if (typeof state.secDrawerOpen !== 'boolean') {
-        state.secDrawerOpen = false;
-      }
-      if (typeof state.secControlsExpanded !== 'boolean') {
-        state.secControlsExpanded = false;
-      }
-      if (!state.secSubTab) {
-        state.secSubTab = 'policies';
-      }
-
-      // Refresh Button
-      const refreshBtn = $('sec-refresh-btn');
-      if (refreshBtn && !refreshBtn.dataset.ready) {
-        refreshBtn.dataset.ready = '1';
-        refreshBtn.addEventListener('click', () => {
-          load();
-        });
-      }
-
-      // 1. Posture Summary Bar
-      const posture = state.secPosture || {};
-      const defaultMode = (posture.policy_default || 'unknown').toLowerCase();
-      const badgeElem = $('sec-posture-default-badge');
-      const envElem = $('sec-posture-default-env');
-      if (badgeElem && envElem) {
-        if (defaultMode === 'deny') {
-          badgeElem.className = 'sec-default-policy-badge deny';
-          badgeElem.textContent = 'DENY';
-          envElem.textContent = 'TRANSIT_POLICY_DEFAULT=deny';
-        } else if (defaultMode === 'allow') {
-          badgeElem.className = 'sec-default-policy-badge allow';
-          badgeElem.textContent = 'ALLOW';
-          envElem.textContent = 'TRANSIT_POLICY_DEFAULT=allow';
-        } else {
-          badgeElem.className = 'status-pill unknown';
-          badgeElem.textContent = '—';
-          envElem.textContent = uiText('Policy posture not loaded', '尚未获取策略状态');
-        }
-      }
-
-      const identitiesList = Array.isArray(state.secIdentities) ? state.secIdentities : [];
-      const policiesList = Array.isArray(config.policies) ? config.policies : [];
-      const eventsList = Array.isArray(state.secEvents) ? state.secEvents : [];
-
-      if ($('sec-posture-identities-count')) {
-        $('sec-posture-identities-count').textContent = identitiesList.length || posture.total_identities || 0;
-      }
-      if ($('sec-posture-policies-count')) {
-        $('sec-posture-policies-count').textContent = policiesList.length || posture.total_policies || 0;
-      }
-
-      const allowedCount = eventsList.filter(d => (d.decision || '').toLowerCase() === 'allowed').length;
-      const deniedCount = eventsList.filter(d => (d.decision || '').toLowerCase() === 'denied').length;
-      if ($('sec-posture-allowed-count')) {
-        $('sec-posture-allowed-count').textContent = eventsList.length ? allowedCount : (posture.allowed_decisions || 0);
-      }
-      if ($('sec-posture-denied-count')) {
-        const deniedTotal = eventsList.length ? deniedCount : (posture.denied_decisions || 0);
-        $('sec-posture-denied-count').textContent = deniedTotal + ' Denied';
-      }
-
-      // 2. Security Decision Audit Table
-      // Filter Chips
-      document.querySelectorAll('#sec-audit-chips .sec-filter-chip').forEach(chip => {
-        if (!chip.dataset.ready) {
-          chip.dataset.ready = '1';
-          chip.addEventListener('click', () => {
-            state.secFilterChip = chip.dataset.filter;
-            state.secSelectedDecisionIdx = 0;
-            renderSecurity();
-          });
-        }
-        chip.classList.toggle('active', chip.dataset.filter === state.secFilterChip);
-      });
-
-      // Audit Search Input
-      const searchInput = $('sec-search-input');
-      if (searchInput && !searchInput.dataset.ready) {
-        searchInput.dataset.ready = '1';
-        searchInput.value = state.secQuery;
-        searchInput.addEventListener('input', () => {
-          state.secQuery = searchInput.value;
-          state.secSelectedDecisionIdx = 0;
-          renderSecurity();
-        });
-      }
-
-      // Filter events
-      const secQ = (state.secQuery || '').trim().toLowerCase();
-      const visibleDecisions = eventsList.filter(ev => {
-        const dec = (ev.decision || '').toLowerCase();
-        const pep = (ev.enforcement_point || '').toLowerCase();
-        const reason = (ev.reason_code || '').toLowerCase();
-
-        if (state.secFilterChip === 'denied' && dec !== 'denied') return false;
-        if (state.secFilterChip === 'auth' && !pep.includes('auth') && !reason.startsWith('auth')) return false;
-        if (state.secFilterChip === 'limits' && !pep.includes('limit') && !pep.includes('tls') && !reason.startsWith('rate_limit') && !reason.startsWith('upstream')) return false;
-
-        if (secQ) {
-          const hay = [ev.event_id, ev.trace_id, ev.principal, ev.actor, ev.reason_code, ev.resource_id, ev.policy_id, ev.enforcement_point, ev.protocol, ev.route, ev.backend].join(' ').toLowerCase();
-          if (!hay.includes(secQ)) return false;
-        }
-        return true;
-      });
-
-      if (state.secSelectedDecisionIdx >= visibleDecisions.length) {
-        state.secSelectedDecisionIdx = 0;
-      }
-      const activeDecision = visibleDecisions.length > 0 ? visibleDecisions[state.secSelectedDecisionIdx] : null;
-
-      // Render Events Table
-      const eventsTable = $('sec-events-table');
-      if (eventsTable) {
-        const eventColumns = ['Time', 'Trace ID (W3C)', 'Protocol', 'Principal / Actor', 'Enforcement Point', 'Policy', 'Decision', 'Reason Code', 'Status', 'Latency'];
-        const head = '<thead><tr>' + eventColumns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead>';
-        let body = '<tbody>';
-        if (visibleDecisions.length === 0) {
-          body += '<tr><td colspan="' + eventColumns.length + '" class="muted" style="text-align:center;padding:24px">No security decision events recorded</td></tr>';
-        } else {
-          visibleDecisions.forEach((ev, idx) => {
-            const isSelected = activeDecision && ev.event_id === activeDecision.event_id;
-            const timeStr = ev.timestamp ? ev.timestamp.substring(11, 19) : '—';
-            const traceShort = ev.trace_id ? (ev.trace_id.substring(0, 8) + '...' + ev.trace_id.substring(ev.trace_id.length - 4)) : '—';
-            const isAllowed = (ev.decision || '').toLowerCase() === 'allowed';
-            const badge = isAllowed
-              ? '<span class="status-badge healthy">allowed</span>'
-              : '<span class="status-badge throttled">denied</span>';
-            const statusClass = (ev.status_code || 200) >= 400 ? 'denied bold' : 'pass bold';
-
-            body += '<tr class="' + (isSelected ? 'active-row' : '') + '" data-decision-idx="' + idx + '" style="cursor:pointer">' +
-              '<td class="code muted">' + esc(timeStr) + '</td>' +
-              '<td class="code bold" title="' + esc(ev.trace_id || '') + '">' + esc(traceShort) + '</td>' +
-              '<td><span class="cap-tag">' + esc((ev.protocol || '').toUpperCase()) + '</span></td>' +
-              '<td class="code">' + esc(ev.principal || ev.actor || 'anonymous') + '</td>' +
-              '<td class="code bold">' + esc(ev.enforcement_point || '—') + '</td>' +
-              '<td class="code">' + esc(ev.policy_id || 'default') + '</td>' +
-              '<td>' + badge + '</td>' +
-              '<td class="code ' + (isAllowed ? 'muted' : 'denied') + '">' + esc(ev.reason_code || '—') + '</td>' +
-              '<td class="code ' + statusClass + '">' + esc(ev.status_code || 200) + '</td>' +
-              '<td class="code muted">' + esc(ev.latency_ms || 0) + ' ms</td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        eventsTable.innerHTML = head + body;
-
-        eventsTable.querySelectorAll('tbody tr[data-decision-idx]').forEach(tr => {
-          tr.addEventListener('click', () => {
-            state.secSelectedDecisionIdx = parseInt(tr.dataset.decisionIdx, 10);
-            state.secDrawerOpen = true;
-            renderSecurity();
-          });
-        });
-      }
-
-      if ($('sec-events-pg-info')) {
-        $('sec-events-pg-info').textContent = 'Showing ' + visibleDecisions.length + ' decision audit entries (Total ' + eventsList.length + ')';
-      }
-
-      // 3. Collapsible Controls Panel
-      const controlsToggle = $('sec-controls-toggle');
-      if (controlsToggle && !controlsToggle.dataset.ready) {
-        controlsToggle.dataset.ready = '1';
-        controlsToggle.addEventListener('click', () => {
-          state.secControlsExpanded = !state.secControlsExpanded;
-          renderSecurity();
-        });
-      }
-      const controlsBody = $('sec-controls-body');
-      const toggleIcon = $('sec-controls-toggle-icon');
-      if (controlsBody && toggleIcon) {
-        controlsBody.classList.toggle('collapsed', !state.secControlsExpanded);
-        toggleIcon.textContent = state.secControlsExpanded ? '▾' : '▸';
-      }
-
-      // Sub-Tabs
-      document.querySelectorAll('#sec-controls-tabs .sec-tab-btn').forEach(btn => {
-        if (!btn.dataset.ready) {
-          btn.dataset.ready = '1';
-          btn.addEventListener('click', () => {
-            state.secSubTab = btn.dataset.sectab;
-            state.secControlsExpanded = true;
-            renderSecurity();
-          });
-        }
-        btn.classList.toggle('active', btn.dataset.sectab === state.secSubTab);
-      });
-
-      const panePolicies = $('sec-subtab-policies');
-      const paneIdentities = $('sec-subtab-identities');
-      if (panePolicies && paneIdentities) {
-        panePolicies.style.display = state.secSubTab === 'policies' ? 'block' : 'none';
-        paneIdentities.style.display = state.secSubTab === 'identities' ? 'block' : 'none';
-      }
-
-      if ($('sec-tab-policies-count')) $('sec-tab-policies-count').textContent = policiesList.length;
-      if ($('sec-tab-identities-count')) $('sec-tab-identities-count').textContent = identitiesList.length;
-      if ($('sec-controls-summary-badge')) {
-        $('sec-controls-summary-badge').textContent = (policiesList.length + identitiesList.length) + ' Items';
-      }
-
-      // Policies Table & Filter
-      const polSearchInput = $('sec-policy-search-input');
-      if (polSearchInput && !polSearchInput.dataset.ready) {
-        polSearchInput.dataset.ready = '1';
-        polSearchInput.value = state.secPolicyQuery;
-        polSearchInput.addEventListener('input', () => {
-          state.secPolicyQuery = polSearchInput.value;
-          renderSecurity();
-        });
-      }
-      const polQ = (state.secPolicyQuery || '').trim().toLowerCase();
-      const filteredPolicies = policiesList.filter(p => {
-        if (polQ && ![p.name, p.action, JSON.stringify(p.matches || {}), JSON.stringify(p.auth || {})].join(' ').toLowerCase().includes(polQ)) return false;
-        return true;
-      });
-
-      const polTable = $('sec-policies-table');
-      if (polTable) {
-        const columns = ['Policy Name', 'Action', 'Enforcement Point', 'Conditions / Matches', 'Limits & Guards', 'Attached To'];
-        const head = '<thead><tr>' + columns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead>';
-        let body = '<tbody>';
-        if (filteredPolicies.length === 0) {
-          body += '<tr><td colspan="' + columns.length + '" class="muted" style="text-align:center;padding:16px">No security policies configured</td></tr>';
-        } else {
-          filteredPolicies.forEach(pol => {
-            const actionBadge = (pol.action || 'allow').toLowerCase() === 'allow'
-              ? '<span class="status-badge healthy">Allow</span>'
-              : '<span class="status-badge throttled">Deny</span>';
-
-            let pep = 'Route / Backend AuthZ';
-            if (pol.auth) pep = 'Authentication PEP';
-            else if (pol.rate_limit) pep = 'Rate Limit PEP';
-            else if (pol.token_limit) pep = 'Token Limit PEP';
-
-            let matchStr = 'All matching traffic';
-            if (pol.matches) {
-              const parts = [];
-              if (pol.matches.protocols && pol.matches.protocols.length) parts.push('Protocols: ' + pol.matches.protocols.join(', '));
-              if (pol.matches.models && pol.matches.models.length) parts.push('Models: ' + pol.matches.models.join(', '));
-              if (pol.matches.tools && pol.matches.tools.length) parts.push('Tools: ' + pol.matches.tools.join(', '));
-              if (pol.matches.paths && pol.matches.paths.length) parts.push('Paths: ' + pol.matches.paths.map(p => p.value || p).join(', '));
-              if (parts.length) matchStr = parts.join(' · ');
-            }
-
-            const guards = [];
-            if (pol.auth) guards.push('Auth: ' + (pol.auth.type || 'api-key'));
-            if (pol.rate_limit) guards.push('Rate: ' + pol.rate_limit.requests + ' req/' + pol.rate_limit.window_seconds + 's');
-            if (pol.token_limit) guards.push('Tokens: ' + pol.token_limit.tokens + ' tok/' + pol.token_limit.window_seconds + 's');
-            if (pol.max_body_bytes) guards.push('Max Body: ' + Math.round(pol.max_body_bytes / 1024) + ' KB');
-            if (pol.timeout_ms) guards.push('Timeout: ' + pol.timeout_ms + 'ms');
-
-            let attached = [];
-            routes.forEach(r => {
-              if ((r.policies || []).includes(pol.name)) attached.push('Route: ' + r.name);
-            });
-            (config.backends || []).forEach(b => {
-              if ((b.policies || []).includes(pol.name)) attached.push('Backend: ' + b.name);
-            });
-            if (attached.length === 0) attached.push('Global / Implicit');
-
-            body += '<tr>' +
-              '<td class="code bold">' + esc(pol.name) + '</td>' +
-              '<td>' + actionBadge + '</td>' +
-              '<td class="code">' + esc(pep) + '</td>' +
-              '<td class="code muted">' + esc(matchStr) + '</td>' +
-              '<td class="code" style="font-size:11px">' + esc(guards.length ? guards.join(' · ') : '—') + '</td>' +
-              '<td class="code muted" style="font-size:11px">' + esc(attached.join(', ')) + '</td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        polTable.innerHTML = head + body;
-      }
-
-      // Identities Table & Filters
-      const idKindFilter = $('sec-id-kind-filter');
-      if (idKindFilter && !idKindFilter.dataset.ready) {
-        idKindFilter.dataset.ready = '1';
-        idKindFilter.value = state.secIdKindFilter;
-        idKindFilter.addEventListener('change', () => {
-          state.secIdKindFilter = idKindFilter.value;
-          renderSecurity();
-        });
-      }
-      const idSearchInput = $('sec-id-search-input');
-      if (idSearchInput && !idSearchInput.dataset.ready) {
-        idSearchInput.dataset.ready = '1';
-        idSearchInput.value = state.secIdQuery;
-        idSearchInput.addEventListener('input', () => {
-          state.secIdQuery = idSearchInput.value;
-          renderSecurity();
-        });
-      }
-      const idQ = (state.secIdQuery || '').trim().toLowerCase();
-      const filteredIdentities = identitiesList.filter(item => {
-        if (state.secIdKindFilter !== 'all' && item.category !== state.secIdKindFilter) return false;
-        if (idQ && ![item.name, item.principal, item.trust_domain, item.fingerprint, item.detail].join(' ').toLowerCase().includes(idQ)) return false;
-        return true;
-      });
-
-      const idTable = $('sec-identities-table');
-      if (idTable) {
-        const idColumns = ['Identity Name', 'Kind', 'Principal / Subject', 'Trust Domain', 'Fingerprint / Secret Ref', 'Bound Targets', 'Status'];
-        const head = '<thead><tr>' + idColumns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead>';
-        let body = '<tbody>';
-        if (filteredIdentities.length === 0) {
-          body += '<tr><td colspan="' + idColumns.length + '" class="muted" style="text-align:center;padding:16px">No security identities found</td></tr>';
-        } else {
-          filteredIdentities.forEach(item => {
-            body += '<tr>' +
-              '<td class="code bold">' + esc(item.name) + '</td>' +
-              '<td><span class="cap-tag">' + esc((item.category || '').toUpperCase()) + '</span></td>' +
-              '<td class="code">' + esc(item.principal) + '</td>' +
-              '<td class="code muted">' + esc(item.trust_domain) + '</td>' +
-              '<td class="code" style="font-size:11px">' + esc(item.fingerprint) + '</td>' +
-              '<td class="code muted">' + esc((item.bound_targets || []).join(', ')) + '</td>' +
-              '<td><span class="status-badge healthy">' + esc(item.status || 'active') + '</span></td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        idTable.innerHTML = head + body;
-      }
-
-      // 4. Slide-out Drawer Overlay & Dynamic Chain
-      const drawerElem = $('sec-drawer');
-      const backdropElem = $('sec-drawer-backdrop');
-      const closeBtn = $('sec-drawer-close-btn');
-
-      if (closeBtn && !closeBtn.dataset.ready) {
-        closeBtn.dataset.ready = '1';
-        closeBtn.addEventListener('click', () => {
-          state.secDrawerOpen = false;
-          renderSecurity();
-        });
-      }
-      if (backdropElem && !backdropElem.dataset.ready) {
-        backdropElem.dataset.ready = '1';
-        backdropElem.addEventListener('click', () => {
-          state.secDrawerOpen = false;
-          renderSecurity();
-        });
-      }
-
-      const jumpTraceBtn = $('sec-drawer-jump-trace-btn');
-      if (jumpTraceBtn && !jumpTraceBtn.dataset.ready) {
-        jumpTraceBtn.dataset.ready = '1';
-        jumpTraceBtn.addEventListener('click', () => {
-          const currentTrace = $('sec-drawer-trace-id') ? $('sec-drawer-trace-id').textContent : '';
-          jumpToTrace(currentTrace);
-        });
-      }
-
-      if (drawerElem && backdropElem) {
-        drawerElem.classList.toggle('open', !!state.secDrawerOpen);
-        backdropElem.classList.toggle('open', !!state.secDrawerOpen);
-      }
-
-      // Update drawer content
-      if (activeDecision) {
-        if ($('sec-drawer-event-title')) $('sec-drawer-event-title').textContent = activeDecision.reason_code || 'audit.event';
-        if ($('sec-drawer-event-time')) $('sec-drawer-event-time').textContent = activeDecision.timestamp || '—';
-        if ($('sec-drawer-badge')) {
-          const isAllowed = (activeDecision.decision || 'allowed').toLowerCase() === 'allowed';
-          $('sec-drawer-badge').className = isAllowed ? 'status-badge healthy' : 'status-badge throttled';
-          $('sec-drawer-badge').textContent = activeDecision.decision || 'allowed';
-        }
-        if ($('sec-drawer-trace-id')) $('sec-drawer-trace-id').textContent = activeDecision.trace_id || '—';
-        if ($('sec-drawer-event-id')) $('sec-drawer-event-id').textContent = activeDecision.event_id || '—';
-        if ($('sec-drawer-actor')) $('sec-drawer-actor').textContent = activeDecision.actor || '—';
-        if ($('sec-drawer-principal')) $('sec-drawer-principal').textContent = activeDecision.principal || '—';
-        if ($('sec-drawer-authn-method')) $('sec-drawer-authn-method').textContent = activeDecision.authn_method || '—';
-        if ($('sec-drawer-proto')) $('sec-drawer-proto').textContent = activeDecision.protocol || '—';
-        if ($('sec-drawer-route')) $('sec-drawer-route').textContent = activeDecision.route || '—';
-        if ($('sec-drawer-backend')) $('sec-drawer-backend').textContent = activeDecision.backend || '—';
-        if ($('sec-drawer-resource')) $('sec-drawer-resource').textContent = activeDecision.resource_id || '—';
-        if ($('sec-drawer-pep')) $('sec-drawer-pep').textContent = activeDecision.enforcement_point || '—';
-        if ($('sec-drawer-policy')) $('sec-drawer-policy').textContent = activeDecision.policy_id || '—';
-        if ($('sec-drawer-decision')) $('sec-drawer-decision').textContent = activeDecision.decision || '—';
-        if ($('sec-drawer-reason')) $('sec-drawer-reason').textContent = activeDecision.reason_code || '—';
-        if ($('sec-drawer-status')) $('sec-drawer-status').textContent = activeDecision.status_code || '—';
-        if ($('sec-drawer-latency')) $('sec-drawer-latency').textContent = (activeDecision.latency_ms || 0) + ' ms';
-        if ($('sec-drawer-hash')) $('sec-drawer-hash').textContent = activeDecision.evidence_hash || '—';
-        if ($('sec-drawer-attributes')) {
-          $('sec-drawer-attributes').textContent = JSON.stringify(activeDecision.redacted_attributes || {}, null, 2);
-        }
-      }
-      renderDynamicChain(activeDecision);
-    }
-
-    function num(value) {
-      return Number(value || 0).toLocaleString();
-    }
-
-    function renderCost() {
-      const cost = state.cost || {};
-      const config = state.config || {};
-      const routes = config.routes || [];
-      const spend = cost.spend_ledger || { models: [], accounts: [] };
-      const tokens = cost.token_ledger || { tiers: {} };
-      const eff = cost.efficiency_ledger || { mcp_tools: [], a2a_methods: [] };
-      const opt = cost.optimization_ledger || { opportunities: [] };
-      const events = cost.events || [];
-
-      // Initial defaults
-      if (!state.costLedgerTab) {
-        state.costLedgerTab = 'spend';
-      }
-
-      // 1. Controls Setup (Route, Model filter, Refresh)
-      const routeSelect = $('cost-route-select');
-      if (routeSelect) {
-        const routeNames = routes.length ? ['all-routes', ...routes.map((r) => r.name)] : ['all-routes'];
-        const currentRoute = state.costRoute && routeNames.includes(state.costRoute) ? state.costRoute : routeNames[0];
-        state.costRoute = currentRoute;
-        const key = routeNames.join('|');
-        if (routeSelect.dataset.key !== key) {
-          routeSelect.innerHTML = routeNames.map((name) => '<option value="' + esc(name) + '">' + esc(name) + '</option>').join('');
-          routeSelect.dataset.key = key;
-        }
-        routeSelect.value = currentRoute;
-        if (!routeSelect.dataset.ready) {
-          routeSelect.dataset.ready = '1';
-          routeSelect.addEventListener('change', () => {
-            state.costRoute = routeSelect.value;
-            renderCost();
-          });
-        }
-      }
-
-      const modelFilter = $('cost-model-filter');
-      if (modelFilter) {
-        const rawModels = (spend.models || []).map((m) => m.model).concat(cost.models || []);
-        const uniqueModels = ['all-models', ...Array.from(new Set(rawModels)).filter(Boolean)];
-        const currentModel = state.costModelFilter && uniqueModels.includes(state.costModelFilter) ? state.costModelFilter : uniqueModels[0];
-        state.costModelFilter = currentModel;
-        const mKey = uniqueModels.join('|');
-        if (modelFilter.dataset.key !== mKey) {
-          modelFilter.innerHTML = uniqueModels.map((m) => '<option value="' + esc(m) + '">' + esc(m) + '</option>').join('');
-          modelFilter.dataset.key = mKey;
-        }
-        modelFilter.value = currentModel;
-        if (!modelFilter.dataset.ready) {
-          modelFilter.dataset.ready = '1';
-          modelFilter.addEventListener('change', () => {
-            state.costModelFilter = modelFilter.value;
-            renderCost();
-          });
-        }
-      }
-
-      const refreshBtn = $('cost-refresh-btn');
-      if (refreshBtn && !refreshBtn.dataset.ready) {
-        refreshBtn.dataset.ready = '1';
-        refreshBtn.addEventListener('click', () => {
-          load();
-        });
-      }
-
-      // Ledger View Sub-tabs
-      const ledgerTabs = $('cost-ledger-tabs');
-      if (ledgerTabs && !ledgerTabs.dataset.ready) {
-        ledgerTabs.dataset.ready = '1';
-        ledgerTabs.querySelectorAll('.cost-tab-btn').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            state.costLedgerTab = btn.dataset.tabCost;
-            ledgerTabs.querySelectorAll('.cost-tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
-            ['spend', 'token', 'efficiency', 'optimization', 'requests'].forEach((tabKey) => {
-              const view = $('cost-view-' + tabKey);
-              if (view) view.classList.toggle('hidden', tabKey !== state.costLedgerTab);
-            });
-            renderCost();
-          });
-        });
-      }
-
-      // Ensure active tab view is visible
-      ['spend', 'token', 'efficiency', 'optimization', 'requests'].forEach((tabKey) => {
-        const view = $('cost-view-' + tabKey);
-        if (view) view.classList.toggle('hidden', tabKey !== (state.costLedgerTab || 'spend'));
-      });
-      if (ledgerTabs) {
-        ledgerTabs.querySelectorAll('.cost-tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tabCost === (state.costLedgerTab || 'spend')));
-      }
-
-      // 2. Top 5 KPI Metrics (Real runtime data, physical separation)
-      if ($('cost-kpi-api-usd')) $('cost-kpi-api-usd').textContent = spend.total_api_usd || '$0.00';
-      if ($('cost-kpi-api-priced')) {
-        $('cost-kpi-api-priced').textContent = (spend.priced_requests || 0) + ' priced / ' + (spend.unpriced_requests || 0) + ' unpriced';
-      }
-      if ($('cost-kpi-credits')) $('cost-kpi-credits').textContent = spend.total_chatgpt_credits || '0';
-      if ($('cost-kpi-tokens')) $('cost-kpi-tokens').textContent = num(tokens.total_tokens || 0);
-      if ($('cost-kpi-in-out-sub')) {
-        const inTok = (tokens.total_input_uncached || 0) + (tokens.total_cache_read || 0);
-        const outTok = (tokens.total_output_non_reasoning || 0) + (tokens.total_reasoning || 0);
-        $('cost-kpi-in-out-sub').textContent = compactNum(inTok) + ' in / ' + compactNum(outTok) + ' out';
-      }
-      if ($('cost-kpi-cache-rate')) {
-        const rate = typeof tokens.cache_hit_rate_pct === 'number' ? tokens.cache_hit_rate_pct.toFixed(1) + '%' : '0.0%';
-        $('cost-kpi-cache-rate').textContent = rate;
-      }
-      if ($('cost-kpi-cache-sub')) {
-        $('cost-kpi-cache-sub').textContent = compactNum(tokens.total_cache_read || 0) + ' read tokens';
-      }
-      if ($('cost-kpi-saved-tokens')) {
-        $('cost-kpi-saved-tokens').textContent = num(tokens.context_saved_tokens || opt.gross_potential_tokens || 0);
-      }
-
-      // 3. Tab 1: Spend Ledger
-      const spendModelTable = $('cost-spend-model-table');
-      if (spendModelTable) {
-        const modelRows = spend.models || [];
-        if ($('cost-spend-models-count')) $('cost-spend-models-count').textContent = modelRows.length + ' models';
-        let head = '<thead><tr>' +
-          '<th>Model</th><th>Provider</th><th>Requests</th>' +
-          '<th>Uncached In</th><th>Cached In</th><th>Output</th>' +
-          '<th>API USD</th><th>Credits</th><th>Pricing Status</th>' +
-          '</tr></thead>';
-        let body = '<tbody>';
-        if (modelRows.length === 0) {
-          body += '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:14px">No spend records observed</td></tr>';
-        } else {
-          modelRows.forEach((m) => {
-            const isExact = m.pricing_status === 'exact';
-            const badgeCls = isExact ? 'healthy' : 'throttled';
-            body += '<tr>' +
-              '<td class="code bold">' + esc(m.model) + '</td>' +
-              '<td><span class="cap-tag">' + esc(m.provider) + '</span></td>' +
-              '<td class="code">' + num(m.requests) + '</td>' +
-              '<td class="code muted">' + num(m.uncached_input_tokens) + '</td>' +
-              '<td class="code muted">' + num(m.cached_input_tokens) + '</td>' +
-              '<td class="code muted">' + num(m.output_tokens) + '</td>' +
-              '<td class="code bold">' + esc(m.api_usd || '$0.00') + '</td>' +
-              '<td class="code bold">' + esc(m.chatgpt_credits || '0') + '</td>' +
-              '<td><span class="status-badge ' + badgeCls + '">' + esc(m.pricing_status) + '</span></td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        spendModelTable.innerHTML = head + body;
-      }
-
-      const spendAccountTable = $('cost-spend-account-table');
-      if (spendAccountTable) {
-        const accountRows = spend.accounts || [];
-        if ($('cost-spend-accounts-count')) $('cost-spend-accounts-count').textContent = accountRows.length + ' accounts';
-        let head = '<thead><tr>' +
-          '<th>Account / Key</th><th>Provider</th><th>Requests</th><th>API USD</th><th>Credits</th>' +
-          '</tr></thead>';
-        let body = '<tbody>';
-        if (accountRows.length === 0) {
-          body += '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:14px">No account spend records observed</td></tr>';
-        } else {
-          accountRows.forEach((a) => {
-            body += '<tr>' +
-              '<td class="code bold">' + esc(a.account) + '</td>' +
-              '<td><span class="cap-tag">' + esc(a.provider) + '</span></td>' +
-              '<td class="code">' + num(a.requests) + '</td>' +
-              '<td class="code bold">' + esc(a.api_usd || '$0.00') + '</td>' +
-              '<td class="code bold">' + esc(a.chatgpt_credits || '0') + '</td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        spendAccountTable.innerHTML = head + body;
-      }
-
-      // 4. Tab 2: Token & Cache Ledger
-      if ($('cost-bucket-uncached')) $('cost-bucket-uncached').textContent = num(tokens.total_input_uncached || 0);
-      if ($('cost-bucket-cache-read')) $('cost-bucket-cache-read').textContent = num(tokens.total_cache_read || 0);
-      if ($('cost-bucket-cache-write')) $('cost-bucket-cache-write').textContent = num(tokens.total_cache_write || 0);
-      if ($('cost-bucket-output-std')) $('cost-bucket-output-std').textContent = num(tokens.total_output_non_reasoning || 0);
-      if ($('cost-bucket-reasoning')) $('cost-bucket-reasoning').textContent = num(tokens.total_reasoning || 0);
-      if ($('cost-bucket-unclassified')) $('cost-bucket-unclassified').textContent = num(tokens.total_unclassified || 0);
-
-      const tiers = tokens.tiers || {};
-      if ($('cost-tier-provider-read')) $('cost-tier-provider-read').textContent = num(tiers.provider_cache_read_tokens || 0) + ' tokens';
-      if ($('cost-tier-provider-write')) $('cost-tier-provider-write').textContent = num(tiers.provider_cache_write_tokens || 0) + ' tokens';
-      if ($('cost-tier-gateway-prefix')) $('cost-tier-gateway-prefix').textContent = num(tiers.gateway_prefix_cache_tokens || 0) + ' tokens';
-      if ($('cost-tier-agent-reduced')) $('cost-tier-agent-reduced').textContent = num(tiers.agent_context_tokens_reduced || 0) + ' tokens';
-
-      if ($('cost-quality-complete')) $('cost-quality-complete').textContent = num(tokens.complete_events || 0);
-      if ($('cost-quality-inconsistent')) $('cost-quality-inconsistent').textContent = num(tokens.inconsistent_events || 0);
-      if ($('cost-token-quality-badge')) {
-        const hasInconsistent = (tokens.inconsistent_events || 0) > 0;
-        $('cost-token-quality-badge').className = 'status-badge ' + (hasInconsistent ? 'throttled' : 'healthy');
-        $('cost-token-quality-badge').textContent = hasInconsistent ? 'Inconsistent Detected' : 'Complete';
-      }
-      if ($('cost-quality-hit-ratio')) {
-        $('cost-quality-hit-ratio').textContent = typeof tokens.cache_hit_rate_pct === 'number' ? tokens.cache_hit_rate_pct.toFixed(1) + '%' : '0.0%';
-      }
-      if ($('cost-quality-context-saved')) {
-        $('cost-quality-context-saved').textContent = num(tokens.context_saved_tokens || 0) + ' tokens';
-      }
-
-      // 5. Tab 3: Execution Efficiency
-      if ($('cost-eff-retries-badge')) {
-        $('cost-eff-retries-badge').textContent = (eff.total_retries || 0) + ' Retries (' + num(eff.retry_overhead_tokens || 0) + ' Overhead Tokens)';
-      }
-      const mcpTable = $('cost-mcp-table');
-      if (mcpTable) {
-        const mcpRows = eff.mcp_tools || [];
-        if ($('cost-mcp-summary')) $('cost-mcp-summary').textContent = mcpRows.length + ' tools (' + num(eff.mcp_calls || 0) + ' calls)';
-        let head = '<thead><tr><th>Tool</th><th>Backend</th><th>Calls</th><th>Failures</th><th>I/O Bytes</th><th>Avg Latency</th></tr></thead>';
-        let body = '<tbody>';
-        if (mcpRows.length === 0) {
-          body += '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px">No MCP tool executions recorded</td></tr>';
-        } else {
-          mcpRows.forEach((t) => {
-            body += '<tr>' +
-              '<td class="code bold">' + esc(t.tool) + '</td>' +
-              '<td class="code">' + esc(t.backend) + '</td>' +
-              '<td class="code">' + num(t.calls) + '</td>' +
-              '<td class="code ' + (t.failures > 0 ? 'denied bold' : 'muted') + '">' + num(t.failures) + '</td>' +
-              '<td class="code muted">' + compactNum(t.io_bytes) + ' B</td>' +
-              '<td class="code">' + num(t.avg_latency_ms) + ' ms</td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        mcpTable.innerHTML = head + body;
-      }
-
-      const a2aTable = $('cost-a2a-table');
-      if (a2aTable) {
-        const a2aRows = eff.a2a_methods || [];
-        if ($('cost-a2a-summary')) $('cost-a2a-summary').textContent = a2aRows.length + ' methods (' + num(eff.a2a_calls || 0) + ' calls)';
-        let head = '<thead><tr><th>Method</th><th>Backend</th><th>Calls</th><th>Failures</th><th>I/O Bytes</th><th>Avg Latency</th><th>Direct Calls</th><th>Rollup Calls</th></tr></thead>';
-        let body = '<tbody>';
-        if (a2aRows.length === 0) {
-          body += '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:14px">No A2A method calls recorded</td></tr>';
-        } else {
-          a2aRows.forEach((m) => {
-            body += '<tr>' +
-              '<td class="code bold">' + esc(m.method) + '</td>' +
-              '<td class="code">' + esc(m.backend) + '</td>' +
-              '<td class="code">' + num(m.calls) + '</td>' +
-              '<td class="code ' + (m.failures > 0 ? 'denied bold' : 'muted') + '">' + num(m.failures) + '</td>' +
-              '<td class="code muted">' + compactNum(m.io_bytes) + ' B</td>' +
-              '<td class="code">' + num(m.avg_latency_ms) + ' ms</td>' +
-              '<td class="code">' + num(m.direct_calls) + '</td>' +
-              '<td class="code muted">' + num(m.rollup_calls) + '</td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        a2aTable.innerHTML = head + body;
-      }
-
-      // 6. Tab 4: Optimization & Savings
-      if ($('cost-opt-cache-saved')) $('cost-opt-cache-saved').textContent = num(opt.tokens_saved_cache || 0);
-      if ($('cost-opt-rtk-saved')) $('cost-opt-rtk-saved').textContent = num(opt.tokens_saved_rtk || 0);
-      if ($('cost-opt-condense-saved')) $('cost-opt-condense-saved').textContent = num(opt.tokens_saved_condense || 0);
-      if ($('cost-opt-gross-tokens')) $('cost-opt-gross-tokens').textContent = num(opt.gross_potential_tokens || 0);
-
-      const optTable = $('cost-optimization-table');
-      if (optTable) {
-        const opps = opt.opportunities || [];
-        let head = '<thead><tr><th>Category</th><th>Description</th><th>Evidence</th><th>Potential Tokens Saved</th><th>Potential USD Saved</th><th>Status</th></tr></thead>';
-        let body = '<tbody>';
-        if (opps.length === 0) {
-          body += '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:14px">No optimization opportunities recorded</td></tr>';
-        } else {
-          opps.forEach((o) => {
-            const statusCls = o.realized ? 'healthy' : 'degraded';
-            body += '<tr>' +
-              '<td><span class="cap-tag">' + esc(o.category) + '</span></td>' +
-              '<td class="bold">' + esc(o.description) + '</td>' +
-              '<td class="code muted" style="font-size:10.5px">' + esc(o.evidence) + '</td>' +
-              '<td class="code bold">' + num(o.potential_tokens_saved) + '</td>' +
-              '<td class="code muted">' + esc(o.potential_usd_saved || '—') + '</td>' +
-              '<td><span class="status-badge ' + statusCls + '">' + (o.realized ? 'Realized' : 'Potential') + '</span></td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        optTable.innerHTML = head + body;
-      }
-
-      // 7. Tab 5: Request Cost Audit & Detail Drawer
-      let filteredEvents = events;
-      if (state.costRoute && state.costRoute !== 'all-routes') {
-        filteredEvents = filteredEvents.filter((ev) => ev.route === state.costRoute);
-      }
-      if (state.costModelFilter && state.costModelFilter !== 'all-models') {
-        filteredEvents = filteredEvents.filter((ev) => ev.model === state.costModelFilter);
-      }
-
-      if ($('cost-events-count')) $('cost-events-count').textContent = filteredEvents.length + ' events';
-
-      let activeEvent = null;
-      if (state.costSelectedEventId) {
-        activeEvent = filteredEvents.find((ev) => ev.event_id === state.costSelectedEventId);
-      }
-      if (!activeEvent && filteredEvents.length > 0) {
-        activeEvent = filteredEvents[0];
-        state.costSelectedEventId = activeEvent.event_id;
-      }
-
-      const eventsTable = $('cost-events-table');
-      if (eventsTable) {
-        let head = '<thead><tr>' +
-          '<th>Time</th><th>Trace ID</th><th>Protocol</th><th>Operation / Route</th><th>Model</th>' +
-          '<th>Tokens (In / Out / Cache)</th><th>Latency</th><th>Spend (USD / Credits)</th><th>Attribution</th><th>Quality</th>' +
-          '</tr></thead>';
-        let body = '<tbody>';
-        if (filteredEvents.length === 0) {
-          body += '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:14px">No cost audit events recorded</td></tr>';
-        } else {
-          filteredEvents.forEach((ev) => {
-            const isSel = activeEvent && ev.event_id === activeEvent.event_id;
-            const timeStr = ev.timestamp_ms ? new Date(ev.timestamp_ms).toLocaleTimeString() : '—';
-            const tb = ev.token_breakdown || {};
-            const inTok = (tb.input_uncached || 0) + (tb.cache_read || 0);
-            const outTok = (tb.output_non_reasoning || 0) + (tb.reasoning || 0);
-            const tokStr = inTok + ' / ' + outTok + ' / ' + (tb.cache_read || 0);
-            const spendStr = (ev.api_usd || 'Unpriced') + ' / ' + (ev.chatgpt_credits || '—');
-            const qualCls = ev.data_quality === 'complete' ? 'healthy' : 'throttled';
-            const shortTrace = ev.trace_id ? (ev.trace_id.length > 16 ? ev.trace_id.slice(0, 16) + '...' : ev.trace_id) : '—';
-
-            body += '<tr class="' + (isSel ? 'active-row' : '') + '" data-event-id="' + esc(ev.event_id) + '">' +
-              '<td class="code muted">' + esc(timeStr) + '</td>' +
-              '<td class="code bold"><a href="javascript:void(0)" onclick="event.stopPropagation(); if (window.jumpToTrace) window.jumpToTrace(\'' + esc(ev.trace_id) + '\')" class="muted-link">' + esc(shortTrace) + '</a></td>' +
-              '<td><span class="cap-tag">' + esc(ev.protocol) + '</span></td>' +
-              '<td class="code">' + esc(ev.operation || ev.route) + '</td>' +
-              '<td class="code bold">' + esc(ev.model) + '</td>' +
-              '<td class="code muted" style="font-size:10.5px">' + esc(tokStr) + '</td>' +
-              '<td class="code">' + (ev.latency_ms || 0) + ' ms</td>' +
-              '<td class="code bold">' + esc(spendStr) + '</td>' +
-              '<td><span class="cap-tag">' + esc(ev.attribution_mode || 'direct') + '</span></td>' +
-              '<td><span class="status-badge ' + qualCls + '">' + esc(ev.data_quality) + '</span></td>' +
-              '</tr>';
-          });
-        }
-        body += '</tbody>';
-        eventsTable.innerHTML = head + body;
-
-        eventsTable.querySelectorAll('tbody tr[data-event-id]').forEach((tr) => {
-          tr.addEventListener('click', () => {
-            state.costSelectedEventId = tr.dataset.eventId;
-            renderCost();
-          });
-        });
-      }
-
-      // Update Request Detail Drawer
-      if (activeEvent) {
-        if ($('cost-det-event-id')) $('cost-det-event-id').textContent = activeEvent.event_id;
-        if ($('cost-det-trace')) $('cost-det-trace').textContent = activeEvent.trace_id;
-        if ($('cost-det-span')) $('cost-det-span').textContent = activeEvent.span_id;
-        if ($('cost-det-route')) $('cost-det-route').textContent = activeEvent.route;
-        if ($('cost-det-backend')) $('cost-det-backend').textContent = activeEvent.backend;
-        if ($('cost-det-model')) $('cost-det-model').textContent = activeEvent.model;
-        if ($('cost-det-provider')) $('cost-det-provider').textContent = activeEvent.provider;
-        if ($('cost-det-protocol')) $('cost-det-protocol').textContent = activeEvent.protocol;
-        if ($('cost-det-operation')) $('cost-det-operation').textContent = activeEvent.operation;
-        if ($('cost-det-status')) {
-          $('cost-det-status').textContent = activeEvent.status_code || 200;
-          $('cost-det-status').className = 'obs-prop-v code bold ' + (activeEvent.status_code >= 400 ? 'denied' : 'pass');
-        }
-        if ($('cost-det-latency')) $('cost-det-latency').textContent = (activeEvent.latency_ms || 0) + ' ms';
-
-        if ($('cost-det-usd')) $('cost-det-usd').textContent = activeEvent.api_usd || 'Unpriced';
-        if ($('cost-det-credits')) $('cost-det-credits').textContent = activeEvent.chatgpt_credits || '—';
-        if ($('cost-det-pricing-status')) {
-          const isExact = activeEvent.pricing_status === 'exact';
-          $('cost-det-pricing-status').innerHTML = '<span class="status-badge ' + (isExact ? 'healthy' : 'throttled') + '">' + esc(activeEvent.pricing_status) + '</span>';
-        }
-        if ($('cost-det-attribution')) {
-          $('cost-det-attribution').innerHTML = '<span class="cap-tag">' + esc(activeEvent.attribution_mode || 'direct') + '</span>';
-        }
-        if ($('cost-det-quality')) {
-          const isComp = activeEvent.data_quality === 'complete';
-          $('cost-det-quality').innerHTML = '<span class="status-badge ' + (isComp ? 'healthy' : 'throttled') + '">' + esc(activeEvent.data_quality) + '</span>';
-        }
-
-        const tb = activeEvent.token_breakdown || {};
-        if ($('cost-det-tok-uncached')) $('cost-det-tok-uncached').textContent = num(tb.input_uncached || 0);
-        if ($('cost-det-tok-cache-read')) $('cost-det-tok-cache-read').textContent = num(tb.cache_read || 0);
-        if ($('cost-det-tok-cache-write')) $('cost-det-tok-cache-write').textContent = num(tb.cache_write || 0);
-        if ($('cost-det-tok-out-std')) $('cost-det-tok-out-std').textContent = num(tb.output_non_reasoning || 0);
-        if ($('cost-det-tok-reasoning')) $('cost-det-tok-reasoning').textContent = num(tb.reasoning || 0);
-        if ($('cost-det-tok-unclass')) $('cost-det-tok-unclass').textContent = num(tb.unclassified || 0);
-
-        if ($('cost-det-ttft')) $('cost-det-ttft').textContent = typeof activeEvent.ttft_ms === 'number' ? activeEvent.ttft_ms + ' ms' : '—';
-        if ($('cost-det-io-bytes')) $('cost-det-io-bytes').textContent = compactNum(activeEvent.io_bytes || 0) + ' B';
-        if ($('cost-det-retries')) $('cost-det-retries').textContent = activeEvent.retries || 0;
-
-        const viewTraceBtn = $('cost-det-view-trace-btn');
-        if (viewTraceBtn) {
-          viewTraceBtn.onclick = () => {
-            if (activeEvent.trace_id && window.jumpToTrace) {
-              window.jumpToTrace(activeEvent.trace_id);
-            }
-          };
-        }
-      } else {
-        if ($('cost-det-event-id')) $('cost-det-event-id').textContent = '-';
-        if ($('cost-det-trace')) $('cost-det-trace').textContent = '-';
-        if ($('cost-det-span')) $('cost-det-span').textContent = '-';
-        if ($('cost-det-route')) $('cost-det-route').textContent = '-';
-        if ($('cost-det-backend')) $('cost-det-backend').textContent = '-';
-        if ($('cost-det-model')) $('cost-det-model').textContent = '-';
-        if ($('cost-det-provider')) $('cost-det-provider').textContent = '-';
-        if ($('cost-det-protocol')) $('cost-det-protocol').textContent = '-';
-        if ($('cost-det-operation')) $('cost-det-operation').textContent = '-';
-        if ($('cost-det-status')) $('cost-det-status').textContent = '-';
-        if ($('cost-det-latency')) $('cost-det-latency').textContent = '-';
-        if ($('cost-det-usd')) $('cost-det-usd').textContent = '$0.00';
-        if ($('cost-det-credits')) $('cost-det-credits').textContent = '0';
-        if ($('cost-det-pricing-status')) $('cost-det-pricing-status').innerHTML = '—';
-        if ($('cost-det-attribution')) $('cost-det-attribution').innerHTML = '—';
-        if ($('cost-det-quality')) $('cost-det-quality').innerHTML = '—';
-        if ($('cost-det-tok-uncached')) $('cost-det-tok-uncached').textContent = '0';
-        if ($('cost-det-tok-cache-read')) $('cost-det-tok-cache-read').textContent = '0';
-        if ($('cost-det-tok-cache-write')) $('cost-det-tok-cache-write').textContent = '0';
-        if ($('cost-det-tok-out-std')) $('cost-det-tok-out-std').textContent = '0';
-        if ($('cost-det-tok-reasoning')) $('cost-det-tok-reasoning').textContent = '0';
-        if ($('cost-det-tok-unclass')) $('cost-det-tok-unclass').textContent = '0';
-        if ($('cost-det-ttft')) $('cost-det-ttft').textContent = '—';
-        if ($('cost-det-io-bytes')) $('cost-det-io-bytes').textContent = '0 B';
-        if ($('cost-det-retries')) $('cost-det-retries').textContent = '0';
-      }
-
-      // 8. Legacy Cost Logic Preserved
-      if ($('metric-api-usd')) $('metric-api-usd').textContent = cost.api_usd || '$0';
-      if ($('metric-credits')) $('metric-credits').textContent = cost.chatgpt_credits || '0';
-      if ($('metric-local-input')) $('metric-local-input').textContent = num(cost.local_input);
-      if ($('metric-local-cache')) $('metric-local-cache').textContent = num(cost.local_cache_read);
-      if ($('metric-local-write')) $('metric-local-write').textContent = num(cost.local_cache_write);
-      if ($('metric-local-output')) $('metric-local-output').textContent = num(cost.local_output);
-      if ($('metric-local-total')) $('metric-local-total').textContent = num(cost.local_total);
-      const billing = cost.billing || state.billing || 'subscription';
-      const isApi = billing === 'api';
-      if ($('metric-api-usd')) {
-        $('metric-api-usd').textContent = isApi ? (cost.api_usd || '$0') : '—';
-      }
-      if ($('metric-credits')) {
-        $('metric-credits').textContent = isApi
-          ? '—'
-          : (cost.local_credits_complete ? (cost.local_credits || '0') : t('unpublished'));
-      }
-      const familySelect = $('cost-family');
-      if (familySelect) {
-        familySelect.value = cost.family || state.family || 'chatgpt';
-        if (!familySelect.dataset.ready) {
-          familySelect.dataset.ready = '1';
-          familySelect.addEventListener('change', () => {
-            state.family = familySelect.value;
-            state.model = 'all';
-            localStorage.setItem('transit-family', state.family);
-            localStorage.setItem('transit-model', 'all');
-            load();
-          });
-        }
-      }
-      const modelSelect = $('cost-model');
-      if (modelSelect) {
-        const names = ['all'].concat(cost.models || []);
-        const key = (cost.family || '') + '|' + names.join('|');
-        if (modelSelect.dataset.key !== key) {
-          modelSelect.innerHTML = names.map((name) => {
-            const label = name === 'all' ? t('allModels') : name;
-            return '<option value="' + esc(name) + '">' + esc(label) + '</option>';
-          }).join('');
-          modelSelect.dataset.key = key;
-        }
-        if (!modelSelect.dataset.ready) {
-          modelSelect.dataset.ready = '1';
-          modelSelect.addEventListener('change', () => {
-            state.model = modelSelect.value;
-            localStorage.setItem('transit-model', state.model);
-            load();
-          });
-        }
-        const want = cost.model || 'all';
-        modelSelect.value = names.indexOf(want) >= 0 ? want : 'all';
-      }
-      const billingSelect = $('cost-billing');
-      if (billingSelect) {
-        if (billingSelect.options && billingSelect.options.length > 0) {
-          billingSelect.options[0].text = t('subscription');
-        }
-        billingSelect.value = billing;
-        const countrySelect = $('fx-country');
-        if (countrySelect) countrySelect.disabled = !isApi;
-        if (!billingSelect.dataset.ready) {
-          billingSelect.dataset.ready = '1';
-          billingSelect.addEventListener('change', () => {
-            state.billing = billingSelect.value;
-            localStorage.setItem('transit-billing', state.billing);
-            load();
-          });
-        }
-      }
-      const select = $('fx-country');
-      if (select && !select.dataset.ready) {
-        const countries = [];
-        const seen = {};
-        (cost.fx_rates || []).forEach((row) => {
-          if (!row.country || seen[row.country]) return;
-          seen[row.country] = true;
-          countries.push(row);
-        });
-        countries.sort((a, b) => a.country.localeCompare(b.country));
-        select.innerHTML = countries.map((row) => {
-          const selected = row.country === (cost.fx_country || 'United States') ? ' selected' : '';
-          return '<option value="' + esc(row.country) + '"' + selected + '>' + esc(row.country) + ' (' + esc(row.currency_code) + ')</option>';
-        }).join('');
-        select.dataset.ready = '1';
-        select.addEventListener('change', () => {
-          state.country = select.value;
-          localStorage.setItem('transit-country', state.country);
-          load();
-        });
-      } else if (select && cost.fx_country && select.value !== cost.fx_country) {
-        select.value = cost.fx_country;
-      }
-      const meta = $('fx-meta');
-      if (meta) {
-        const fx = cost.local_fx;
-        meta.textContent = fx
-          ? ('1 USD = ' + fx.units_per_usd + ' ' + fx.currency_code + '  ' + (cost.fx_as_of || ''))
-          : '';
-      }
-      fillTable('cost-local-table', [
-        t('source'), t('model'), t('requests'), t('prompt'), t('cached'), t('cacheWrite'), t('completion'), t('tokens')
-      ], (cost.local || []).map((row) => [
-        row.source || '',
-        row.model || '',
-        num(row.requests),
-        num(row.prompt_tokens),
-        num(row.cached_prompt_tokens),
-        num(row.cache_write_tokens),
-        num(row.completion_tokens),
-        num(row.total_tokens)
-      ]));
-      fillTable('cost-usage-table', [
-        t('model'), t('requests'), t('prompt'), t('cached'), t('completion'), t('apiUsd'), t('chatgptCredits'), t('complete')
-      ], (cost.usage || []).map((row) => [
-        row.model || '',
-        row.requests || 0,
-        row.prompt_tokens || 0,
-        row.cached_prompt_tokens || 0,
-        row.completion_tokens || 0,
-        row.api_usd || row.error || '',
-        row.chatgpt_credits || '',
-        row.chatgpt_credits_complete === true ? 'yes' : (row.error ? '' : 'no')
-      ]));
-      renderFlame(cost.ticks || []);
-      fillTable('cost-rate-table', [
-        t('vendor'), t('model'), t('tier'), t('context'), t('inputUsd'), t('cachedUsd'), t('outputUsd'), t('inputCredits'), t('cachedCredits'), t('outputCredits')
-      ], (cost.rate_card || []).map((row) => [
-        row.vendor || '',
-        row.model || '',
-        row.tier || '',
-        row.context || '',
-        row.input_usd_per_1m || '',
-        row.cached_usd_per_1m || '',
-        row.output_usd_per_1m || '',
-        row.input_credits_per_1m || '',
-        row.cached_credits_per_1m || '',
-        row.output_credits_per_1m || ''
-      ]));
-    }
-
-    function compactNum(value) {
-      const n = Number(value) || 0;
-      if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
-      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-      if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-      return String(Math.round(n));
-    }
-
-    function renderFlame(ticks) {
-      const svg = $('cost-flame-svg');
-      const last = $('flame-last');
-      if (!svg) return;
-      const W = 960, H = 280, padL = 58, padR = 16, top = 18, plotB = 252;
-      const plotW = W - padL - padR;
-      if (!ticks.length) {
-        if (last) last.textContent = '';
-        svg.innerHTML = '<text x="480" y="140" text-anchor="middle" fill="#667085" font-size="13">' + esc(t('noLocalUsage')) + '</text>';
-        return;
-      }
-      const daily = ticks.map((p) => Number(p.tokens) || 0);
-      let sum = 0;
-      const mountain = daily.map((v) => { sum += v; return sum; });
-      const n = ticks.length;
-      const maxM = Math.max(mountain[n - 1], 1);
-      const xAt = (i) => padL + (n === 1 ? plotW / 2 : i * plotW / (n - 1));
-      const yM = (v) => top + (1 - v / maxM) * (plotB - top);
-      let area = 'M ' + xAt(0) + ' ' + plotB;
-      mountain.forEach((v, i) => { area += ' L ' + xAt(i) + ' ' + yM(v); });
-      area += ' L ' + xAt(n - 1) + ' ' + plotB + ' Z';
-      const line = mountain.map((v, i) => (i ? 'L' : 'M') + ' ' + xAt(i) + ' ' + yM(v)).join(' ');
-      if (last) last.textContent = ticks[0].day + ' → ' + ticks[n - 1].day + '  ' + compactNum(mountain[n - 1]);
-      const grid = [0, 0.5, 1].map((p) => {
-        const v = maxM * (1 - p);
-        const y = top + p * (plotB - top);
-        return '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '" stroke="#2a3038" stroke-width="1"/>'
-          + '<text x="' + (padL - 6) + '" y="' + (y + 3) + '" text-anchor="end" fill="#8b93a0" font-size="10">' + compactNum(v) + '</text>';
-      }).join('');
-      svg.innerHTML = '<defs><linearGradient id="flameFill" x1="0" y1="1" x2="0" y2="0">'
-        + '<stop offset="0%" stop-color="#3a0a00" stop-opacity="0.2"/>'
-        + '<stop offset="100%" stop-color="#ff8a00" stop-opacity="0.7"/>'
-        + '</linearGradient></defs>'
-        + grid
-        + '<path id="flame-area" d="' + area + '" fill="url(#flameFill)"/>'
-        + '<path id="flame-line" d="' + line + '" fill="none" stroke="#ffd36a" stroke-width="1.6"/>';
-    }
-
     function applyChrome() {
       document.documentElement.dataset.theme = state.theme;
       document.documentElement.lang = state.lang;
@@ -3985,7 +2475,11 @@
     }
 
     function setTab(tab) {
-      const button = document.querySelector('.nav button[data-tab="' + tab + '"]') || document.querySelector('.nav button[data-tab="overview"]');
+      let lookupTab = tab;
+      if ((lookupTab === 'services' || lookupTab === 'core') && !document.querySelector('.nav button[data-tab="' + lookupTab + '"]')) {
+        lookupTab = 'routes';
+      }
+      const button = document.querySelector('.nav button[data-tab="' + lookupTab + '"]') || document.querySelector('.nav button[data-tab="overview"]');
       if (button) {
         closeDrawers();
         state.queries[state.tab] = state.query;
@@ -3999,7 +2493,21 @@
         });
         if ($('title')) $('title').textContent = t(button.dataset.tab);
         document.querySelectorAll('main section').forEach((section) => section.classList.add('hidden'));
-        const targetSec = $('tab-' + button.dataset.tab);
+
+        let targetId = 'tab-' + button.dataset.tab;
+        if (button.dataset.tab === 'routes' || button.dataset.tab === 'services') {
+          targetId = $('tab-routes') ? 'tab-routes' : 'tab-services';
+        } else if (button.dataset.tab === 'subscription') {
+          targetId = 'tab-llm';
+          state.llmMode = 'subscription';
+        } else if (button.dataset.tab === 'provider' || button.dataset.tab === 'model') {
+          targetId = 'tab-llm';
+          state.llmMode = 'api';
+        } else if (button.dataset.tab === 'server') {
+          targetId = 'tab-mcp';
+        }
+
+        const targetSec = $(targetId);
         if (targetSec) targetSec.classList.remove('hidden');
         history.replaceState(null, '', '#' + button.dataset.tab);
         render();
@@ -4018,14 +2526,8 @@
         const model = encodeURIComponent(state.model || localStorage.getItem('transit-model') || 'all');
         const billing = encodeURIComponent(state.billing || localStorage.getItem('transit-billing') || 'subscription');
         const endpoints = [{ key: 'config', url: '/debug/config' }];
-        if (state.tab === 'llm') endpoints.push({ key: 'llmData', url: '/debug/llm' });
-        if (state.tab === 'cost-control') endpoints.push({ key: 'cost', url: '/debug/cost?country=' + country + '&family=' + family + '&model=' + model + '&billing=' + billing });
-        if (state.tab === 'observability') endpoints.push({ key: 'obsData', url: '/debug/observability' });
-        if (state.tab === 'services') endpoints.push({ key: 'servicesData', url: '/debug/services' });
-        if (state.tab === 'security') endpoints.push(
-          { key: 'secPosture', url: '/debug/security/posture' },
-          { key: 'secEvents', url: '/debug/security/events' },
-          { key: 'secIdentities', url: '/debug/security/identities' });
+        if (['llm', 'subscription', 'provider', 'model'].includes(state.tab)) endpoints.push({ key: 'llmData', url: '/debug/llm' });
+        if (state.tab === 'services' || state.tab === 'routes') endpoints.push({ key: 'servicesData', url: '/debug/services' });
         const results = await Promise.allSettled(endpoints.map(async item => {
           const response = await managementFetch(item.url, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
           if (!response.ok) throw new Error(item.url.split('?')[0] + ' returned ' + response.status);

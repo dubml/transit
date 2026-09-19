@@ -78,6 +78,7 @@
       height: auto;
     }
     .nav-group { margin-top: 16px; }
+    .nav-item-standalone { margin-top: 16px; }
     .nav-label {
       padding: 8px 16px 6px;
       color: var(--muted);

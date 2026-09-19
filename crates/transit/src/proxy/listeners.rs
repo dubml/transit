@@ -3,9 +3,9 @@ use axum::{routing::any, Router};
 use futures_util::StreamExt;
 use std::{collections::BTreeMap, io, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::{sync::watch, task::JoinSet};
-use crate::{ConfigConflict, ListenerProtocol, RuntimeConfig};
+use crate::{ConfigConflict, RuntimeConfig};
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Transport {
     Http,
     Https,
@@ -133,12 +133,12 @@ fn desired_listeners(
     let mut errors = Vec::new();
 
     if let Some(llm) = &config.llm {
-        let addr = SocketAddr::from(([0, 0, 0, 0], llm.default_port));
-        if llm.default_port == 0 {
+        let addr = SocketAddr::from(([0, 0, 0, 0], llm.port));
+        if llm.port == 0 {
             invalid.insert(addr);
             errors.push(ConfigConflict::new(
                 "llm-port-config",
-                "LLM defaultPort requires a nonzero port number",
+                "LLM port requires a nonzero port number",
             ));
         } else {
             desired.insert(addr, Transport::Http);
@@ -146,12 +146,12 @@ fn desired_listeners(
     }
 
     if let Some(mcp) = &config.mcp {
-        let addr = SocketAddr::from(([0, 0, 0, 0], mcp.default_port));
-        if mcp.default_port == 0 {
+        let addr = SocketAddr::from(([0, 0, 0, 0], mcp.port));
+        if mcp.port == 0 {
             invalid.insert(addr);
             errors.push(ConfigConflict::new(
                 "mcp-port-config",
-                "MCP defaultPort requires a nonzero port number",
+                "MCP port requires a nonzero port number",
             ));
         } else if desired
             .insert(addr, Transport::Http)
@@ -165,33 +165,53 @@ fn desired_listeners(
         }
     }
 
-    for port_cfg in &config.ports {
-        let addr = SocketAddr::from(([0, 0, 0, 0], port_cfg.default_port));
-        if port_cfg.default_port == 0 {
+    if let Some(ui) = &config.ui {
+        let addr = SocketAddr::from(([0, 0, 0, 0], ui.port));
+        if ui.port == 0 {
             invalid.insert(addr);
             errors.push(ConfigConflict::new(
-                "listener-config",
-                "Port requires a nonzero port number",
+                "ui-port-config",
+                "UI port requires a nonzero port number",
+            ));
+        } else if desired
+            .insert(addr, Transport::Http)
+            .is_some_and(|old| old != Transport::Http)
+        {
+            invalid.insert(addr);
+            errors.push(ConfigConflict::new(
+                "ui-bind-conflict",
+                format!("UI port at {} conflicts with existing listener", addr),
+            ));
+        }
+    }
+
+    for listener in config.listeners() {
+        let port = listener.port();
+        let addr = SocketAddr::from(([0, 0, 0, 0], port));
+        if port == 0 {
+            invalid.insert(addr);
+            errors.push(ConfigConflict::new(
+                "route-listener-config",
+                "Route listener requires a nonzero port number",
             ));
             continue;
         }
-        for listener in &port_cfg.listeners {
-            let transport = match listener.protocol {
-                ListenerProtocol::Http | ListenerProtocol::Tcp | ListenerProtocol::Grpc => Transport::Http,
-                ListenerProtocol::Https | ListenerProtocol::Tls => Transport::Https,
-            };
-            if desired
-                .insert(addr, transport.clone())
-                .is_some_and(|old| old != transport)
-            {
+        let transport = if listener.is_tls() {
+            Transport::Https
+        } else {
+            Transport::Http
+        };
+        if let Some(existing) = desired.insert(addr, transport.clone()) {
+            if existing != transport {
                 invalid.insert(addr);
                 errors.push(ConfigConflict::new(
-                    "listener-bind-conflict",
+                    "listener-transport-conflict",
                     format!("Listeners at {} require incompatible transports", addr),
                 ));
             }
         }
     }
+
     for address in invalid {
         desired.remove(&address);
     }
@@ -249,7 +269,7 @@ async fn serve_socket(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ListenerConfig, ListenerProtocol, PortConfig, RuntimeConfig};
+    use crate::{ListenerProtocol, RouteListenerConfig, RoutesConfig, RuntimeConfig};
 
     #[test]
     fn test_desired_listeners_empty_produces_no_conflicts() {
@@ -260,19 +280,22 @@ mod tests {
     }
 
     #[test]
-    fn test_desired_listeners_parses_port_listeners() {
+    fn test_desired_listeners_parses_gateway_listeners() {
         let config = RuntimeConfig {
             version: Some("v1".into()),
             llm: None,
             mcp: None,
-            ports: vec![PortConfig {
-                default_port: 6010,
-                listeners: vec![ListenerConfig {
-                    name: "http-listener".into(),
+            ui: None,
+            routes: Some(RoutesConfig {
+                listeners: vec![RouteListenerConfig {
+                    name: "http-route".into(),
+                    port: 6010,
                     protocol: ListenerProtocol::Http,
-                    routes: vec![],
+                    hostname: None,
+                    tls: None,
+                    targets: vec![],
                 }],
-            }],
+            }),
         };
         let (desired, errors) = desired_listeners(&config);
         assert_eq!(desired.len(), 1);
@@ -286,12 +309,14 @@ mod tests {
         let config = RuntimeConfig {
             version: Some("v1".into()),
             llm: Some(crate::LlmConfig {
-                default_port: 6020,
+                port: 6020,
+                subscriptions: vec![],
                 providers: vec![],
                 models: vec![],
             }),
             mcp: None,
-            ports: vec![],
+            ui: None,
+            routes: None,
         };
         let (desired, errors) = desired_listeners(&config);
         assert_eq!(desired.len(), 1);
@@ -306,19 +331,66 @@ mod tests {
             version: Some("v1".into()),
             llm: None,
             mcp: Some(crate::McpConfig {
-                default_port: 6030,
+                port: 6030,
                 session_mode: crate::McpSessionMode::Stateful,
                 prefix_policy: crate::McpPrefixPolicy::Always,
                 failure_policy: crate::McpFailurePolicy::FailOpen,
                 policies: vec![],
                 targets: vec![],
             }),
-            ports: vec![],
+            ui: None,
+            routes: None,
         };
         let (desired, errors) = desired_listeners(&config);
         assert_eq!(desired.len(), 1);
         assert!(errors.is_empty());
         let addr = SocketAddr::from(([0, 0, 0, 0], 6030));
         assert!(desired.contains_key(&addr));
+    }
+
+    #[test]
+    fn test_desired_listeners_parses_ui_port() {
+        let config = RuntimeConfig {
+            version: Some("v1".into()),
+            llm: None,
+            mcp: None,
+            ui: Some(crate::UiConfig {
+                port: 6000,
+            }),
+            routes: None,
+        };
+        let (desired, errors) = desired_listeners(&config);
+        assert_eq!(desired.len(), 1);
+        assert!(errors.is_empty());
+        let addr = SocketAddr::from(([0, 0, 0, 0], 6000));
+        assert!(desired.contains_key(&addr));
+    }
+
+    #[test]
+    fn test_desired_listeners_parses_tls_listener() {
+        let config = RuntimeConfig {
+            version: Some("v1".into()),
+            llm: None,
+            mcp: None,
+            ui: None,
+            routes: Some(RoutesConfig {
+                listeners: vec![RouteListenerConfig {
+                    name: "https-route".into(),
+                    port: 443,
+                    protocol: ListenerProtocol::Https,
+                    hostname: Some("*.example.com".into()),
+                    tls: Some(crate::TlsConfig {
+                        certificate: Some("/path/to/cert.pem".into()),
+                        private_key: Some("/path/to/key.pem".into()),
+                    }),
+                    targets: vec![],
+                }],
+            }),
+        };
+        let (desired, errors) = desired_listeners(&config);
+        assert_eq!(desired.len(), 1);
+        assert!(errors.is_empty());
+        let addr = SocketAddr::from(([0, 0, 0, 0], 443));
+        assert_eq!(desired.get(&addr), Some(&Transport::Https));
     }
 }

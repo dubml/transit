@@ -713,7 +713,6 @@ function renderLlmWorkspace() {
   const data = state.llmData || { accounts: [], providers: [], backends: [] };
   if (state.llmMode === 'local') state.llmMode = 'subscription';
   const mode = state.llmMode || 'subscription', family = state.llmFamily || 'all';
-  const modes = [['subscription', uiText('Account subscription', '账户订阅')], ['api', uiText('Platform', '平台')]];
   const selected = data.backends.filter(b => b.mode === mode && (family === 'all' || b.family === family));
   const error = state.endpointErrors['/debug/llm'];
   const subscriptionActions = mode === 'subscription' ? '<div class="llm-heading-actions">'
@@ -721,13 +720,12 @@ function renderLlmWorkspace() {
     + '<button id="llm-import" type="button" class="quiet-button llm-icon-button" title="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '" aria-label="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '">' + llmIcon('upload') + '</button></div>' : '';
   const platformActions = mode === 'api' ? '<div class="llm-heading-actions"><button id="llm-add-model" type="button" class="quiet-button llm-primary"' + (data.platform_writable && (data.providers || []).length ? '' : ' disabled') + '>' + uiText('Add model', '添加模型') + '</button><button id="llm-create-provider" type="button" class="quiet-button" title="' + esc(data.platform_writable ? uiText('Create Providers', '创建 Provider') : uiText('A writable local runtime configuration is required', '需要可写的本地运行配置')) + '"' + (data.platform_writable ? '' : ' disabled') + '>' + uiText('Create Providers', '创建 Provider') + '</button></div>' : '';
   const platformHeader = mode === 'api' ? '<div class="llm-platform-table-head"><span>' + uiText('Name', '名称') + '</span><span>' + uiText('Provider', 'Provider') + '</span><span>' + uiText('Outgoing model', '输出模型') + '</span><span>' + uiText('Policy state', '策略状态') + '</span></div>' : '';
-  host.innerHTML = '<div class="llm-workspace"><div class="llm-workspace-toolbar"><div class="llm-mode-tabs" role="group" aria-label="' + uiText('LLM mode', 'LLM 模式') + '">' + modes.map(([id, label]) => '<button type="button" data-mode="' + id + '" aria-pressed="' + (mode === id) + '">' + label + '</button>').join('') + '</div></div>'
+  host.innerHTML = '<div class="llm-workspace">'
     + llmProviderTabs(data, mode, family, subscriptionActions + platformActions)
     + (error ? '<div class="data-notice" role="alert">' + esc(error) + ' · ' + uiText('Displayed data may be stale.', '当前显示的数据可能已过期。') + '</div>' : '')
     + platformHeader + '<div class="llm-accounts-grid' + (mode === 'api' ? ' llm-platform-list' : '') + '" id="llm-accounts-grid"></div></div>';
   const actions = $('page-actions');
   if (actions) actions.innerHTML = '';
-  host.querySelectorAll('[data-mode]').forEach(button => button.onclick = () => { state.llmMode = button.dataset.mode; renderLlm(); });
   host.querySelectorAll('.llm-provider-tab').forEach(button => button.onclick = () => { state.llmFamily = button.dataset.family; renderLlm(); });
   if ($('llm-import')) $('llm-import').onclick = () => llmChooseFile();
   if ($('llm-login')) $('llm-login').onclick = () => llmLoginDialog(family);
