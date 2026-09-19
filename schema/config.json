@@ -23,11 +23,25 @@
         }
       ]
     },
-    "ports": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/PortConfig"
-      }
+    "routes": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RoutesConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ui": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UiConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "version": {
       "type": [
@@ -77,26 +91,6 @@
         "name"
       ]
     },
-    "ListenerConfig": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string",
-          "default": "default"
-        },
-        "protocol": {
-          "$ref": "#/$defs/ListenerProtocol",
-          "default": "http"
-        },
-        "routes": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/RouteConfig"
-          }
-        }
-      }
-    },
     "ListenerProtocol": {
       "type": "string",
       "enum": [
@@ -110,23 +104,29 @@
     "LlmConfig": {
       "type": "object",
       "properties": {
-        "defaultPort": {
-          "type": "integer",
-          "format": "uint16",
-          "default": 6020,
-          "maximum": 65535,
-          "minimum": 0
-        },
         "models": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/LlmModelItem"
           }
         },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "default": 6020,
+          "maximum": 65535,
+          "minimum": 0
+        },
         "providers": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/LlmProviderConfig"
+          }
+        },
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LlmSubscriptionConfig"
           }
         }
       }
@@ -134,42 +134,11 @@
     "LlmModelItem": {
       "anyOf": [
         {
-          "$ref": "#/$defs/LlmModelSubscription"
+          "$ref": "#/$defs/LlmSubscriptionConfig"
         },
         {
           "$ref": "#/$defs/LlmProviderConfig"
         }
-      ]
-    },
-    "LlmModelSubscription": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "type": "string"
-        },
-        "modelAlias": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/ModelAlias"
-          }
-        },
-        "modelIgnore": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "name": {
-          "type": "string"
-        },
-        "subscribe": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "subscribe",
-        "id",
-        "name"
       ]
     },
     "LlmProviderConfig": {
@@ -222,16 +191,40 @@
         "name"
       ]
     },
+    "LlmSubscriptionConfig": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "excludedModels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "modelAliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ModelAliasConfig"
+          }
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "id",
+        "account"
+      ]
+    },
     "McpConfig": {
       "type": "object",
       "properties": {
-        "defaultPort": {
-          "type": "integer",
-          "format": "uint16",
-          "default": 6030,
-          "maximum": 65535,
-          "minimum": 0
-        },
         "failurePolicy": {
           "$ref": "#/$defs/McpFailurePolicy",
           "default": "failClosed"
@@ -239,6 +232,13 @@
         "policies": {
           "type": "array",
           "items": true
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "default": 6030,
+          "maximum": 65535,
+          "minimum": 0
         },
         "prefixPolicy": {
           "$ref": "#/$defs/McpPrefixPolicy",
@@ -252,7 +252,7 @@
           "type": "array",
           "default": [],
           "items": {
-            "$ref": "#/$defs/McpTarget"
+            "$ref": "#/$defs/McpTargetConfig"
           }
         }
       }
@@ -264,7 +264,7 @@
         "failOpen"
       ]
     },
-    "McpHttpTarget": {
+    "McpHttpTargetConfig": {
       "type": "object",
       "properties": {
         "host": {
@@ -284,7 +284,7 @@
             "null"
           ]
         },
-        "inline": {
+        "url": {
           "type": [
             "string",
             "null"
@@ -292,7 +292,7 @@
         }
       }
     },
-    "McpOpenApiTarget": {
+    "McpOpenApiTargetConfig": {
       "type": "object",
       "properties": {
         "host": {
@@ -321,7 +321,7 @@
         "stateless"
       ]
     },
-    "McpStdioTarget": {
+    "McpStdioTargetConfig": {
       "type": "object",
       "properties": {
         "args": {
@@ -348,13 +348,13 @@
         "cmd"
       ]
     },
-    "McpTarget": {
+    "McpTargetConfig": {
       "type": "object",
       "properties": {
         "mcp": {
           "anyOf": [
             {
-              "$ref": "#/$defs/McpHttpTarget"
+              "$ref": "#/$defs/McpHttpTargetConfig"
             },
             {
               "type": "null"
@@ -367,7 +367,7 @@
         "openapi": {
           "anyOf": [
             {
-              "$ref": "#/$defs/McpOpenApiTarget"
+              "$ref": "#/$defs/McpOpenApiTargetConfig"
             },
             {
               "type": "null"
@@ -377,7 +377,7 @@
         "stdio": {
           "anyOf": [
             {
-              "$ref": "#/$defs/McpStdioTarget"
+              "$ref": "#/$defs/McpStdioTargetConfig"
             },
             {
               "type": "null"
@@ -389,19 +389,19 @@
         "name"
       ]
     },
-    "ModelAlias": {
+    "ModelAliasConfig": {
       "type": "object",
       "properties": {
-        "cur": {
+        "alias": {
           "type": "string"
         },
-        "src": {
+        "model": {
           "type": "string"
         }
       },
       "required": [
-        "src",
-        "cur"
+        "model",
+        "alias"
       ]
     },
     "PathMatch": {
@@ -427,25 +427,6 @@
         }
       }
     },
-    "PortConfig": {
-      "type": "object",
-      "properties": {
-        "defaultPort": {
-          "type": "integer",
-          "format": "uint16",
-          "default": 6010,
-          "maximum": 65535,
-          "minimum": 0
-        },
-        "listeners": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ListenerConfig"
-          }
-        }
-      }
-    },
     "RouteBackend": {
       "anyOf": [
         {
@@ -464,45 +445,45 @@
         }
       ]
     },
-    "RouteConfig": {
+    "RouteListenerConfig": {
       "type": "object",
       "properties": {
-        "a2a": {
+        "hostname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "default": "default"
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "default": 6010,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "protocol": {
+          "$ref": "#/$defs/ListenerProtocol",
+          "default": "http"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteTargetConfig"
+          }
+        },
+        "tls": {
           "anyOf": [
             {
-              "$ref": "#/$defs/A2aConfig"
+              "$ref": "#/$defs/TlsConfig"
             },
             {
               "type": "null"
             }
           ]
-        },
-        "backends": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/RouteBackend"
-          }
-        },
-        "endpoints": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "matches": {
-          "type": "array",
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/RouteMatch"
-          }
-        },
-        "name": {
-          "type": "string",
-          "default": "default-route"
-        },
-        "policies": {
-          "type": "array",
-          "items": true
         }
       }
     },
@@ -536,6 +517,118 @@
               "type": "null"
             }
           ]
+        }
+      }
+    },
+    "RoutePolicies": {
+      "type": "object",
+      "properties": {
+        "a2a": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/A2aConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "RouteTargetConfig": {
+      "type": "object",
+      "properties": {
+        "a2a": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/A2aConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "backends": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteBackend"
+          }
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "matches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteMatch"
+          }
+        },
+        "methods": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "type": "string",
+          "default": "default-target"
+        },
+        "policies": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoutePolicies"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RoutesConfig": {
+      "type": "object",
+      "properties": {
+        "listeners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RouteListenerConfig"
+          }
+        }
+      }
+    },
+    "TlsConfig": {
+      "type": "object",
+      "properties": {
+        "certificate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "privateKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "UiConfig": {
+      "type": "object",
+      "properties": {
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "default": 6000,
+          "maximum": 65535,
+          "minimum": 0
         }
       }
     }

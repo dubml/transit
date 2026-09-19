@@ -7,7 +7,6 @@ use std::env;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Instant;
 use tracing::{debug, warn, Instrument};
 use crate::{MatchInput, RuntimeConfig, HTTP_LISTENER_PORT};
 
@@ -176,47 +175,21 @@ async fn forward_http(
         host: &host,
         path: &path,
         headers: &headers,
+        method: Some(&method),
     };
 
     let route = match server.config.route_for(server.listener_port, &input) {
         Ok(route) => route,
         Err(err) => {
-            record_http_observation(
-                &server,
-                HttpObservation {
-                    route: "none",
-                    cluster: "none",
-                    method: &method,
-                    host: &host,
-                    path: &path,
-                    status_code: StatusCode::NOT_FOUND.as_u16(),
-                    latency_ms: 0,
-                    upstream: "none",
-                },
-            );
             return Err((StatusCode::NOT_FOUND, err.to_string()));
         }
     };
     let route_name = route.name.clone();
-    record_http_span(&server, &route_name, "none", "none", 0, 0);
 
     let target_hosts = route.target_hosts();
     let endpoint_raw = match target_hosts.first() {
         Some(ep) => (*ep).to_string(),
         None => {
-            record_http_observation(
-                &server,
-                HttpObservation {
-                    route: &route_name,
-                    cluster: "none",
-                    method: &method,
-                    host: &host,
-                    path: &path,
-                    status_code: StatusCode::SERVICE_UNAVAILABLE.as_u16(),
-                    latency_ms: 0,
-                    upstream: "none",
-                },
-            );
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 "route has no endpoints or backends".to_string(),
@@ -232,24 +205,10 @@ async fn forward_http(
     let scheme = if is_https { "https" } else { "http" };
 
     let upstream = clean_endpoint.to_string();
-    record_http_span(&server, &route_name, "none", &upstream, 0, 0);
 
     let upstream_uri = format!("{}://{}{}", scheme, upstream, path)
         .parse::<Uri>()
         .map_err(|e| {
-            record_http_observation(
-                &server,
-                HttpObservation {
-                    route: &route_name,
-                    cluster: "none",
-                    method: &method,
-                    host: &host,
-                    path: &path,
-                    status_code: StatusCode::BAD_GATEWAY.as_u16(),
-                    latency_ms: 0,
-                    upstream: &upstream,
-                },
-            );
             (
                 StatusCode::BAD_GATEWAY,
                 format!("invalid upstream uri: {e}"),
@@ -277,7 +236,6 @@ async fn forward_http(
         Version::HTTP_11
     };
 
-    let started = Instant::now();
     let result = if is_https {
         server.clients.request_web(req).await
     } else if use_h2 {
@@ -286,56 +244,7 @@ async fn forward_http(
         server.clients.request_plain(req).await
     };
 
-    let latency_ms = started.elapsed().as_millis() as u64;
-    let status = result
-        .as_ref()
-        .map(|response| response.status().as_u16())
-        .unwrap_or_else(|(status, _)| status.as_u16());
-    record_http_observation(
-        &server,
-        HttpObservation {
-            route: &route_name,
-            cluster: "none",
-            method: &method,
-            host: &host,
-            path: &path,
-            status_code: status,
-            latency_ms,
-            upstream: &upstream,
-        },
-    );
-
     let mut response = result?;
     remove_connection_headers(response.headers_mut());
     Ok(response)
-}
-
-#[allow(dead_code)]
-struct HttpObservation<'a> {
-    route: &'a str,
-    cluster: &'a str,
-    method: &'a str,
-    host: &'a str,
-    path: &'a str,
-    status_code: u16,
-    latency_ms: u64,
-    upstream: &'a str,
-}
-
-fn record_http_observation(server: &ProxyServer, obs: HttpObservation<'_>) {
-    let _ = (server, obs);
-}
-
-fn record_http_span(
-    _server: &ProxyServer,
-    route: &str,
-    cluster: &str,
-    upstream: &str,
-    _status_code: u16,
-    _latency_ms: u64,
-) {
-    let span = tracing::Span::current();
-    span.record("http.route", route);
-    span.record("transit.cluster", cluster);
-    span.record("upstream.address", upstream);
 }

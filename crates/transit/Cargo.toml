@@ -23,9 +23,6 @@ futures-util.workspace = true
 hyper.workspace = true
 hyper-rustls.workspace = true
 jsonwebtoken.workspace = true
-opentelemetry.workspace = true
-opentelemetry-otlp.workspace = true
-opentelemetry_sdk.workspace = true
 rustls.workspace = true
 rustls-pemfile.workspace = true
 x509-parser.workspace = true
@@ -33,11 +30,9 @@ tokio.workspace = true
 tokio-stream = { workspace = true, features = ["net"] }
 tokio-rustls = "0.24"
 tracing.workspace = true
-tracing-opentelemetry.workspace = true
 
 [dev-dependencies]
 proptest = { version = "1.11.0", default-features = false, features = ["std", "bit-set"] }
-opentelemetry_sdk.workspace = true
 rcgen = "0.12"
 tokio-stream = { workspace = true, features = ["net"] }
 tonic.workspace = true
