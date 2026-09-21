@@ -10,8 +10,14 @@ fn test_version_json_flag() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let json: serde_json::Value = serde_json::from_str(&stdout).expect("version output should be valid JSON");
-    assert_eq!(json.get("name").and_then(|v| v.as_str()), Some("transit-app"));
     assert!(json.get("version").is_some());
+    let target = json.get("target").and_then(|v| v.as_str()).expect("target field exists");
+    assert_eq!(target, format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH));
+    assert!(json.get("platform").is_none());
+    assert!(json.get("gitversion").is_none());
+    assert!(json.get("name").is_none());
+    assert!(json.get("license").is_none());
+    assert!(json.get("repository").is_none());
 }
 
 #[test]

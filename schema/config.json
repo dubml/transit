@@ -3,6 +3,16 @@
   "title": "RuntimeConfig",
   "type": "object",
   "properties": {
+    "config": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BootstrapConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "llm": {
       "anyOf": [
         {
@@ -59,6 +69,83 @@
             "string",
             "null"
           ]
+        }
+      }
+    },
+    "BootstrapConfig": {
+      "type": "object",
+      "properties": {
+        "adminAddr": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "database": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabaseConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dns": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DnsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "logging": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoggingConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "numWorkerThreads": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0
+        },
+        "readinessAddr": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DatabaseConfig": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "DnsConfig": {
+      "type": "object",
+      "properties": {
+        "nameservers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -141,28 +228,7 @@
         }
       ]
     },
-    "LlmProviderConfig": {
-      "type": "object",
-      "properties": {
-        "models": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/LlmProviderModel"
-          }
-        },
-        "name": {
-          "type": "string"
-        },
-        "provider": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "provider",
-        "name"
-      ]
-    },
-    "LlmProviderModel": {
+    "LlmPlatformModel": {
       "type": "object",
       "properties": {
         "apiKey": {
@@ -188,6 +254,27 @@
         }
       },
       "required": [
+        "name"
+      ]
+    },
+    "LlmProviderConfig": {
+      "type": "object",
+      "properties": {
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LlmPlatformModel"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
         "name"
       ]
     },
@@ -221,6 +308,23 @@
         "id",
         "account"
       ]
+    },
+    "LoggingConfig": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "level": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "McpConfig": {
       "type": "object",
@@ -626,7 +730,7 @@
         "port": {
           "type": "integer",
           "format": "uint16",
-          "default": 6000,
+          "default": 6010,
           "maximum": 65535,
           "minimum": 0
         }

@@ -13,7 +13,8 @@
         services: 'APIs',
         routes: 'Routes',
         subscription: 'Subscription',
-        provider: 'Provider',
+        platform: 'Platform',
+        provider: 'Platform',
         model: 'Model',
         server: 'Server',
         search: 'Search',
@@ -22,7 +23,8 @@
         apiServices: 'API services',
         mcpPlugins: 'MCP plugins',
         agents: 'Agents',
-        llmProviders: 'LLM providers',
+        llmPlatforms: 'Platforms',
+        llmProviders: 'Platforms',
         overviewSubtitle: 'Monitor your gateway\'s configuration, gateway assets, and runtime status',
         viewServices: 'View APIs',
         viewRoutes: 'View Routes',
@@ -79,7 +81,8 @@
         pickService: 'Select a service',
         unhealthy: 'unhealthy',
         kind: 'Kind',
-        provider: 'Provider',
+        platform: 'Platform',
+        provider: 'Platform',
         id: 'ID',
         baseUrl: 'Base URL',
         endpoint: 'Endpoint',
@@ -88,7 +91,8 @@
         noConfig: 'No configuration',
         apiService: 'API service',
         mcpPlugin: 'MCP plugin',
-        llmProvider: 'LLM provider',
+        llmPlatform: 'Platform',
+        llmProvider: 'Platform',
         auth: 'Auth',
         rate: 'Rate',
         tokens: 'Tokens',
@@ -257,7 +261,8 @@
         services: 'APIs',
         routes: '路由',
         subscription: '订阅',
-        provider: '供应商',
+        platform: '平台',
+        provider: '平台',
         model: '模型',
         server: '服务器',
         search: '搜索',
@@ -266,7 +271,8 @@
         apiServices: 'API 服务',
         mcpPlugins: 'MCP 插件',
         agents: '智能体',
-        llmProviders: 'LLM 供应商',
+        llmPlatforms: '平台',
+        llmProviders: '平台',
         overviewSubtitle: '监控网关配置、网关资产与实时运行状态',
         viewServices: '查看 APIs',
         viewRoutes: '查看路由',
@@ -323,7 +329,8 @@
         pickService: '选择服务',
         unhealthy: '不健康',
         kind: '类型',
-        provider: '供应商',
+        platform: '平台',
+        provider: '平台',
         id: 'ID',
         baseUrl: '基址',
         endpoint: '端点',
@@ -332,7 +339,8 @@
         noConfig: '没有配置',
         apiService: 'API 服务',
         mcpPlugin: 'MCP 插件',
-        llmProvider: 'LLM 供应商',
+        llmPlatform: '平台',
+        llmProvider: '平台',
         auth: '鉴权',
         rate: '限流',
         tokens: 'Token',
@@ -569,7 +577,7 @@
       };
       const pair = descriptions[state.tab] || descriptions.overview;
       $('page-description').textContent = uiText(...pair);
-      const isLlmTab = ['llm', 'subscription', 'provider', 'model'].includes(state.tab);
+      const isLlmTab = ['llm', 'subscription', 'platform', 'provider', 'model'].includes(state.tab);
       const isMcpTab = ['mcp', 'server'].includes(state.tab);
       const isA2aTab = state.tab === 'a2a';
       const aiPage = isMcpTab || isA2aTab;
@@ -594,6 +602,7 @@
       const scopes = {
         llm: ['/debug/llm'],
         subscription: ['/debug/llm'],
+        platform: ['/debug/llm'],
         provider: ['/debug/llm'],
         model: ['/debug/llm'],
         mcp: [],
@@ -615,11 +624,11 @@
     function applyPageFilter() {
       let page = $('tab-' + state.tab);
       if (!page) {
-        if (['subscription', 'provider', 'model'].includes(state.tab)) page = $('tab-llm');
+        if (['subscription', 'platform', 'provider', 'model'].includes(state.tab)) page = $('tab-llm');
         else if (state.tab === 'server') page = $('tab-mcp');
       }
       if (!page) return;
-      const selector = ['llm', 'subscription', 'provider', 'model'].includes(state.tab) ? '.llm-account-card' : state.tab === 'overview' ? '.ov-kpi-card' : '.table-wrap tbody tr';
+      const selector = ['llm', 'subscription', 'platform', 'provider', 'model'].includes(state.tab) ? '.llm-account-card' : state.tab === 'overview' ? '.ov-kpi-card' : '.table-wrap tbody tr';
       const items = Array.from(page.querySelectorAll(selector)).filter(el =>
         !el.closest('.svc-drawer, .obs-trace-drawer, .sec-drawer, [style*="display:none"], [style*="display: none"]') && !el.querySelector('.ui-empty'));
       const q = state.query.trim().toLowerCase();
@@ -1956,8 +1965,8 @@
       backendsOf(config, 'a2a').forEach((backend) => {
         rows.push([t('agent'), backend.name, backend.agent || backend.endpoint || '']);
       });
-      (config.providers || []).forEach((provider) => {
-        rows.push([t('llmProvider'), provider.name, provider.kind || provider.base_url || '']);
+      (config.platforms || config.providers || []).forEach((provider) => {
+        rows.push([t('llmPlatform'), provider.name, provider.kind || provider.base_url || '']);
       });
       return rows;
     }
@@ -1988,6 +1997,7 @@
         services: renderServices,
         llm: renderLlm,
         subscription: renderLlm,
+        platform: renderLlm,
         provider: renderLlm,
         model: renderLlm,
         mcp: renderMcp,
@@ -2005,7 +2015,7 @@
       const mcp = backendsOf(config, 'mcp');
       const agents = backendsOf(config, 'a2a');
       const llmBackends = backendsOf(config, 'llm');
-      const providers = config.providers || [];
+      const platforms = config.platforms || config.providers || [];
       const gateway = gatewayServices(config);
       // 1. Overview Dashboard Updates
       const invList = inventory(config);
@@ -2020,7 +2030,8 @@
       if ($('ov-stat-a2a-channels')) $('ov-stat-a2a-channels').textContent = String(agents.length);
 
       if ($('metric-llm')) $('metric-llm').textContent = llmBackends.length;
-      if ($('ov-stat-providers')) $('ov-stat-providers').textContent = String(providers.length);
+      if ($('ov-stat-platforms')) $('ov-stat-platforms').textContent = String(platforms.length);
+      if ($('ov-stat-providers')) $('ov-stat-providers').textContent = String(platforms.length);
 
       // Protocol distribution dynamic counts
       ['ov-proto-http', 'ov-proto-sse', 'ov-proto-grpc', 'ov-proto-ws'].forEach(id => { if ($(id)) $(id).textContent = '—'; });
@@ -2500,7 +2511,7 @@
         } else if (button.dataset.tab === 'subscription') {
           targetId = 'tab-llm';
           state.llmMode = 'subscription';
-        } else if (button.dataset.tab === 'provider' || button.dataset.tab === 'model') {
+        } else if (button.dataset.tab === 'platform' || button.dataset.tab === 'provider' || button.dataset.tab === 'model') {
           targetId = 'tab-llm';
           state.llmMode = 'api';
         } else if (button.dataset.tab === 'server') {
@@ -2526,7 +2537,7 @@
         const model = encodeURIComponent(state.model || localStorage.getItem('transit-model') || 'all');
         const billing = encodeURIComponent(state.billing || localStorage.getItem('transit-billing') || 'subscription');
         const endpoints = [{ key: 'config', url: '/debug/config' }];
-        if (['llm', 'subscription', 'provider', 'model'].includes(state.tab)) endpoints.push({ key: 'llmData', url: '/debug/llm' });
+        if (['llm', 'subscription', 'platform', 'provider', 'model'].includes(state.tab)) endpoints.push({ key: 'llmData', url: '/debug/llm' });
         if (state.tab === 'services' || state.tab === 'routes') endpoints.push({ key: 'servicesData', url: '/debug/services' });
         const results = await Promise.allSettled(endpoints.map(async item => {
           const response = await managementFetch(item.url, { cache: 'no-store', signal: AbortSignal.timeout(8000) });

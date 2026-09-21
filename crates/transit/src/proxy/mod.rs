@@ -10,10 +10,12 @@ use std::sync::Arc;
 use tracing::{debug, warn, Instrument};
 use crate::{MatchInput, RuntimeConfig, HTTP_LISTENER_PORT};
 
+mod admin;
 mod detect;
 mod headers;
 mod listeners;
 mod routing;
+pub mod ui;
 mod upstream;
 
 use detect::is_grpc_request;
@@ -23,7 +25,7 @@ use upstream::UpstreamClients;
 
 #[derive(Clone)]
 pub struct ProxyServer {
-    config: Arc<RuntimeConfig>,
+    config: Arc<std::sync::RwLock<Arc<RuntimeConfig>>>,
     llm_accounts: Arc<crate::llm::LlmAccounts>,
     access_settings: Arc<crate::llm::access_settings::AccessSettings>,
     clients: UpstreamClients,
@@ -35,7 +37,7 @@ pub struct ProxyServer {
 impl ProxyServer {
     pub fn new(config: Arc<RuntimeConfig>) -> Self {
         Self {
-            config,
+            config: Arc::new(std::sync::RwLock::new(config)),
             llm_accounts: Arc::new(crate::llm::LlmAccounts::default()),
             access_settings: Arc::new(crate::llm::access_settings::AccessSettings::default()),
             clients: UpstreamClients::from_env(),
@@ -44,8 +46,13 @@ impl ProxyServer {
         }
     }
 
-    pub fn config(&self) -> &Arc<RuntimeConfig> {
-        &self.config
+    pub fn current_config(&self) -> Arc<RuntimeConfig> {
+        self.config.read().unwrap().clone()
+    }
+
+    pub fn update_config(&self, new_config: Arc<RuntimeConfig>) {
+        let mut w = self.config.write().unwrap();
+        *w = new_config;
     }
 
     pub fn llm_accounts(&self) -> &crate::llm::LlmAccounts {
@@ -102,6 +109,40 @@ struct GatewayCredentialHeaders(Vec<http::HeaderName>);
 async fn proxy_request(State(server): State<ProxyServer>, req: Request<Body>) -> Response<Body> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+
+    if let Some(resp) = ui::handle_ui_request(&path) {
+        return resp;
+    }
+
+    if path == "/healthz" || path.starts_with("/admin/") || path.starts_with("/debug/") {
+        let (parts, body) = req.into_parts();
+        let body_bytes = match hyper::body::to_bytes(body).await {
+            Ok(b) => b,
+            Err(e) => {
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(e.to_string()))
+                    .unwrap();
+            }
+        };
+        if let Some(resp) =
+            admin::handle_admin_request(&server, &method, &path, &parts.headers, &body_bytes).await
+        {
+            return resp;
+        }
+        let req = Request::from_parts(parts, Body::from(body_bytes));
+        return forward_with_span(server, req, method, path).await;
+    }
+
+    forward_with_span(server, req, method, path).await
+}
+
+async fn forward_with_span(
+    server: ProxyServer,
+    req: Request<Body>,
+    method: http::Method,
+    path: String,
+) -> Response<Body> {
     let span = tracing::info_span!(
         "transit.request",
         http.method = %method,
@@ -122,7 +163,13 @@ async fn proxy_request(State(server): State<ProxyServer>, req: Request<Body>) ->
         }
         Err((status, message)) => {
             span.record("http.status_code", status.as_u16());
-            warn!(status = status.as_u16(), %message, "request failed");
+            warn!(
+                status = status.as_u16(),
+                %method,
+                %path,
+                %message,
+                "request failed"
+            );
             Response::builder()
                 .status(status)
                 .body(Body::from(message))
@@ -178,7 +225,8 @@ async fn forward_http(
         method: Some(&method),
     };
 
-    let route = match server.config.route_for(server.listener_port, &input) {
+    let current_cfg = server.current_config();
+    let route = match current_cfg.route_for(server.listener_port, &input) {
         Ok(route) => route,
         Err(err) => {
             return Err((StatusCode::NOT_FOUND, err.to_string()));

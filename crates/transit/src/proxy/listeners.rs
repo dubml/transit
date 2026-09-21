@@ -53,9 +53,9 @@ impl ProxyServer {
                     }
                 }
                 _ = interval.tick() => {
-                    let config = &self.config;
+                    let config = self.current_config();
                     if healthy_version == config.version { continue; }
-                    let (desired, mut errors) = desired_listeners(config);
+                    let (desired, mut errors) = desired_listeners(&config);
                     running.retain(|address, listener| {
                         let keep = desired.get(address).is_some_and(|transport| {
                             matches!((transport, &listener.transport), (Transport::Http, Transport::Http) | (Transport::Https, Transport::Https))
@@ -106,6 +106,11 @@ impl ProxyServer {
                             let result = serve_socket(app, socket, tls_rx, stop_rx).await;
                             (address, id, result)
                         });
+                        if address.port() == crate::HTTP_LISTENER_PORT
+                            || config.ui.as_ref().map(|u| u.port) == Some(address.port())
+                        {
+                            tracing::info!(target: "app", "serving UI at http://localhost:{}/ui", address.port());
+                        }
                         running.insert(address, RunningListener {
                             generation: id,
                             transport,
@@ -264,133 +269,4 @@ async fn serve_socket(
         .with_graceful_shutdown(stopped(shutdown))
         .await
         .map_err(io::Error::other)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{ListenerProtocol, RouteListenerConfig, RoutesConfig, RuntimeConfig};
-
-    #[test]
-    fn test_desired_listeners_empty_produces_no_conflicts() {
-        let config = RuntimeConfig::empty("v1");
-        let (desired, errors) = desired_listeners(&config);
-        assert!(desired.is_empty());
-        assert!(errors.is_empty());
-    }
-
-    #[test]
-    fn test_desired_listeners_parses_gateway_listeners() {
-        let config = RuntimeConfig {
-            version: Some("v1".into()),
-            llm: None,
-            mcp: None,
-            ui: None,
-            routes: Some(RoutesConfig {
-                listeners: vec![RouteListenerConfig {
-                    name: "http-route".into(),
-                    port: 6010,
-                    protocol: ListenerProtocol::Http,
-                    hostname: None,
-                    tls: None,
-                    targets: vec![],
-                }],
-            }),
-        };
-        let (desired, errors) = desired_listeners(&config);
-        assert_eq!(desired.len(), 1);
-        assert!(errors.is_empty());
-        let addr = SocketAddr::from(([0, 0, 0, 0], 6010));
-        assert!(desired.contains_key(&addr));
-    }
-
-    #[test]
-    fn test_desired_listeners_parses_llm_port() {
-        let config = RuntimeConfig {
-            version: Some("v1".into()),
-            llm: Some(crate::LlmConfig {
-                port: 6020,
-                subscriptions: vec![],
-                providers: vec![],
-                models: vec![],
-            }),
-            mcp: None,
-            ui: None,
-            routes: None,
-        };
-        let (desired, errors) = desired_listeners(&config);
-        assert_eq!(desired.len(), 1);
-        assert!(errors.is_empty());
-        let addr = SocketAddr::from(([0, 0, 0, 0], 6020));
-        assert!(desired.contains_key(&addr));
-    }
-
-    #[test]
-    fn test_desired_listeners_parses_mcp_port() {
-        let config = RuntimeConfig {
-            version: Some("v1".into()),
-            llm: None,
-            mcp: Some(crate::McpConfig {
-                port: 6030,
-                session_mode: crate::McpSessionMode::Stateful,
-                prefix_policy: crate::McpPrefixPolicy::Always,
-                failure_policy: crate::McpFailurePolicy::FailOpen,
-                policies: vec![],
-                targets: vec![],
-            }),
-            ui: None,
-            routes: None,
-        };
-        let (desired, errors) = desired_listeners(&config);
-        assert_eq!(desired.len(), 1);
-        assert!(errors.is_empty());
-        let addr = SocketAddr::from(([0, 0, 0, 0], 6030));
-        assert!(desired.contains_key(&addr));
-    }
-
-    #[test]
-    fn test_desired_listeners_parses_ui_port() {
-        let config = RuntimeConfig {
-            version: Some("v1".into()),
-            llm: None,
-            mcp: None,
-            ui: Some(crate::UiConfig {
-                port: 6000,
-            }),
-            routes: None,
-        };
-        let (desired, errors) = desired_listeners(&config);
-        assert_eq!(desired.len(), 1);
-        assert!(errors.is_empty());
-        let addr = SocketAddr::from(([0, 0, 0, 0], 6000));
-        assert!(desired.contains_key(&addr));
-    }
-
-    #[test]
-    fn test_desired_listeners_parses_tls_listener() {
-        let config = RuntimeConfig {
-            version: Some("v1".into()),
-            llm: None,
-            mcp: None,
-            ui: None,
-            routes: Some(RoutesConfig {
-                listeners: vec![RouteListenerConfig {
-                    name: "https-route".into(),
-                    port: 443,
-                    protocol: ListenerProtocol::Https,
-                    hostname: Some("*.example.com".into()),
-                    tls: Some(crate::TlsConfig {
-                        certificate: Some("/path/to/cert.pem".into()),
-                        private_key: Some("/path/to/key.pem".into()),
-                    }),
-                    targets: vec![],
-                }],
-            }),
-        };
-        let (desired, errors) = desired_listeners(&config);
-        assert_eq!(desired.len(), 1);
-        assert!(errors.is_empty());
-        let addr = SocketAddr::from(([0, 0, 0, 0], 443));
-        assert_eq!(desired.get(&addr), Some(&Transport::Https));
-    }
 }

@@ -3,12 +3,11 @@ mod stealth;
 use anyhow::{Context, Result};
 use clap::{Args as ClapArgs, Parser, Subcommand};
 use serde_json::json;
-use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, warn};
-use transit::{ProxyServer, RuntimeConfig};
+use transit::{ProxyServer, RuntimeConfig, StateManager};
 
 #[derive(Debug, Parser)]
 #[command(name = "transit", about = "Transit AI & API Gateway", disable_version_flag = true)]
@@ -59,36 +58,21 @@ pub async fn run() -> Result<()> {
 
     init_logging();
 
+    info!(
+        version = env!("CARGO_PKG_VERSION"),
+        target = %format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH),
+        "Transit Gateway"
+    );
+
     let config_path = cli
         .run
         .file
         .as_ref()
         .or(cli.run.config.as_ref());
 
-    let (config, content_desc) = match config_path {
-        Some(path) if path == Path::new("-") => {
-            let mut buffer = String::new();
-            std::io::stdin()
-                .read_to_string(&mut buffer)
-                .context("Failed to read configuration from standard input")?;
-            let cfg = parse_config_str(&buffer, "stdin")?;
-            (cfg, "standard input".to_string())
-        }
-        Some(path) => {
-            let cfg = load_config_file(path)?;
-            (cfg, path.display().to_string())
-        }
-        None => {
-            let default_path = PathBuf::from("config.yaml");
-            if default_path.exists() {
-                let cfg = load_config_file(&default_path)?;
-                (cfg, default_path.display().to_string())
-            } else {
-                warn!(path = ?default_path, "Configuration file not found, starting with empty configuration");
-                (RuntimeConfig::empty("default"), "empty default".to_string())
-            }
-        }
-    };
+    let start_time = std::time::Instant::now();
+    let (state_manager, content_desc) = StateManager::init(config_path.map(|p| p.as_path()))?;
+    let config = state_manager.current_config();
 
     if cli.run.validate {
         info!(source = %content_desc, "Configuration validation succeeded");
@@ -101,10 +85,14 @@ pub async fn run() -> Result<()> {
         }
     }
 
-    let config = Arc::new(config);
     notify_readiness_if_configured(&config);
 
     let server = ProxyServer::new(config.clone());
+    let _watcher = state_manager.start_watcher(server.clone());
+
+    let duration = start_time.elapsed();
+    info!(target: "readiness", "Task 'state manager' complete ({:?}), still awaiting 1 tasks", duration);
+
     info!(source = %content_desc, "Starting Transit Gateway...");
 
     let shutdown_signal = async {
@@ -122,27 +110,12 @@ pub async fn run() -> Result<()> {
 }
 
 fn print_version_json() {
+    let target = format!("{}/{}", std::env::consts::OS, std::env::consts::ARCH);
     let version_info = json!({
-        "name": env!("CARGO_PKG_NAME"),
+        "target": target,
         "version": env!("CARGO_PKG_VERSION"),
-        "license": "Apache-2.0",
-        "repository": env!("CARGO_PKG_REPOSITORY"),
     });
     println!("{}", serde_json::to_string_pretty(&version_info).unwrap());
-}
-
-fn load_config_file(path: &Path) -> Result<RuntimeConfig> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read configuration file: {}", path.display()))?;
-    parse_config_str(&content, &path.display().to_string())
-}
-
-fn parse_config_str(content: &str, source_name: &str) -> Result<RuntimeConfig> {
-    if let Ok(cfg) = serde_json::from_str::<RuntimeConfig>(content) {
-        return Ok(cfg);
-    }
-    serde_yaml::from_str::<RuntimeConfig>(content)
-        .with_context(|| format!("Failed to parse configuration from {source_name} as YAML or JSON"))
 }
 
 fn notify_readiness_if_configured(config: &Arc<RuntimeConfig>) {
@@ -174,10 +147,17 @@ fn notify_readiness_if_configured(config: &Arc<RuntimeConfig>) {
 }
 
 fn init_logging() {
+    let base_filter = match std::env::var("RUST_LOG") {
+        Ok(ref val) if !val.trim().is_empty() => {
+            format!("{val},state_manager=info,readiness=info,app=info,transit=info,transit_app=info")
+        }
+        _ => "info".to_string(),
+    };
+
+    let filter = tracing_subscriber::EnvFilter::try_new(&base_filter)
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
     let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
+        .with_env_filter(filter)
         .try_init();
 }

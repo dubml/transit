@@ -1,0 +1,8 @@
+version: v1
+routes:
+  - name: default
+    port: 6010
+    matches:
+      - pathPrefix: /
+    backends:
+      - 127.0.0.1:8080

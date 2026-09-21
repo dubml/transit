@@ -7,7 +7,7 @@ enum Codegen {
 	Schema,
 }
 
-fn get_task() -> Result<Codegen> {
+fn get_tools() -> Result<Codegen> {
 	let message = "argument is missing. Example usage: \ncargo codegen schema";
 	let arg = args().nth(1).context(message)?;
 	match arg.as_str() {
@@ -17,7 +17,7 @@ fn get_task() -> Result<Codegen> {
 }
 
 fn main() -> Result<()> {
-	match get_task()? {
+	match get_tools()? {
 		Codegen::Schema => schema::generate_schema(),
 	}
 }
