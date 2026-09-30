@@ -660,11 +660,11 @@ function llmPlatformRow(account, providers) {
 function llmCreateProvider() {
   const defaults = { chatgpt: 'openai', anthropic: 'anthropic', antigravity: 'antigravity' };
   const options = Object.entries(llmProviderInfo).map(([id, info]) => '<option value="' + id + '">' + esc(info.label) + '</option>').join('');
-  const content = '<label>' + uiText('Provider name', 'Provider 名称') + '<input name="name" required pattern="[A-Za-z0-9._-]{1,80}" maxlength="80" spellcheck="false"></label>'
-    + '<div class="llm-form-pair"><label>' + uiText('Provider', '供应商') + '<select name="family">' + options + '</select></label><label>' + uiText('Base URL · optional', 'Base URL · 可选') + '<input name="base_url" type="url" placeholder="https://…" spellcheck="false"></label></div>'
-    + '<fieldset class="llm-auth-mode"><legend>' + uiText('Provider API key', 'Provider API Key') + '</legend><label><input type="radio" name="authentication" value="unset" checked>' + uiText('Unset', '未设置') + '</label><label><input type="radio" name="authentication" value="api-key">' + uiText('API key', 'API Key') + '</label></fieldset>'
+  const content = '<label>' + uiText('Platform name', '平台名称') + '<input name="name" required pattern="[A-Za-z0-9._-]{1,80}" maxlength="80" spellcheck="false"></label>'
+    + '<div class="llm-form-pair"><label>' + uiText('Platform', '平台') + '<select name="family">' + options + '</select></label><label>' + uiText('Base URL · optional', 'Base URL · 可选') + '<input name="base_url" type="url" placeholder="https://…" spellcheck="false"></label></div>'
+    + '<fieldset class="llm-auth-mode"><legend>' + uiText('Platform API key', '平台 API Key') + '</legend><label><input type="radio" name="authentication" value="unset" checked>' + uiText('Unset', '未设置') + '</label><label><input type="radio" name="authentication" value="api-key">' + uiText('API key', 'API Key') + '</label></fieldset>'
     + '<label data-api-key hidden>' + uiText('API key', 'API Key') + '<div class="llm-secret-input"><input name="api_key" type="password" autocomplete="new-password" spellcheck="false"><button class="quiet-button" type="button" data-reveal-key aria-label="' + esc(uiText('Show API key', '显示 API Key')) + '">' + llmIcon('edit') + '</button></div></label><p class="muted">' + uiText('The key is stored separately from the runtime configuration with local-owner-only permissions.', '密钥与运行配置分开保存，并限制为本地所有者可读。') + '</p>';
-  const dialog = llmModal(uiText('Create provider', '创建 Provider'), content, uiText('Create provider', '创建 Provider'), async form => {
+  const dialog = llmModal(uiText('Create platform', '创建 Platform'), content, uiText('Create platform', '创建 Platform'), async form => {
     const family = form.querySelector('[name=family]').value;
     const name = form.querySelector('[name=name]').value.trim();
     await llmAdminFetch('platform/providers', { method: 'POST', body: JSON.stringify({
@@ -679,7 +679,7 @@ function llmCreateProvider() {
       if ((state.llmData.providers || []).some(provider => provider.name === name)) break;
     }
     state.llmMode = 'api'; state.llmFamily = family; renderLlm();
-    notify(uiText('Provider created', 'Provider 已创建'));
+    notify(uiText('Platform created', 'Platform 已创建'));
   });
   const family = dialog.querySelector('[name=family]'), name = dialog.querySelector('[name=name]');
   const applyDefaults = () => { name.value = defaults[family.value]; };
@@ -692,9 +692,9 @@ function llmCreateProvider() {
 function llmAddModel() {
   const providers = state.llmData?.providers || [];
   const choices = providers.map(provider => '<option value="' + esc(provider.name) + '">' + esc(provider.name) + ' · ' + esc(llmProviderInfo[provider.family]?.label || provider.family) + '</option>').join('');
-  const content = '<label>' + uiText('Incoming model match', '传入模型匹配') + '<input name="model" required maxlength="200" value="*" spellcheck="false"></label><p class="muted">' + uiText('Use * to accept every model, or enter one exact model ID.', '使用 * 匹配全部模型，或输入一个精确模型 ID。') + '</p><label>' + uiText('Provider', 'Provider') + '<select name="provider" required>' + choices + '</select></label>';
+  const content = '<label>' + uiText('Incoming model match', '传入模型匹配') + '<input name="model" required maxlength="200" value="*" spellcheck="false"></label><p class="muted">' + uiText('Use * to accept every model, or enter one exact model ID.', '使用 * 匹配全部模型，或输入一个精确模型 ID。') + '</p><label>' + uiText('Platform', '平台') + '<select name="provider" required>' + choices + '</select></label>';
   llmModal(uiText('Add model', '添加模型'), content, uiText('Add model', '添加模型'), async form => {
-    if (!providers.length) throw new Error(uiText('Create a provider before adding a model.', '请先创建 Provider，再添加模型。'));
+    if (!providers.length) throw new Error(uiText('Create a platform before adding a model.', '请先创建 Platform，再添加模型。'));
     const provider = form.querySelector('[name=provider]').value;
     const model = form.querySelector('[name=model]').value.trim();
     await llmAdminFetch('platform/models', { method: 'POST', body: JSON.stringify({ expected_version: state.llmData?.config_version || '', provider, model }) }, '/admin/llm/');
@@ -718,8 +718,8 @@ function renderLlmWorkspace() {
   const subscriptionActions = mode === 'subscription' ? '<div class="llm-heading-actions">'
     + (family === 'all' ? '' : '<button id="llm-login" type="button" class="quiet-button llm-icon-button" title="' + uiText('OAuth login', 'OAuth 登录') + '" aria-label="' + uiText('OAuth login', 'OAuth 登录') + '">' + llmIcon('login') + '</button>')
     + '<button id="llm-import" type="button" class="quiet-button llm-icon-button" title="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '" aria-label="' + uiText('Upload OAuth file', '上传 OAuth 文件') + '">' + llmIcon('upload') + '</button></div>' : '';
-  const platformActions = mode === 'api' ? '<div class="llm-heading-actions"><button id="llm-add-model" type="button" class="quiet-button llm-primary"' + (data.platform_writable && (data.providers || []).length ? '' : ' disabled') + '>' + uiText('Add model', '添加模型') + '</button><button id="llm-create-provider" type="button" class="quiet-button" title="' + esc(data.platform_writable ? uiText('Create Providers', '创建 Provider') : uiText('A writable local runtime configuration is required', '需要可写的本地运行配置')) + '"' + (data.platform_writable ? '' : ' disabled') + '>' + uiText('Create Providers', '创建 Provider') + '</button></div>' : '';
-  const platformHeader = mode === 'api' ? '<div class="llm-platform-table-head"><span>' + uiText('Name', '名称') + '</span><span>' + uiText('Provider', 'Provider') + '</span><span>' + uiText('Outgoing model', '输出模型') + '</span><span>' + uiText('Policy state', '策略状态') + '</span></div>' : '';
+  const platformActions = mode === 'api' ? '<div class="llm-heading-actions"><button id="llm-add-model" type="button" class="quiet-button llm-primary"' + (data.platform_writable && (data.providers || []).length ? '' : ' disabled') + '>' + uiText('Add model', '添加模型') + '</button><button id="llm-create-provider" type="button" class="quiet-button" title="' + esc(data.platform_writable ? uiText('Create Platform', '创建 Platform') : uiText('A writable local runtime configuration is required', '需要可写的本地运行配置')) + '"' + (data.platform_writable ? '' : ' disabled') + '>' + uiText('Create Platform', '创建 Platform') + '</button></div>' : '';
+  const platformHeader = mode === 'api' ? '<div class="llm-platform-table-head"><span>' + uiText('Name', '名称') + '</span><span>' + uiText('Platform', '平台') + '</span><span>' + uiText('Outgoing model', '输出模型') + '</span><span>' + uiText('Policy state', '策略状态') + '</span></div>' : '';
   host.innerHTML = '<div class="llm-workspace">'
     + llmProviderTabs(data, mode, family, subscriptionActions + platformActions)
     + (error ? '<div class="data-notice" role="alert">' + esc(error) + ' · ' + uiText('Displayed data may be stale.', '当前显示的数据可能已过期。') + '</div>' : '')
