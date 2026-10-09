@@ -1,5 +1,5 @@
 pub mod yamlviajson {
-    use serde::{de,ser};
+    use serde::{de, ser};
 
     pub fn from_str<T>(s: &str) -> anyhow::Result<T>
     where
@@ -24,7 +24,6 @@ pub mod yamlviajson {
             let de_serde = serde_yaml::Deserializer::from_str(&js);
             serde_transcode::transcode(de_serde, &mut se_yaml)?;
         }
-
 
         Ok(String::from_utf8(buf)?)
     }

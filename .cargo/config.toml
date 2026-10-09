@@ -3,6 +3,3 @@ rustflags = ["-Dwarnings"]
 
 [alias]
 codegen = "run -p codegen --"
-
-[env]
-RUST_LOG = { value = "transit=info,tower_http=info", force = false }
