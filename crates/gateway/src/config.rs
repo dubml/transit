@@ -16,6 +16,8 @@ struct RawConfig {
     termination_min_deadline: std::time::Duration,
     #[serde(default = "default_num_worker_threads")]
     num_worker_threads: usize,
+    admin_addr: Option<String>,
+    health_addr: Option<String>,
     xds: RawXdsConfig,
     storage: crate::StorageConfig,
 }
@@ -54,6 +56,18 @@ pub fn parse_config(
         termination_max_deadline: raw.termination_max_deadline,
         termination_min_deadline: raw.termination_min_deadline,
         num_worker_threads: raw.num_worker_threads,
+        admin_addr: raw
+            .admin_addr
+            .as_deref()
+            .map(crate::Address::parse)
+            .transpose()?
+            .unwrap_or_else(|| Config::default().admin_addr),
+        health_addr: raw
+            .health_addr
+            .as_deref()
+            .map(crate::Address::parse)
+            .transpose()?
+            .unwrap_or_else(|| Config::default().health_addr),
         xds: XdsConfig { local_config },
         storage: raw.storage,
     })
