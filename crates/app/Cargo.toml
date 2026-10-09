@@ -15,4 +15,6 @@ clap = { version = "4.6.7", features = ["derive"] }
 tokio.workspace = true
 anyhow.workspace = true
 gateway = { path = "../gateway" }
+transit-core = { path = "../core" }
 tracing = "0.1"
+fs-err = "3"
