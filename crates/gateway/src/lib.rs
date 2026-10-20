@@ -4,6 +4,7 @@ use std::time::Duration;
 use transit_core::prelude::*;
 
 pub mod app;
+pub mod cel;
 pub mod config;
 pub mod management;
 pub mod serdes;
@@ -78,6 +79,77 @@ pub struct Config {
     pub health_addr: Address,
     pub xds: XdsConfig,
     pub storage: StorageConfig,
+    pub routes: Vec<RouteConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm: Option<LlmConfig>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RouteConfig {
+    #[serde(default = "default_route_name")]
+    pub name: String,
+    pub port: u16,
+}
+
+fn default_route_name() -> String {
+    "default".to_string()
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct LlmConfig {
+    #[serde(default = "default_llm_port")]
+    pub port: LlmPort,
+    #[serde(default)]
+    pub ai: Vec<AiProviderConfig>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(untagged)]
+pub enum LlmPort {
+    Named(String),
+    Port(u16),
+}
+
+fn default_llm_port() -> LlmPort {
+    LlmPort::Named("default".to_string())
+}
+
+impl LlmConfig {
+    pub fn resolve_port(&self, routes: &[RouteConfig]) -> u16 {
+        match &self.port {
+            LlmPort::Port(p) => *p,
+            LlmPort::Named(name) => routes
+                .iter()
+                .find(|r| &r.name == name)
+                .map(|r| r.port)
+                .unwrap_or(6000),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderConfig {
+    pub provider: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub models: Vec<AiModelMapping>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct AiModelMapping {
+    pub name: String,
+    pub provider_ref: String,
 }
 
 #[derive(serde::Serialize, Clone, Debug, Default)]
@@ -115,6 +187,11 @@ impl Default for Config {
             health_addr: Address::SocketAddr(SocketAddr::from(([0, 0, 0, 0], 26021))),
             xds: XdsConfig::default(),
             storage: StorageConfig::default(),
+            routes: vec![RouteConfig {
+                name: "default".to_string(),
+                port: 6000,
+            }],
+            llm: None,
         }
     }
 }

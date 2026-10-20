@@ -1,4 +1,4 @@
 #[rustfmt::skip]
 fn main() -> anyhow::Result<()> {
-    app::run()
+    transit_app::run()
 }
