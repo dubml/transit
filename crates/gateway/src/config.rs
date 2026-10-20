@@ -20,6 +20,10 @@ struct RawConfig {
     health_addr: Option<String>,
     xds: RawXdsConfig,
     storage: crate::StorageConfig,
+    #[serde(default)]
+    routes: Vec<crate::RouteConfig>,
+    #[serde(default)]
+    llm: Option<crate::LlmConfig>,
 }
 
 fn default_termination_max_deadline() -> std::time::Duration {
@@ -70,5 +74,11 @@ pub fn parse_config(
             .unwrap_or_else(|| Config::default().health_addr),
         xds: XdsConfig { local_config },
         storage: raw.storage,
+        routes: if raw.routes.is_empty() {
+            Config::default().routes
+        } else {
+            raw.routes
+        },
+        llm: raw.llm,
     })
 }

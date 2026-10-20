@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExecutorSerde",
+  "description": "CEL Execution Context Schema representation",
+  "type": "object",
+  "properties": {
+    "apiKey": {
+      "description": "Claims from verified API Key",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "env": {
+      "description": "Environment variables exposed to CEL",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "jwt": {
+      "description": "Claims from verified JWT",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": true
+    },
+    "llm": {
+      "description": "LLM attributes",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LlmContextSerde"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "llmRequest": {
+      "description": "Raw LLM request body before processing"
+    },
+    "request": {
+      "description": "Incoming HTTP request attributes",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RequestRefSerde"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "response": {
+      "description": "HTTP response attributes",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResponseRefSerde"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "LlmContextSerde": {
+      "type": "object",
+      "properties": {
+        "inputTokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "outputTokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "requestModel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "responseModel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalTokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "RequestRefSerde": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "host": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "pathAndQuery": {
+          "type": "string"
+        },
+        "scheme": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "uri",
+        "host",
+        "scheme",
+        "path",
+        "pathAndQuery",
+        "version",
+        "headers"
+      ]
+    },
+    "ResponseRefSerde": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "code": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "code",
+        "headers"
+      ]
+    }
+  }
+}
