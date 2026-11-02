@@ -8,6 +8,6 @@ license.workspace = true
 [dependencies]
 transit = { package = "transit-gateway", path = "../gateway", features = ["schema"] }
 anyhow = "1"
-fs-err = "2.11"
+fs-err = "3.3"
 serde_json.workspace = true
 schemars = "1"
